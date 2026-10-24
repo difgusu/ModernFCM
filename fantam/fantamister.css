@@ -1,0 +1,734 @@
+/* FantaMister generated reports only. */
+
+table.cannonieri,
+table.topflop,
+table.mom,
+table.fs,
+table.bs,
+table.ico,
+table.ris,
+table.fm,
+table.sq,
+table.fantahisto {
+  width: 100%;
+  max-width: 100%;
+  table-layout: auto;
+  box-sizing: border-box;
+  margin: 0 0 16px;
+  border: 1px solid var(--border-subtle, #d9e2ec);
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-surface, #ffffff);
+  color: var(--text-primary, #172033);
+  font-family: inherit;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+div#cannonieri,
+div#topflop,
+div#mom,
+div#fs,
+div#bs,
+div#ico,
+div#ris,
+div#fm,
+div#sq {
+  width: 100%;
+  margin: 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+table.cannonieri td,
+table.topflop td,
+table.mom td,
+table.fs td,
+table.bs td,
+table.ico td,
+table.ris td,
+table.fm td,
+table.sq td,
+table.fantahisto td,
+table.cannonieri th,
+table.topflop th,
+table.mom th,
+table.fs th,
+table.bs th,
+table.ico th,
+table.ris th,
+table.fm th,
+table.sq th,
+table.fantahisto th {
+  height: auto;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle, #d9e2ec);
+  color: var(--text-primary, #172033);
+  background: var(--bg-surface, #ffffff);
+  text-align: left;
+  vertical-align: middle;
+  box-sizing: border-box;
+  overflow-wrap: break-word;
+}
+
+table.cannonieri tr:last-child td,
+table.topflop tr:last-child td,
+table.mom tr:last-child td,
+table.fs tr:last-child td,
+table.bs tr:last-child td,
+table.ico tr:last-child td,
+table.ris tr:last-child td,
+table.fm tr:last-child td,
+table.sq tr:last-child td,
+table.fantahisto tr:last-child td {
+  border-bottom: 0;
+}
+
+.canTITOLO,
+.tpTITOLO,
+.momTITOLO,
+.fsTITOLO,
+.bsTITOLO,
+.icoTITOLO,
+.risTITOLO,
+.fmTITOLO,
+.sqSQUADRA,
+.sqTITMODULI,
+.sqCANNONIERI,
+.sqPRESENZE,
+.moduliTITOLO {
+  color: var(--text-on-accent, #ffffff) !important;
+  background: var(--accent-primary, #1769aa) !important;
+  border-bottom: 2px solid var(--accent-secondary, #0e9f9a) !important;
+  font-size: 0.86rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.03em;
+  text-align: center !important;
+  text-transform: uppercase;
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
+.sqSQUADRA {
+  font-size: 1.08rem !important;
+  text-align: left !important;
+  text-transform: none;
+}
+
+.canGOLp,
+.canNOMEp,
+.tpRUOLOp,
+.tpNOMEp,
+.momNUMp,
+.momNOMEp,
+.fsNUMp,
+.fsNOMEp,
+.bsSPAZIO,
+.bsSOTTIT,
+.bsNOMEp,
+.bsNUMp,
+.icoNUMp,
+.icoNOMEp,
+.scartoSQUADRA,
+.scartoDATI,
+.riepilogoSQUADRA,
+.riepilogoDATI,
+.riepilogoSPAZIO,
+.giornateSQUADRA,
+.giornateSCARTO,
+.giornateVOTI,
+.giornateSCAVOTI,
+.giornatePARZ,
+.giornateMAX,
+.sqGOLp,
+.sqNOMEp,
+.sqNUMp,
+.sqGIOp,
+.moduliDATI {
+  background: var(--bg-surface-elevated, #eef6fb) !important;
+}
+
+.canGOLd,
+.canNOMEd,
+.tpRUOLOd,
+.tpNOMEd,
+.momNUMd,
+.momNOMEd,
+.fsNUMd,
+.fsNOMEd,
+.bsNOMEd,
+.bsNUMd,
+.icoNUMd,
+.icoNOMEd,
+.sqGOLd,
+.sqNOMEd,
+.sqNUMd,
+.sqGIOd {
+  background: var(--bg-surface, #ffffff) !important;
+}
+
+.canGOLp,
+.canGOLd,
+.tpRUOLOp,
+.tpRUOLOd,
+.momNUMp,
+.momNUMd,
+.fsNUMp,
+.fsNUMd,
+.icoNUMp,
+.icoNUMd,
+.sqGOLp,
+.sqGOLd,
+.sqNUMp,
+.sqNUMd,
+.bsNUMp,
+.bsNUMd,
+.risRISULTATO {
+  font-weight: 800 !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+
+.scartoDATI,
+.riepilogoDATI,
+.giornateSQUADRA,
+.giornateSCARTO,
+.giornateVOTI,
+.giornateSCAVOTI,
+.giornatePARZ,
+.giornateMAX,
+.bsSOTTIT {
+  font-weight: 700 !important;
+  text-align: center !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  line-height: 1.25 !important;
+}
+
+/* Tabellini di giornata (table.ris): Risultato sempre al centro compatto, marcatori a capo */
+table.ris {
+  table-layout: auto !important;
+  width: 100% !important;
+  max-width: 640px !important;
+  margin: 0 auto 16px !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+table.ris tr.ris {
+  width: 100%;
+}
+
+table.ris td.risSQUADRA:first-child,
+table.ris td.risMARCATORI:first-child {
+  width: 50% !important;
+  text-align: right !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  padding-right: 10px !important;
+}
+
+table.ris td.risSQUADRA:last-child,
+table.ris td.risMARCATORI:last-child {
+  width: 50% !important;
+  text-align: left !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  padding-left: 10px !important;
+}
+
+table.ris td.risSQUADRA div,
+table.ris td.risMARCATORI div,
+table.ris td.risMARCATORI {
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  line-height: 1.25 !important;
+}
+
+table.ris td.risRISULTATO {
+  width: 30px !important;
+  min-width: 28px !important;
+  max-width: 34px !important;
+  color: var(--accent-primary, #1769aa) !important;
+  background: var(--bg-surface-elevated, #eef6fb) !important;
+  font-size: 0.95rem !important;
+  font-weight: 800 !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  padding: 4px 6px !important;
+  box-sizing: border-box !important;
+  border-radius: 4px !important;
+}
+
+table.ris td.risRISULTATO div {
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+
+table.ris td.risSPAZIO {
+  width: 14px !important;
+  min-width: 12px !important;
+  max-width: 18px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  padding: 4px 1px !important;
+  background: transparent !important;
+  box-sizing: border-box !important;
+  font-weight: 700 !important;
+}
+
+table.ris td.risSPAZIO div {
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+
+table.ris td.risMOM {
+  width: 100% !important;
+  color: var(--accent-secondary, #087f7a) !important;
+  background: var(--bg-surface-elevated, #eef6fb) !important;
+  font-weight: 700 !important;
+  font-size: 0.80rem !important;
+  text-align: center !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+  padding: 5px 8px !important;
+}
+
+table.ris td.risMOM div {
+  text-align: center !important;
+}
+
+table.ris tr:not(.ris) td {
+  padding: 4px 0 !important;
+  height: 8px !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+
+.risSQUADRA {
+  font-size: 0.92rem !important;
+  font-weight: 800 !important;
+}
+
+.risSPAZIO,
+.risMARCATORI,
+.bsSPAZIO,
+.riepilogoSPAZIO {
+  background: transparent !important;
+}
+
+/* Centratura tabella Dettaglio Moduli Migliori e tabelle moduli */
+tr:has(> .moduliDATI),
+tr:has(> .sqmoduliDATI) {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+tr:has(> .moduliDATI) > td.moduliDATI:first-child,
+tr:has(> .sqmoduliDATI) > td.sqmoduliDATI:first-child {
+  flex: 1 1 0 !important;
+  display: flex !important;
+  justify-content: flex-end !important;
+  text-align: right !important;
+  padding-right: 8px !important;
+}
+
+tr:has(> .moduliDATI) > td.moduliIMG,
+tr:has(> .sqmoduliDATI) > td.sqmoduliIMG {
+  flex: 0 0 20px !important;
+  width: 20px !important;
+  min-width: 20px !important;
+  max-width: 20px !important;
+  padding: 0 !important;
+  background: url('img1.png') center center / 14px 14px no-repeat !important;
+}
+
+tr:has(> .moduliDATI) > td.moduliDATI:last-child,
+tr:has(> .sqmoduliDATI) > td.sqmoduliDATI:last-child {
+  flex: 1 1 0 !important;
+  display: flex !important;
+  justify-content: flex-start !important;
+  text-align: left !important;
+  padding-left: 8px !important;
+}
+
+tr:has(> .moduliTITOLO) {
+  display: block !important;
+  width: 100% !important;
+}
+
+tr:has(> .moduliTITOLO) > td.moduliTITOLO {
+  display: block !important;
+  width: 100% !important;
+  text-align: center !important;
+}
+
+.sqmoduliIMG,
+.moduliIMG {
+  width: 16px;
+  min-width: 16px;
+  padding: 0 !important;
+  background: url('img1.png') center center / 14px 14px no-repeat !important;
+}
+
+.sqmoduliDATI,
+.moduliDATI {
+  text-align: center !important;
+  font-weight: 700 !important;
+}
+
+.cpr,
+.cpr2 {
+  color: var(--text-muted, #64748b);
+  font-size: 0.72rem;
+}
+
+.cpr2 {
+  color: var(--accent-primary, #1769aa);
+  font-weight: 800;
+}
+
+.fantahisto {
+  font-size: 0.82rem !important;
+}
+
+.fantahisto td,
+.fantahisto th {
+  text-align: center !important;
+}
+
+table.cannonieri tr,
+table.topflop tr,
+table.mom tr,
+table.fs tr,
+table.bs tr,
+table.ico tr,
+table.ris tr,
+table.fm tr,
+table.sq tr,
+table.fantahisto tr,
+table.competizioni tr {
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  table.cannonieri tr:hover td,
+  table.topflop tr:hover td,
+  table.mom tr:hover td,
+  table.fs tr:hover td,
+  table.bs tr:hover td,
+  table.ico tr:hover td,
+  table.ris tr:hover td,
+  table.fm tr:hover td,
+  table.sq tr:hover td,
+  table.fantahisto tr:hover td,
+  table.competizioni tr:hover td {
+    background: var(--bg-surface-hover, #eef2f6) !important;
+  }
+
+  table.cannonieri tr:hover .canTITOLO,
+  table.topflop tr:hover .tpTITOLO,
+  table.mom tr:hover .momTITOLO,
+  table.fs tr:hover .fsTITOLO,
+  table.bs tr:hover .bsTITOLO,
+  table.ico tr:hover .icoTITOLO,
+  table.ris tr:hover .risTITOLO,
+  table.fm tr:hover .fmTITOLO,
+  table.sq tr:hover .sqSQUADRA,
+  table.sq tr:hover .sqTITMODULI,
+  table.sq tr:hover .sqCANNONIERI,
+  table.sq tr:hover .sqPRESENZE {
+    background: var(--accent-primary, #1769aa) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  table.cannonieri,
+  table.topflop,
+  table.mom,
+  table.fs,
+  table.bs,
+  table.ico,
+  table.ris,
+  table.fm,
+  table.sq,
+  table.fantahisto {
+    width: 100% !important;
+    max-width: 100% !important;
+    font-size: 0.70rem !important;
+    line-height: 1.2 !important;
+    margin-bottom: 12px;
+  }
+
+  table.cannonieri td,
+  table.topflop td,
+  table.mom td,
+  table.fs td,
+  table.bs td,
+  table.ico td,
+  table.ris td,
+  table.fm td,
+  table.sq td,
+  table.fantahisto td,
+  table.cannonieri th,
+  table.topflop th,
+  table.mom th,
+  table.fs th,
+  table.bs th,
+  table.ico th,
+  table.ris th,
+  table.fm th,
+  table.sq th,
+  table.fantahisto th {
+    padding: 5px 3px !important;
+    font-size: 0.70rem !important;
+    line-height: 1.2 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+  }
+
+  /* Titoli di sezione tabella */
+  .canTITOLO,
+  .tpTITOLO,
+  .momTITOLO,
+  .fsTITOLO,
+  .bsTITOLO,
+  .icoTITOLO,
+  .risTITOLO,
+  .fmTITOLO,
+  .sqTITMODULI,
+  .sqCANNONIERI,
+  .sqPRESENZE,
+  .moduliTITOLO {
+    font-size: 0.74rem !important;
+    padding: 6px 3px !important;
+    letter-spacing: 0.01em;
+  }
+
+  /* Subheader di colonna con testo a capo compatto */
+  .scartoDATI,
+  .riepilogoDATI,
+  .giornateSQUADRA,
+  .giornateSCARTO,
+  .giornateVOTI,
+  .giornateSCAVOTI,
+  .giornatePARZ,
+  .giornateMAX,
+  .bsSOTTIT {
+    font-size: 0.65rem !important;
+    padding: 5px 2px !important;
+    text-align: center !important;
+    line-height: 1.15 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+  }
+
+  .sqSQUADRA {
+    font-size: 0.84rem !important;
+    padding: 6px 8px !important;
+  }
+
+  /* Celle numeriche compatte */
+  .canGOLp, .canGOLd,
+  .tpRUOLOp, .tpRUOLOd,
+  .momNUMp, .momNUMd,
+  .fsNUMp, .fsNUMd,
+  .icoNUMp, .icoNUMd,
+  .sqGOLp, .sqGOLd,
+  .sqNUMp, .sqNUMd,
+  .bsNUMp, .bsNUMd {
+    white-space: nowrap !important;
+    padding-left: 2px !important;
+    padding-right: 2px !important;
+    text-align: center !important;
+    font-size: 0.70rem !important;
+  }
+
+  /* Tabella Calendario & Marcatori (table.ris) */
+  table.ris {
+    width: 100% !important;
+    max-width: 100% !important;
+    font-size: 0.70rem !important;
+  }
+
+  table.ris td.risSQUADRA:first-child,
+  table.ris td.risMARCATORI:first-child {
+    width: 50% !important;
+    padding: 3px 6px !important;
+    font-size: 0.74rem !important;
+  }
+
+  table.ris td.risSQUADRA:last-child,
+  table.ris td.risMARCATORI:last-child {
+    width: 50% !important;
+    padding: 3px 6px !important;
+    font-size: 0.74rem !important;
+  }
+
+  .risSQUADRA {
+    font-size: 0.75rem !important;
+    line-height: 1.15 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+  }
+
+  .risMARCATORI,
+  table.ris td.risMARCATORI {
+    font-size: 0.66rem !important;
+    line-height: 1.15 !important;
+    padding: 2px 6px 4px !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+  }
+
+  table.ris td.risRISULTATO,
+  .risRISULTATO {
+    width: 26px !important;
+    min-width: 24px !important;
+    max-width: 30px !important;
+    padding: 2px 4px !important;
+    font-size: 0.84rem !important;
+    white-space: nowrap !important;
+  }
+
+  table.ris td.risSPAZIO,
+  .risSPAZIO {
+    width: 12px !important;
+    min-width: 10px !important;
+    max-width: 14px !important;
+    padding: 2px 1px !important;
+    font-size: 0.84rem !important;
+    white-space: nowrap !important;
+  }
+
+  .risMOM,
+  table.ris td.risMOM {
+    font-size: 0.68rem !important;
+    line-height: 1.2 !important;
+    padding: 4px 3px !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+  }
+
+  .fantam-table-wrap {
+    margin: 0;
+    padding: 0;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  table.principale,
+  table.competizioni {
+    width: 100%;
+    max-width: 960px;
+    margin: 0 auto 18px;
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid var(--border-subtle, #d9e2ec);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-surface, #ffffff);
+    color: var(--text-primary, #172033);
+    font-family: inherit;
+  }
+
+  table.principale {
+    border: 0;
+    background: transparent;
+  }
+
+  .testata,
+  .competizione {
+    color: var(--text-primary, #172033);
+    background: var(--bg-surface-elevated, #eef6fb);
+    text-align: center;
+  }
+
+  .titolo,
+  .competizione {
+    margin: 0;
+    padding: 12px 16px;
+    font-size: 1.2rem;
+    font-weight: 800;
+  }
+
+  .aggiorn {
+    margin: 0;
+    padding: 0 16px 12px;
+    color: var(--text-muted, #64748b);
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .comptit,
+  .comptitneg,
+  .compnum,
+  .compsquadra,
+  .compsquadraneg,
+  .compvuota {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-subtle, #d9e2ec);
+    color: var(--text-primary, #172033);
+    background: var(--bg-surface, #ffffff);
+    vertical-align: middle;
+  }
+
+  .comptit,
+  .comptitneg {
+    font-size: 0.78rem;
+    font-weight: 800;
+  }
+
+  .comptit {
+    background: var(--bg-surface-elevated, #eef6fb);
+  }
+
+  .comptitneg {
+    color: var(--accent-rose, #be3f58);
+    background: color-mix(in srgb, var(--accent-rose, #be3f58) 8%, transparent);
+  }
+
+  .compnum {
+    color: var(--accent-primary, #1769aa);
+    font-weight: 800;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .compsquadra,
+  .compsquadraneg {
+    font-weight: 700;
+  }
+
+  .compsquadraneg {
+    color: var(--text-secondary, #334155);
+  }
+
+  .compvuota {
+    width: 12px;
+    padding: 0;
+    background: transparent;
+    border-bottom-color: transparent;
+  }
+
+  .titletext {
+    margin: 0 0 10px;
+    color: var(--text-primary, #172033);
+    font-size: 1rem;
+    font-weight: 800;
+  }
+}

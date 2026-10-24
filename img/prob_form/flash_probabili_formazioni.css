@@ -1,0 +1,30 @@
+p {
+	font-family: Arial;
+	font-size: 10px;
+	color: #313131;
+}
+.informazioni {
+}
+.match {
+	font-family: Arial;
+	font-size: 18px;
+	color: #2D6B24;
+}
+.panchina {
+	font-size: 11px;
+}
+.indisponibili {
+	font-size: 11px;	
+}
+.squalificati {
+	font-size: 11px;	
+}
+.diffidati {
+	font-size: 11px;	
+}
+.altri {
+	font-size: 11px;	
+}
+.ballottaggi {
+	font-size: 11px;
+}

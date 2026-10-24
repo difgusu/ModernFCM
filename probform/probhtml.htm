@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="it" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>Probabili formazioni</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+  <!-- Styles -->
+  <link href="probhtml.css?v=20260908_7" rel="stylesheet">
+
+  <script type="text/javascript">
+    (function() {
+      function syncTheme() {
+        var theme = 'light';
+        try {
+          if (window.parent && window.parent.document && window.parent.document.documentElement) {
+            theme = window.parent.document.documentElement.getAttribute('data-theme') || 'light';
+          } else {
+            theme = localStorage.getItem('pn_theme') || 'system';
+          }
+        } catch(e) {
+          theme = localStorage.getItem('pn_theme') || 'system';
+        }
+        if (theme === 'system' || (theme !== 'light' && theme !== 'dark')) {
+          theme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+        }
+        document.documentElement.setAttribute('data-theme', theme);
+      }
+      syncTheme();
+      try {
+        if (window.parent && window.parent.document) {
+          var obs = new MutationObserver(syncTheme);
+          obs.observe(window.parent.document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+        }
+      } catch(e) {}
+      window.addEventListener('storage', syncTheme);
+    })();
+  </script>
+
+  <script src="https://code.jquery.com/jquery-3.7.1.js" type="text/javascript"></script>
+  <script src="jquery.xml2json.js" type="text/javascript"></script>
+  <script src="jquery.xdomainrequest.min.js" type="text/javascript"></script>
+  <script src="probFunzioni.js?v=20260908_7" type="text/javascript"></script>
+</head>
+
+<body>
+  <div class="formazioni">
+    <div class="sqbutton">
+	  <ul>
+	    <li><a href="Javascript:getprobform('atalanta')"><img src="probimg/atalanta_scudetto.png" title="Atalanta" border="0"></a></li>
+		<!--<li><a href="Javascript:getprobform('benevento')"><img src="probimg/benevento_scudetto.png" title="Benevento" border="0"></a></li>-->
+		<li><a href="Javascript:getprobform('bologna')"><img src="probimg/bologna_scudetto.png" title="Bologna" border="0"></a></li>
+		<!--<li><a href="Javascript:getprobform('brescia')"><img src="probimg/brescia_scudetto.png" title="Brescia" border="0"></a></li>-->
+		<!--<li><a href="Javascript:getprobform('carpi')"><img src="probimg/carpi_scudetto.png" title="Carpi" border="0"></a></li>-->
+		<li><a href="Javascript:getprobform('cagliari')"><img src="probimg/cagliari_scudetto.png" title="Cagliari" border="0"></a></li>
+		<!--<li><a href="Javascript:getprobform('cesena')"><img src="probimg/cesena_scudetto.png" title="Cesena" border="0"></a></li>-->
+		<!--<li><a href="Javascript:getprobform('chievo')"><img src="probimg/chievo_scudetto.png" title="Chievo" border="0"></a></li>-->
+		<li><a href="Javascript:getprobform('como')"><img src="probimg/como_scudetto.png" title="Como" border="0"></a></li>
+		<!--<li><a href="Javascript:getprobform('cremonese')"><img src="probimg/cremonese_scudetto.png" title="Cremonese" border="0"></a></li>-->
+		<!--<li><a href="Javascript:getprobform('crotone')"><img src="probimg/crotone_scudetto.png" title="Crotone" border="0"></a></li>-->
+		<!--<li><a href="Javascript:getprobform('empoli')"><img src="probimg/empoli_scudetto.png" title="Empoli" border="0"></a></li>-->
+		<li><a href="Javascript:getprobform('fiorentina')"><img src="probimg/fiorentina_scudetto.png" title="Fiorentina" border="0"></a></li>
+		<li><a href="Javascript:getprobform('frosinone')"><img src="probimg/frosinone_scudetto.png" title="Frosinone" border="0"></a></li>
+		<li><a href="Javascript:getprobform('genoa')"><img src="probimg/genoa_scudetto.png" title="Genoa" border="0"></a></li>
+		<li><a href="Javascript:getprobform('inter')"><img src="probimg/inter_scudetto.png" title="Inter" border="0"></a></li>
+		<li><a href="Javascript:getprobform('juventus')"><img src="probimg/juventus_scudetto.png" title="Juventus" border="0"></a></li>
+		<li><a href="Javascript:getprobform('lazio')"><img src="probimg/lazio_scudetto.png" title="Lazio" border="0"></a></li>
+		<li><a href="Javascript:getprobform('lecce')"><img src="probimg/lecce_scudetto.png" title="Lecce" border="0"></a></li>
+		<li><a href="Javascript:getprobform('milan')"><img src="probimg/milan_scudetto.png" title="Milan" border="0"></a></li>
+		<li><a href="Javascript:getprobform('monza')"><img src="probimg/monza_scudetto.png" title="Monza" border="0"></a></li>
+		<li><a href="Javascript:getprobform('napoli')"><img src="probimg/napoli_scudetto.png" title="Napoli" border="0"></a></li>
+		<!--<li><a href="Javascript:getprobform('palermo')"><img src="probimg/palermo_scudetto.png" title="Palermo" border="0"></a></li>-->
+		<li><a href="Javascript:getprobform('parma')"><img src="probimg/parma_scudetto.png" title="Parma" border="0"></a></li>
+		<!--<li><a href="Javascript:getprobform('pescara')"><img src="probimg/pescara_scudetto.png" title="Pescara" border="0"></a></li>-->
+		<!--<li><a href="Javascript:getprobform('pisa')"><img src="probimg/pisa_scudetto.png" title="Pisa" border="0"></a></li>-->
+		<li><a href="Javascript:getprobform('roma')"><img src="probimg/roma_scudetto.png" title="Roma" border="0"></a></li>
+		<!--<li><a href="Javascript:getprobform('salernitana')"><img src="probimg/salernitana_scudetto.png" title="Salernitana" border="0"></a></li>-->
+		<!--<li><a href="Javascript:getprobform('sampdoria')"><img src="probimg/sampdoria_scudetto.png" title="Sampdoria" border="0"></a></li>-->
+		<li><a href="Javascript:getprobform('sassuolo')"><img src="probimg/sassuolo_scudetto.png" title="Sassuolo" border="0"></a></li>
+		<!--<li><a href="Javascript:getprobform('spal')"><img src="probimg/spal_scudetto.png" title="Spal" border="0"></a></li>-->
+		<!--<li><a href="Javascript:getprobform('spezia')"><img src="probimg/spezia_scudetto.png" title="Spezia" border="0"></a></li>-->
+		<li><a href="Javascript:getprobform('torino')"><img src="probimg/torino_scudetto.png" title="Torino" border="0"></a></li>
+		<li><a href="Javascript:getprobform('udinese')"><img src="probimg/udinese_scudetto.png" title="Udinese" border="0"></a></li>
+		<li><a href="Javascript:getprobform('venezia')"><img src="probimg/venezia_scudetto.png" title="Venezia" border="0"></a></li>
+		<!--<li><a href="Javascript:getprobform('verona')"><img src="probimg/verona_scudetto.png" title="Verona" border="0"></a></li>-->
+	  </ul>
+	</div> 
+    <div class="info-form">
+      <div class="col">
+        <div class="prossima-giornata"></div>
+        <div class="prossima-partita"></div>
+        <div class="campo"></div>
+      </div>
+      <div class="col">
+	    <div class="text-titolo">Panchina:</div><div class="panchina text-nocampo"></div>
+	    <div class="text-titolo">Indisponibili:</div><div class="indisponibili text-nocampo"></div>
+	    <div class="text-titolo">Squalificati:</div><div class="squalificati text-nocampo"></div>
+		<div class="text-titolo">In dubbio:</div><div class="dubbio text-nocampo"></div>
+      </div>
+    </div>
+    <div style="clear:both"></div> 
+  </div>
+  <div class="lolle text-nocampo" style="display:none;"></div>
+
+  <!-- Tooltip posizionato a livello di body con pointer-events: none e position: fixed -->
+  <div id="tooltip"></div>
+
+<script>
+const tooltip = document.getElementById("tooltip");
+const statCache = {};
+let tooltipHideTimeout = null;
+let lastMouseEvent = null;
+
+/* --- CALCOLO E TRASMISSIONE ALTEZZA AL GENITORE (ZERO LOOP & ZERO SCROLLBAR) --- */
+let heightDebounce = null;
+let lastSentHeight = 0;
+
+function sendProbHeight() {
+    if (heightDebounce) clearTimeout(heightDebounce);
+    heightDebounce = setTimeout(function() {
+        var formEl = document.querySelector(".formazioni");
+        if (!formEl) return;
+
+        // Misura l'altezza reale del solo box formazioni (non influenzata dall'altezza della finestra)
+        var rect = formEl.getBoundingClientRect();
+        var h = Math.ceil(rect.height) + 20;
+
+        // Invio al genitore SOLO se l'altezza cambia di almeno 4px (previene feedback loop infiniti)
+        if (h > 200 && Math.abs(h - lastSentHeight) >= 4) {
+            lastSentHeight = h;
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({ type: "probform-height", height: h }, "*");
+            }
+        }
+    }, 50);
+}
+window.sendProbHeight = sendProbHeight;
+
+window.addEventListener("load", function() {
+    sendProbHeight();
+});
+
+window.addEventListener("message", function(e) {
+    if (e.data && e.data.type === "request-height") {
+        sendProbHeight();
+    }
+});
+
+// Osserva SOLO il container delle formazioni, MAI document.body (per prevenire loop di espansione)
+if (window.ResizeObserver) {
+    var ro = new ResizeObserver(function() {
+        sendProbHeight();
+    });
+    var formCard = document.querySelector(".formazioni");
+    if (formCard) ro.observe(formCard);
+}
+
+/* --- POSIZIONAMENTO INTELLIGENTE DEL TOOLTIP CON BLOCCO A FILO BORDO --- */
+function positionTooltip(e) {
+    if (!tooltip || !e) return;
+    lastMouseEvent = e;
+
+    var box = document.querySelector(".formazioni");
+    var boxRect = box ? box.getBoundingClientRect() : null;
+
+    // Margine di sicurezza interno al box delle probabili (in pixel)
+    var padding = 8;
+    var maxRight = boxRect ? (boxRect.right - padding) : (window.innerWidth - padding);
+    var minLeft = boxRect ? (boxRect.left + padding) : padding;
+
+    var tipWidth = tooltip.offsetWidth || 300;
+    var tipHeight = tooltip.offsetHeight || 250;
+
+    // Con position: fixed le coordinate sono relative al viewport (clientX, clientY)
+    var clientX = (e.clientX !== undefined) ? e.clientX : (e.pageX - (window.pageXOffset || 0));
+    var clientY = (e.clientY !== undefined) ? e.clientY : (e.pageY - (window.pageYOffset || 0));
+
+    // Posizionamento orizzontale: di base a destra del mouse
+    var left = clientX + 12;
+
+    // Se sfora oltre il bordo destro del box, blocca il tip a filo del bordo
+    // e permette al mouse di scorrere lungo la parte alta del tooltip
+    if (left + tipWidth > maxRight) {
+        left = maxRight - tipWidth;
+    }
+    if (left < minLeft) {
+        left = minLeft;
+    }
+
+    // Posizionamento verticale: di base 12px sotto il mouse
+    var top = clientY + 12;
+
+    // Se verso il basso sfora l'area visibile della finestra, posizionalo sopra il cursore
+    var viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    if (clientY + tipHeight + 20 > viewportHeight && clientY - tipHeight - 12 > 0) {
+        top = clientY - tipHeight - 12;
+    }
+
+    tooltip.style.left = Math.round(left) + "px";
+    tooltip.style.top = Math.round(top) + "px";
+}
+
+$(document).on("mouseenter", ".titolari, .pitch-player", async function (e) {
+    if (tooltipHideTimeout) {
+        clearTimeout(tooltipHideTimeout);
+        tooltipHideTimeout = null;
+    }
+
+    const name = this.dataset.name || "";
+    const surname = this.dataset.surname || "";
+    const fullName = `${name} ${surname}`.trim();
+    let photo = this.dataset.photo || "";
+    const link = this.dataset.link || "";
+    const role = this.dataset.role || "";
+    const isGoalkeeper = this.dataset.goalkeeper === "true" || role.trim().toLowerCase() === "goalkeeper";
+    const cacheKey = `${link}|${isGoalkeeper ? "goalkeeper" : "player"}`;
+
+    tooltip.innerHTML = "<div style='text-align:center;padding:10px 16px;font-weight:600;'>Caricamento statistiche...</div>";
+    tooltip.style.display = "block";
+    positionTooltip(e);
+    setTimeout(() => tooltip.classList.add("show"), 10);
+
+    if (statCache[cacheKey]) {
+        tooltip.innerHTML = statCache[cacheKey];
+        positionTooltip(lastMouseEvent || e);
+        return;
+    }
+
+    try {
+        if (!link) throw new Error("Link giocatore non trovato");
+        const res = await fetch(link);
+        if (!res.ok) throw new Error("Risposta HTTP " + res.status);
+        const html = await res.text();
+        const playerDocument = new DOMParser().parseFromString(html, "text/html");
+        const widget = playerDocument.querySelector("ld-football-pp-player-statistics");
+        if (!widget) throw new Error("Widget statistiche non trovato");
+        photo = playerDocument.querySelector(".ftbl__player-page-hero__photo")?.getAttribute("src") || photo;
+        const statistiche = [...widget.querySelectorAll(".ftbl__statistic-card__wrapper")].map(card => {
+            const titolo = card.querySelector(".ftbl__statistic-card__title")?.textContent.trim();
+            const valore = card.querySelector(".ftbl__statistic-card__value")?.textContent.trim();
+            return titolo && valore ? { titolo, valore } : null;
+        }).filter(Boolean);
+        if (!statistiche.length) throw new Error("Statistiche non trovate");
+
+        const etichette = {
+            GamesPlayed: ["Partite"],
+            TimePlayed: ["Minuti giocati", "Minuti"],
+            SavesMade: ["Parate"],
+            Cleansheets: ["Clean Sheets"],
+            GoalsConceded: ["Gol subiti"],
+            PenaltiesSaved: ["Rigori Parati"],
+            Goals: ["Gol"],
+            PenaltyGoals: ["Gol su rigore", "Gol su rigori"],
+            Assists: ["Assist"],
+            TotalShots: ["Tiri totali"],
+            YellowCards: ["Ammonizioni"],
+            TotalRedCards: ["Espulsioni"]
+        };
+        const getStat = id => {
+            const stat = statistiche.find(item => etichette[id].includes(item.titolo));
+            return stat ? stat.valore : "N.D.";
+        };
+
+        let content = `
+    <div style="font-weight:bold; font-size:15px; margin-bottom:6px; text-align:center;">
+        ${fullName}
+    </div>
+    <hr style="margin: 4px 0; border:0; border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.1));">
+    ${photo ? `<img src="${photo}">` : ''}
+    <div class="tooltip-content">
+        <table>`;
+        if (isGoalkeeper) {
+            content += `
+                <tr><td class="label">🎽 Partite</td><td>${getStat("GamesPlayed")}</td></tr>
+                <tr><td class="label">🕒 Minuti</td><td>${getStat("TimePlayed")}</td></tr>
+                <tr><td class="label">🛡️ Rigori Parati</td><td>${getStat("PenaltiesSaved")}</td></tr>
+                <tr><td class="label">🧼 Clean Sheets</td><td>${getStat("Cleansheets")}</td></tr>
+                <tr><td class="label">🚫 Gol Subiti</td><td>${getStat("GoalsConceded")}</td></tr>
+                <tr><td class="label">🟨 Ammonizioni</td><td>${getStat("YellowCards")}</td></tr>
+                <tr><td class="label">🟥 Espulsioni</td><td>${getStat("TotalRedCards")}</td></tr>`;
+        } else {
+            content += `
+                <tr><td class="label">🎽 Partite</td><td>${getStat("GamesPlayed")}</td></tr>
+                <tr><td class="label">🕒 Minuti</td><td>${getStat("TimePlayed")}</td></tr>
+                <tr><td class="label">⚽ Gol</td><td>${getStat("Goals")}</td></tr>
+                <tr><td class="label">🥅 Gol su rigore</td><td>${getStat("PenaltyGoals")}</td></tr>
+                <tr><td class="label">🎯 Assist</td><td>${getStat("Assists")}</td></tr>
+                <tr><td class="label">🔥 Tiri totali</td><td>${getStat("TotalShots")}</td></tr>
+                <tr><td class="label">🟨 Ammonizioni</td><td>${getStat("YellowCards")}</td></tr>
+                <tr><td class="label">🟥 Espulsioni</td><td>${getStat("TotalRedCards")}</td></tr>`;
+        }
+        content += "</table></div>";
+        tooltip.innerHTML = content;
+        statCache[cacheKey] = content;
+        positionTooltip(lastMouseEvent || e);
+    } catch (err) {
+        tooltip.innerHTML = "<div style='padding:10px 14px;color:var(--text-muted);text-align:center;'>Statistiche dettagliate non disponibili</div>";
+        positionTooltip(lastMouseEvent || e);
+    }
+});
+
+$(document).on("mousemove", ".titolari, .pitch-player", function (e) {
+    positionTooltip(e);
+});
+
+$(document).on("mouseleave", ".titolari, .pitch-player", function () {
+    tooltipHideTimeout = setTimeout(() => {
+        tooltip.classList.remove("show");
+        setTimeout(() => {
+            tooltip.style.display = "none";
+        }, 180);
+    }, 150);
+});
+
+$(document).ready(function () {
+    getprobform('atalanta');
+});
+</script>
+</body>
+</html>

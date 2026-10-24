@@ -1,0 +1,883 @@
+/* ====================================================================
+   Mercato Libero - ModernFCM Style System
+   Integrato con le CSS Custom Properties di ModernFCM
+   ==================================================================== */
+
+:root {
+  --m-primary: #3b82f6;
+  --m-primary-hover: #2563eb;
+  --m-success: #10b981;
+  --m-warning: #f59e0b;
+  --m-danger: #ef4444;
+  --m-card-bg: var(--card-bg, #ffffff);
+  --m-body-bg: var(--bg-primary, #f8fafc);
+  --m-text: var(--text-primary, #0f172a);
+  --m-text-muted: var(--text-secondary, #64748b);
+  --m-border: var(--border-color, #e2e8f0);
+  --m-radius: 14px;
+  --m-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="dark"],
+body.dark-mode {
+  --m-card-bg: var(--card-bg, #1e293b);
+  --m-body-bg: var(--bg-primary, #0f172a);
+  --m-text: var(--text-primary, #f8fafc);
+  --m-text-muted: var(--text-secondary, #94a3b8);
+  --m-border: var(--border-color, #334155);
+}
+
+html,
+body {
+  overflow-x: hidden;
+  overflow-y: visible !important;
+  height: auto !important;
+  margin: 0;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+html.in-iframe,
+body.in-iframe {
+  overflow: hidden !important;
+  overflow-y: hidden !important;
+  background: transparent !important;
+  padding: 8px 4px !important;
+}
+
+html.in-iframe {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html.in-iframe::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--m-body-bg);
+  color: var(--m-text);
+}
+
+.mercato-wrapper {
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+/* Header Sessione */
+.session-hero {
+  background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+  color: #ffffff;
+  padding: 24px;
+  border-radius: var(--m-radius);
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.25);
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.session-info h1 {
+  margin: 0 0 6px 0;
+  font-size: 1.4rem;
+  letter-spacing: -0.02em;
+}
+
+.session-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.countdown-box {
+  background: rgba(0, 0, 0, 0.25);
+  padding: 12px 18px;
+  border-radius: 12px;
+  text-align: center;
+  min-width: 160px;
+}
+
+.countdown-val {
+  font-size: 1.35rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05em;
+}
+
+.countdown-lbl {
+  font-size: 0.75rem;
+  opacity: 0.85;
+  text-transform: uppercase;
+}
+
+/* Statistiche Finanziarie */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  background: var(--m-card-bg);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  padding: 14px 16px;
+  box-shadow: var(--m-shadow);
+}
+
+.stat-card small {
+  color: var(--m-text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.stat-card .val {
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin-top: 4px;
+  color: var(--m-text);
+}
+
+/* Modal Open State per prevenire taglio iframe */
+body.modal-open,
+body.modal-open .mercato-wrapper {
+  min-height: 1050px !important;
+}
+
+/* Tabs Ruoli */
+.roles-nav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.role-btn {
+  background: var(--m-card-bg);
+  border: 1px solid var(--m-border);
+  color: var(--m-text);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Testo Ruolo: Full per desktop, Short per mobile */
+.role-text-short {
+  display: none;
+}
+
+.role-text-full {
+  display: inline;
+}
+
+/* Colori Ruoli (FCM / ModernFCM System) */
+/* Tutti (Neutro) */
+.role-btn-all {
+  border-color: var(--m-border);
+  color: var(--m-text);
+}
+
+.role-btn-all:hover {
+  background: var(--m-border);
+}
+
+.role-btn-all.active {
+  background: #334155 !important;
+  color: #ffffff !important;
+  border-color: #334155 !important;
+  box-shadow: 0 2px 8px rgba(51, 65, 85, 0.35);
+}
+
+[data-theme="dark"] .role-btn-all.active,
+body.dark-mode .role-btn-all.active {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Portieri (Giallo) */
+.role-btn-P {
+  border-color: rgba(234, 179, 8, 0.5);
+  color: #ca8a04;
+}
+
+.role-btn-P:hover {
+  background: rgba(234, 179, 8, 0.12);
+}
+
+.role-btn-P.active {
+  background: #eab308 !important;
+  color: #ffffff !important;
+  border-color: #ca8a04 !important;
+  box-shadow: 0 3px 10px rgba(234, 179, 8, 0.4);
+}
+
+/* Difensori (Verde) */
+.role-btn-D {
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #059669;
+}
+
+.role-btn-D:hover {
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.role-btn-D.active {
+  background: #10b981 !important;
+  color: #ffffff !important;
+  border-color: #059669 !important;
+  box-shadow: 0 3px 10px rgba(16, 185, 129, 0.4);
+}
+
+/* Centrocampisti (Blu) */
+.role-btn-C {
+  border-color: rgba(14, 165, 233, 0.5);
+  color: #0284c7;
+}
+
+.role-btn-C:hover {
+  background: rgba(14, 165, 233, 0.12);
+}
+
+.role-btn-C.active {
+  background: #0ea5e9 !important;
+  color: #ffffff !important;
+  border-color: #0284c7 !important;
+  box-shadow: 0 3px 10px rgba(14, 165, 233, 0.4);
+}
+
+/* Attaccanti (Rosso) */
+.role-btn-A {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #dc2626;
+}
+
+.role-btn-A:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.role-btn-A.active {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  border-color: #dc2626 !important;
+  box-shadow: 0 3px 10px rgba(239, 68, 68, 0.4);
+}
+
+/* Supporto Dark Mode per colori testo non attivi */
+[data-theme="dark"] .role-btn-P,
+body.dark-mode .role-btn-P {
+  color: #facc15;
+}
+
+[data-theme="dark"] .role-btn-D,
+body.dark-mode .role-btn-D {
+  color: #34d399;
+}
+
+[data-theme="dark"] .role-btn-C,
+body.dark-mode .role-btn-C {
+  color: #38bdf8;
+}
+
+[data-theme="dark"] .role-btn-A,
+body.dark-mode .role-btn-A {
+  color: #f87171;
+}
+
+/* Barra di Ricerca */
+.search-bar-wrap {
+  margin-bottom: 16px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-card-bg);
+  color: var(--m-text);
+  font-size: 0.95rem;
+  box-sizing: border-box;
+}
+
+/* Griglia Calciatori */
+.players-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.player-card {
+  background: var(--m-card-bg);
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: var(--m-shadow);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  min-width: 0;
+}
+
+.player-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--m-primary);
+}
+
+.player-shirt-img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.15));
+}
+
+.player-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.player-meta h3 {
+  margin: 0 0 4px 0;
+  font-size: 0.80rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-meta small {
+  color: var(--m-text-muted);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Badge Ruoli */
+.badge-role {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-weight: 800;
+  font-size: 0.72rem;
+  color: #ffffff;
+  margin-right: 6px;
+}
+
+.badge-P {
+  background: #eab308;
+}
+
+.badge-D {
+  background: #10b981;
+}
+
+.badge-C {
+  background: #0ea5e9;
+}
+
+.badge-A {
+  background: #ef4444;
+}
+
+/* Buste Attive */
+.buste-box {
+  background: var(--m-card-bg);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  padding: 20px;
+  margin-bottom: 30px;
+}
+
+.table-custom {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+
+.table-custom th {
+  text-align: left;
+  font-size: 0.8rem;
+  color: var(--m-text-muted);
+  text-transform: uppercase;
+  padding: 10px;
+  border-bottom: 1px solid var(--m-border);
+}
+
+.table-custom td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--m-border);
+  font-size: 0.9rem;
+}
+
+/* Bottoni */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: none;
+  transition: 0.2s;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: var(--m-primary);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--m-primary-hover);
+}
+
+.btn-danger {
+  background: var(--m-danger);
+  color: #fff;
+}
+
+.btn-secondary {
+  background: var(--m-border);
+  color: var(--m-text);
+}
+
+/* Dialog Nativo con light-dismiss */
+dialog {
+  border: none;
+  border-radius: var(--m-radius);
+  background: var(--m-card-bg);
+  color: var(--m-text);
+  padding: 24px;
+  width: 90%;
+  max-width: 440px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+}
+
+dialog::backdrop {
+  background-color: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.dialog-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.dialog-form label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+
+.dialog-form input,
+.dialog-form select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--m-border);
+  border-radius: 8px;
+  background: var(--m-body-bg);
+  color: var(--m-text);
+  box-sizing: border-box;
+  font-size: 0.95rem;
+  margin-bottom: 14px;
+}
+
+.quick-steppers {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.quick-steppers button {
+  flex: 1;
+  padding: 6px;
+  background: var(--m-border);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: var(--m-text);
+}
+
+/* ====================================================================
+   Controlli Impostazioni Percentuali & Slider a Tick
+   ==================================================================== */
+.settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 12px 16px;
+  background: var(--m-body-bg);
+  border: 1px solid var(--m-border);
+  border-radius: 10px;
+}
+
+.setting-meta {
+  flex: 1;
+  min-width: 220px;
+}
+
+.setting-meta strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 2px;
+}
+
+.setting-meta small {
+  color: var(--m-text-muted);
+  font-size: 0.8rem;
+}
+
+.setting-control {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 260px;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.range-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.range-wrap input[type="range"] {
+  width: 100%;
+  accent-color: var(--m-primary);
+  cursor: pointer;
+  margin: 0;
+  height: 6px;
+}
+
+.range-wrap datalist {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 2px;
+  font-size: 0.68rem;
+  color: var(--m-text-muted);
+  margin-top: 3px;
+}
+
+.num-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 80px;
+}
+
+.num-wrap input[type="number"] {
+  width: 58px;
+  padding: 6px 8px;
+  border: 1px solid var(--m-border);
+  border-radius: 6px;
+  background: var(--m-card-bg);
+  color: var(--m-text);
+  font-weight: 700;
+  text-align: right;
+  font-size: 0.95rem;
+}
+
+.num-wrap span {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--m-text-muted);
+}
+
+.setting-checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--m-body-bg);
+  border: 1px solid var(--m-border);
+  border-radius: 10px;
+  margin-top: 10px;
+}
+
+.setting-checkbox-row input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  accent-color: var(--m-primary);
+  cursor: pointer;
+}
+
+.setting-checkbox-row .checkbox-text {
+  flex: 1;
+}
+
+.setting-checkbox-row .checkbox-text strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 3px;
+}
+
+.setting-checkbox-row .checkbox-text small {
+  color: var(--m-text-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  display: block;
+}
+
+/* ==========================================================================
+   PAGINAZIONE GIOCATORI DISPONIBILI (DOPPIA: SUPERIORE E INFERIORE)
+   ========================================================================== */
+.pagination-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: var(--m-card-bg);
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius);
+  padding: 10px 16px;
+  margin-top: 14px;
+  margin-bottom: 16px;
+  box-shadow: var(--m-shadow);
+}
+
+.pagination-top {
+  margin-top: 4px;
+  margin-bottom: 14px;
+}
+
+.pagination-bottom {
+  margin-top: 20px;
+  margin-bottom: 24px;
+}
+
+.pagination-info {
+  font-size: 0.85rem;
+  color: var(--m-text-muted);
+  font-weight: 600;
+}
+
+.pagination-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn-page {
+  padding: 7px 12px !important;
+  font-size: 0.85rem !important;
+  font-weight: 700;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  user-select: none;
+}
+
+.btn-page:disabled {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+.pagination-current {
+  padding: 6px 12px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  background: var(--m-body-bg);
+  border: 1px solid var(--m-border);
+  border-radius: 8px;
+  color: var(--m-text);
+  min-width: 85px;
+  text-align: center;
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN MOBILE (max-width: 640px)
+   ========================================================================== */
+@media (max-width: 640px) {
+
+  /* 1. Selezione Ruoli Abbreviati su Mobile */
+  .role-text-short {
+    display: inline !important;
+  }
+
+  .role-text-full {
+    display: none !important;
+  }
+
+  .roles-nav {
+    display: flex;
+    width: 100%;
+    gap: 4px;
+    margin-bottom: 12px;
+    padding-bottom: 2px;
+  }
+
+  .role-btn {
+    flex: 1;
+    text-align: center;
+    padding: 8px 4px !important;
+    font-size: 0.85rem !important;
+    min-width: 0;
+  }
+
+  /* 2. Comandi di Paginazione: solo simboli su mobile */
+  .page-btn-text {
+    display: none !important;
+  }
+
+  .btn-page {
+    padding: 7px 10px !important;
+    min-width: 36px;
+    justify-content: center;
+  }
+
+  .pagination-bar {
+    padding: 8px 12px;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .pagination-info {
+    width: 100%;
+    text-align: center;
+    font-size: 0.78rem;
+  }
+
+  .pagination-buttons {
+    width: 100%;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .pagination-current {
+    min-width: 65px;
+    padding: 6px 8px;
+    font-size: 0.78rem;
+  }
+
+  /* 3. Buste Segrete: layout a schede/card per mobile */
+  .buste-box {
+    padding: 14px 12px;
+  }
+
+  .buste-table thead {
+    display: none;
+  }
+
+  .buste-table,
+  .buste-table tbody,
+  .buste-table tr,
+  .buste-table td {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .buste-table tr {
+    background: var(--m-card-bg);
+    border: 1px solid var(--m-border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  }
+
+  .buste-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 7px 0;
+    border-bottom: 1px dashed var(--m-border);
+    font-size: 0.9rem;
+    text-align: right;
+  }
+
+  .buste-table td:last-child {
+    border-bottom: none;
+    padding-top: 10px;
+    padding-bottom: 2px;
+    justify-content: flex-end;
+  }
+
+  .buste-table td::before {
+    content: attr(data-label);
+    font-weight: 700;
+    font-size: 0.78rem;
+    color: var(--m-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    text-align: left;
+    margin-right: 12px;
+  }
+
+  /* 4. Hero Sessione e Statistiche su mobile */
+  .session-hero {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .countdown-box {
+    width: 100%;
+    padding: 10px 14px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .stat-card {
+    padding: 10px 12px;
+  }
+
+  .stat-card .val {
+    font-size: 1.25rem;
+  }
+}

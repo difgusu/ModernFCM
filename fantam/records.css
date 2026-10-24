@@ -1,0 +1,128 @@
+/* Created by TopStyle Pro Trial Version - www.bradsoft.com */
+/*PARAMETRI PER IL FILE FANTA.PHP */
+body {
+ font-family: Verdana, Lucida, helvetica, arial, sans-serif;
+ font-size: 12px;
+ font-weight: normal;
+ margin: 20px;
+ padding: 0px; 
+ /*background-color: #CCFFFF;*/
+}
+
+/*TABLE*/
+table.principale{
+	border: 1px solid #2323B3;
+	padding-bottom: 12px;
+   	width: 100%;
+	background-color: #CCFFFF;
+}
+table.competizioni{
+	/*border: 1px solid;*/
+  	font-family: Verdana, Lucida, helvetica, arial, sans-serif;
+  	font-size: 12px;
+   	font-weight: normal;
+	width: 100%;
+	/*border: 1px solid;*/
+	background-color: #CCFFFF;
+}
+/*RIGHE*/
+
+/*COLONNE*/
+td.testata{
+padding-left: 10px; 
+padding-top: 12px; 
+padding-right: 15px;
+}
+td.comptit{
+ color: #2323B3;
+ background-color: #33FFFF;
+ border: 1px solid #2323B3;
+ width: 50%;
+ padding: 2;
+ font-weight: bold;
+ text-align: left;
+}
+td.comptitneg{
+ color:  #33FFFF;
+ background-color: #2323B3;
+ border: 1px solid #2323b3;
+ width: 50%;
+ padding: 2;
+ font-weight: bold;
+ text-align: right;
+}
+td.compnum{
+ color: #2323B3;
+ background-color: #ffffff;
+ border: 1px solid #2323B3;
+ width: 5%;
+ padding: 2;
+ font-weight: bold;
+ text-align: center;
+}
+td.compvuota{
+ width: 2%;
+}
+td.compsquadra{
+ color: #2323B3;
+ background-color: #CCFFFF;
+ border: 1px solid #2323B3;
+ width: 44%;
+ padding: 2;
+ font-weight: bold;
+ text-align: left;
+}
+td.compsquadraneg{
+ color: #2323B3;
+ background-color: #CCFFFF;
+ border: 1px solid #2323B3;
+ width: 44%;
+ padding: 2;
+ font-weight: bold;
+ text-align: right;
+}
+/*TESTO*/
+h1.titolo{
+ font-family: Verdana, Lucida, helvetica, arial, sans-serif;
+ font-size: 20px;
+ font-weight: normal;
+ line-height: 20px;
+ border-bottom: 1px solid #2323B3;
+ color: #2323B3;
+ background-color: transparent;
+}
+h1.competizione{
+ font-family: Verdana, Lucida, helvetica, arial, sans-serif;
+ font-size: 13px;
+ font-weight: bold;
+ line-height: 20px;
+ border: 1px solid #2323B3;
+ color: #2323B3;
+ background-color: white;
+ padding: 2px;
+} 
+h2.aggiorn{
+ font-family: Verdana, Lucida, helvetica, arial, sans-serif;
+ font-size: 12px;
+ font-weight: normal;
+ line-height: 20px;
+ color: #2323B3;
+ padding: 2px;
+} 
+/*COPYRIGHT*/
+.cpr {
+ font-family: Verdana, Lucida, helvetica, arial, sans-serif;
+ font-size: 10px;
+ font-weight: normal;
+ line-height: 14px;
+ color: #999999;
+ background-color: transparent;
+}
+.cpr2 {
+ font-family: Verdana, Lucida, helvetica, arial, sans-serif;
+ font-size: 10px;
+ font-weight: bold;
+ line-height: 14px;
+ color: #999999;
+ background-color: transparent;
+}

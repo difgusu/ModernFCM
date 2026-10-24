@@ -1,0 +1,8 @@
+/* ==========================================================================
+   MODERNFCM - COMPONENTS.CSS (UNIFIED ARCHITECTURE)
+   Tutti gli stili dei componenti sono stati consolidati e unificati
+   nel foglio di stile principale master: css/style.css
+   Questo file è mantenuto per garantire piena retrocompatibilità.
+   ========================================================================== */
+
+@import url("style.css");

@@ -1,0 +1,32 @@
+* numero riserve ufficio ammesse
+1
+* Folder JS del sito
+DJS C:\Folder\js
+3 4 3
+3 5 2
+4 3 3 
+4 4 2
+4 5 1
+5 3 2
+5 4 1
+*
+* VA= Voto assoluto
+* DF = difensore 
+* CE = centr
+* AT = atta
+* MG = meno gol
+* PG = +gol
+* SQ = Vedi sotto
+*
+* ATTENZIONE - E' possibile inserire in qualunque punto della lista
+* delle priorit�Eil codice SQ, viene ignorato come priorit�Ema,
+* se inserito, FantaMister considerer�Eseparatamente i gol segnati
+* dallo stesso calciatore con squadre diverse per la classifica fantamarcatori
+*
+VA
+DF
+CE
+AT
+MG
+SQ
+100

@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="goldOuter" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF4B8"/>
+      <stop offset="25%" stop-color="#F5C438"/>
+      <stop offset="50%" stop-color="#FFEFA6"/>
+      <stop offset="75%" stop-color="#C78E12"/>
+      <stop offset="100%" stop-color="#7A5200"/>
+    </linearGradient>
+    <linearGradient id="goldInner" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFBE8"/>
+      <stop offset="40%" stop-color="#E5B82A"/>
+      <stop offset="100%" stop-color="#946206"/>
+    </linearGradient>
+
+    <linearGradient id="greenGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#007E38"/>
+      <stop offset="50%" stop-color="#009346"/>
+      <stop offset="100%" stop-color="#009B4B"/>
+    </linearGradient>
+    <linearGradient id="whiteGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#EDEDED"/>
+      <stop offset="50%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#EEEEEE"/>
+    </linearGradient>
+    <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#C0202C"/>
+      <stop offset="50%" stop-color="#D02633"/>
+      <stop offset="100%" stop-color="#B81B26"/>
+    </linearGradient>
+
+    <linearGradient id="sheen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.45"/>
+      <stop offset="35%" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="60%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <clipPath id="shieldInnerClip">
+      <path d="M 46 28 L 210 28 L 210 122 C 210 173, 168 209, 128 229 C 88 209, 46 173, 46 122 Z"/>
+    </clipPath>
+
+    <filter id="dropShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#dropShadow)">
+    <path d="M 36 18 L 220 18 L 220 122 C 220 180, 172 218, 128 240 C 84 218, 36 180, 36 122 Z"
+          fill="url(#goldOuter)"/>
+
+    <path d="M 42 24 L 214 24 L 214 122 C 214 176, 170 213, 128 234 C 86 213, 42 176, 42 122 Z"
+          fill="#4A3500" opacity="0.4"/>
+
+    <path d="M 44 26 L 212 26 L 212 122 C 212 174, 169 210, 128 231 C 87 210, 44 174, 44 122 Z"
+          fill="url(#goldInner)"/>
+
+    <g clip-path="url(#shieldInnerClip)">
+      <rect x="46" y="28" width="54.66" height="205" fill="url(#greenGrad)"/>
+      <rect x="100.66" y="28" width="54.66" height="205" fill="url(#whiteGrad)"/>
+      <rect x="155.32" y="28" width="54.68" height="205" fill="url(#redGrad)"/>
+
+      <line x1="100.66" y1="28" x2="100.66" y2="230" stroke="#000000" stroke-opacity="0.1" stroke-width="1"/>
+      <line x1="155.32" y1="28" x2="155.32" y2="230" stroke="#000000" stroke-opacity="0.1" stroke-width="1"/>
+
+      <rect x="46" y="28" width="164" height="4" fill="#FFFFFF" opacity="0.35"/>
+      <path d="M 46 28 L 210 28 L 46 192 Z" fill="url(#sheen)"/>
+      <path d="M 46 28 L 210 28 L 210 122 C 210 173, 168 209, 128 229 C 88 209, 46 173, 46 122 Z"
+            fill="none" stroke="#000000" stroke-width="2.5" opacity="0.25"/>
+    </g>
+
+    <path d="M 46 28 L 210 28 L 210 122 C 210 173, 168 209, 128 229 C 88 209, 46 173, 46 122 Z"
+          fill="none" stroke="url(#goldOuter)" stroke-width="1.8"/>
+  </g>
+</svg>

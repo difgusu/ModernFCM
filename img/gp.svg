@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <!-- Gold Pole Gradient -->
+    <linearGradient id="goldPole" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#9E6D08"/>
+      <stop offset="28%" stop-color="#F5C438"/>
+      <stop offset="55%" stop-color="#FFF9D8"/>
+      <stop offset="80%" stop-color="#E5B224"/>
+      <stop offset="100%" stop-color="#6E4A02"/>
+    </linearGradient>
+
+    <radialGradient id="goldBall" cx="35%" cy="30%" r="65%">
+      <stop offset="0%" stop-color="#FFFBE8"/>
+      <stop offset="35%" stop-color="#F5C438"/>
+      <stop offset="80%" stop-color="#C78E10"/>
+      <stop offset="100%" stop-color="#5E4000"/>
+    </radialGradient>
+
+    <linearGradient id="waveShade" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.3"/>
+      <stop offset="18%" stop-color="#FFFFFF" stop-opacity="0.32"/>
+      <stop offset="42%" stop-color="#000000" stop-opacity="0.28"/>
+      <stop offset="68%" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="90%" stop-color="#000000" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.18"/>
+    </linearGradient>
+
+    <filter id="dropShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.38"/>
+    </filter>
+
+    <clipPath id="flagWaveClip">
+      <path d="M 46 40
+               C 90 28, 130 58, 175 44
+               C 195 38, 212 50, 226 58
+               L 226 182
+               C 212 174, 195 162, 175 168
+               C 130 182, 90 152, 46 164
+               Z"/>
+    </clipPath>
+  </defs>
+
+  <g filter="url(#dropShadow)">
+    <!-- Outer Flag White Border/Hem for perfect dark mode separation -->
+    <path d="M 46 40
+             C 90 28, 130 58, 175 44
+             C 195 38, 212 50, 226 58
+             L 226 182
+             C 212 174, 195 162, 175 168
+             C 130 182, 90 152, 46 164
+             Z"
+          fill="none" stroke="#FFFFFF" stroke-width="4.5" stroke-opacity="0.9"/>
+    <path d="M 46 40
+             C 90 28, 130 58, 175 44
+             C 195 38, 212 50, 226 58
+             L 226 182
+             C 212 174, 195 162, 175 168
+             C 130 182, 90 152, 46 164
+             Z"
+          fill="none" stroke="#222222" stroke-width="1.5" stroke-opacity="0.5"/>
+
+    <!-- WAVING CHECKERED FLAG (4 columns x 3 rows) -->
+    <g clip-path="url(#flagWaveClip)">
+      <!-- Pure white base flag cloth -->
+      <rect x="42" y="25" width="190" height="165" fill="#FFFFFF"/>
+
+      <!-- Row 0: Black squares at Col 0 and Col 2 -->
+      <path d="M 46 40 C 68 34, 78 33, 91 35 L 91 76 C 78 74, 68 75, 46 81 Z" fill="#1C1E22"/>
+      <path d="M 136 53 C 150 50, 165 46, 181 44 L 181 85 C 165 87, 150 91, 136 94 Z" fill="#1C1E22"/>
+
+      <!-- Row 1: Black squares at Col 1 and Col 3 -->
+      <path d="M 91 76 C 105 78, 120 86, 136 94 L 136 136 C 120 128, 105 120, 91 118 Z" fill="#1C1E22"/>
+      <path d="M 181 85 C 196 89, 212 96, 226 100 L 226 142 C 212 138, 196 130, 181 126 Z" fill="#1C1E22"/>
+
+      <!-- Row 2: Black squares at Col 0 and Col 2 -->
+      <path d="M 46 122 C 68 116, 78 116, 91 118 L 91 160 C 78 158, 68 158, 46 164 Z" fill="#1C1E22"/>
+      <path d="M 136 136 C 150 132, 165 128, 181 126 L 181 168 C 165 170, 150 174, 136 177 Z" fill="#1C1E22"/>
+
+      <!-- Cloth Wave Shading Overlay -->
+      <rect x="42" y="25" width="190" height="165" fill="url(#waveShade)" mix-blend-mode="multiply" opacity="0.75"/>
+
+      <!-- Fabric Sheen Folds -->
+      <path d="M 91 35 C 91 80, 91 120, 91 160" stroke="#FFFFFF" stroke-width="7" opacity="0.3" stroke-linecap="round"/>
+      <path d="M 178 44 C 178 85, 178 125, 178 168" stroke="#FFFFFF" stroke-width="8" opacity="0.35" stroke-linecap="round"/>
+      <path d="M 136 53 C 136 95, 136 135, 136 177" stroke="#000000" stroke-width="8" opacity="0.25" stroke-linecap="round"/>
+
+      <!-- Grid line definition for extreme sharpness at small sizes -->
+      <path d="M 91 35 L 91 160" stroke="#000000" stroke-width="0.8" stroke-opacity="0.25"/>
+      <path d="M 136 53 L 136 177" stroke="#000000" stroke-width="0.8" stroke-opacity="0.25"/>
+      <path d="M 181 44 L 181 168" stroke="#000000" stroke-width="0.8" stroke-opacity="0.25"/>
+    </g>
+
+    <!-- GOLDEN FLAGPOLE -->
+    <rect x="36" y="28" width="11" height="216" rx="3.5" fill="url(#goldPole)"/>
+    <line x1="39.5" y1="29" x2="39.5" y2="242" stroke="#FFFDF0" stroke-width="2" opacity="0.9"/>
+    <line x1="45" y1="29" x2="45" y2="242" stroke="#4A3200" stroke-width="1.2" opacity="0.5"/>
+
+    <!-- Gold Finial Sphere -->
+    <circle cx="41.5" cy="22" r="15" fill="url(#goldBall)"/>
+    <ellipse cx="37" cy="18" rx="4.5" ry="3" transform="rotate(-30 37 18)" fill="#FFFFFF" opacity="0.85"/>
+
+    <!-- Bottom Ferrule Cap -->
+    <path d="M 35 240 L 48 240 L 45 248 L 38 248 Z" fill="url(#goldBall)"/>
+
+    <!-- Connecting Gold Rings -->
+    <circle cx="46" cy="45" r="4" fill="url(#goldBall)"/>
+    <circle cx="46" cy="160" r="4" fill="url(#goldBall)"/>
+  </g>
+</svg>

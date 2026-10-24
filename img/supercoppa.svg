@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="silverCup" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7B8B9B"/>
+      <stop offset="16%" stop-color="#E2ECF5"/>
+      <stop offset="38%" stop-color="#FFFFFF"/>
+      <stop offset="65%" stop-color="#EBF1F7"/>
+      <stop offset="86%" stop-color="#9DB0C0"/>
+      <stop offset="100%" stop-color="#5C6C7C"/>
+    </linearGradient>
+
+    <linearGradient id="silverHandleLeft" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#8E9EAE"/>
+      <stop offset="35%" stop-color="#FFFFFF"/>
+      <stop offset="75%" stop-color="#BDC9D4"/>
+      <stop offset="100%" stop-color="#51606E"/>
+    </linearGradient>
+
+    <linearGradient id="silverHandleRight" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#51606E"/>
+      <stop offset="25%" stop-color="#BDC9D4"/>
+      <stop offset="65%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#8E9EAE"/>
+    </linearGradient>
+
+    <linearGradient id="cupInside" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3D4956"/>
+      <stop offset="60%" stop-color="#697786"/>
+      <stop offset="100%" stop-color="#9AA9B7"/>
+    </linearGradient>
+
+    <linearGradient id="goldAccent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#9E7312"/>
+      <stop offset="25%" stop-color="#F5C438"/>
+      <stop offset="50%" stop-color="#FFF7C2"/>
+      <stop offset="75%" stop-color="#F5C438"/>
+      <stop offset="100%" stop-color="#704D02"/>
+    </linearGradient>
+
+    <linearGradient id="pedestalBase" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#14241E"/>
+      <stop offset="25%" stop-color="#2D483D"/>
+      <stop offset="50%" stop-color="#3D5E50"/>
+      <stop offset="75%" stop-color="#2D483D"/>
+      <stop offset="100%" stop-color="#101E19"/>
+    </linearGradient>
+
+    <filter id="dropShadow" x="-15%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#dropShadow)">
+    <!-- Left Handle -->
+    <path d="M 76 46 C 20 46, 16 118, 76 126 C 83 127, 83 113, 76 111 C 34 103, 36 59, 76 58 Z"
+          fill="url(#silverHandleLeft)" stroke="#3E4C5A" stroke-width="1.8"/>
+    <path d="M 74 50 C 28 50, 26 114, 74 121" fill="none" stroke="#FFFFFF" stroke-width="2.8" opacity="0.85" stroke-linecap="round"/>
+
+    <!-- Right Handle -->
+    <path d="M 180 46 C 236 46, 240 118, 180 126 C 173 127, 173 113, 180 111 C 222 103, 220 59, 180 58 Z"
+          fill="url(#silverHandleRight)" stroke="#3E4C5A" stroke-width="1.8"/>
+    <path d="M 182 50 C 228 50, 230 114, 182 121" fill="none" stroke="#FFFFFF" stroke-width="2.8" opacity="0.85" stroke-linecap="round"/>
+
+    <!-- Inside Opening -->
+    <ellipse cx="128" cy="38" rx="60" ry="12" fill="url(#cupInside)" stroke="#3E4C5A" stroke-width="1.2"/>
+
+    <!-- Main Chalice Bowl -->
+    <path d="M 68 38 C 68 98, 96 138, 117 144 L 139 144 C 160 138, 188 98, 188 38 Z"
+          fill="url(#silverCup)" stroke="#3E4C5A" stroke-width="1.2"/>
+
+    <!-- Top Rim Bevel -->
+    <ellipse cx="128" cy="38" rx="60" ry="8" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+
+    <!-- Highlights -->
+    <path d="M 112 42 C 112 85, 118 120, 124 142" fill="none" stroke="#FFFFFF" stroke-width="5" opacity="0.9" stroke-linecap="round"/>
+    <path d="M 102 44 C 102 75, 106 105, 110 126" fill="none" stroke="#FFFFFF" stroke-width="2" opacity="0.5" stroke-linecap="round"/>
+
+    <!-- Upper Stem -->
+    <path d="M 117 144 L 139 144 L 137 156 L 119 156 Z" fill="url(#silverCup)" stroke="#3E4C5A" stroke-width="1"/>
+    <!-- Central Node Sphere -->
+    <ellipse cx="128" cy="162" rx="20" ry="10" fill="url(#silverCup)" stroke="#3E4C5A" stroke-width="1"/>
+    <ellipse cx="128" cy="162" rx="20" ry="10" fill="none" stroke="#FFFFFF" stroke-width="1.5" opacity="0.75"/>
+    <!-- Lower Stem Flare -->
+    <path d="M 120 168 L 136 168 L 142 182 L 114 182 Z" fill="url(#silverCup)" stroke="#3E4C5A" stroke-width="1"/>
+
+    <!-- Base Plate Neck -->
+    <path d="M 106 182 L 150 182 L 154 190 L 102 190 Z" fill="url(#silverCup)" stroke="#3E4C5A" stroke-width="1"/>
+
+    <!-- GOLD ACCENT BAND -->
+    <rect x="96" y="190" width="64" height="13" rx="2" fill="url(#goldAccent)" stroke="#5A4000" stroke-width="0.8"/>
+    <rect x="96" y="190" width="64" height="3" fill="#FFF9D4" opacity="0.9"/>
+    <rect x="96" y="200" width="64" height="3" fill="#5E3F00" opacity="0.6"/>
+
+    <!-- PEDESTAL BASE -->
+    <path d="M 92 203 L 164 203 L 168 214 L 88 214 Z" fill="url(#pedestalBase)" stroke="#0E1A15" stroke-width="1"/>
+    <line x1="92" y1="204" x2="164" y2="204" stroke="#6AA38E" stroke-width="1.5"/>
+
+    <!-- Plinth Main Block -->
+    <rect x="80" y="214" width="96" height="26" rx="3" fill="url(#pedestalBase)" stroke="#0E1A15" stroke-width="1"/>
+    <line x1="82" y1="215.5" x2="174" y2="215.5" stroke="#7CB5A0" stroke-width="1.8"/>
+    <rect x="80" y="237" width="96" height="3" fill="#0A1410" opacity="0.5"/>
+
+    <!-- Front Gold Plaque -->
+    <rect x="104" y="221" width="48" height="12" rx="1.5" fill="url(#goldAccent)"/>
+    <rect x="106" y="223" width="44" height="8" fill="#1C180A" opacity="0.25"/>
+  </g>
+</svg>
