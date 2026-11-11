@@ -297,6 +297,20 @@ if (!defined('PN_ADMIN_HOME_VIEW') && !isset($isAdminLogged)) {
     </div>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;">
         <div>
+            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 5px;">Competizione Classifica Lega &amp; GP:</label>
+            <select id="adminSettingStandingsComp" class="calc-input-select" style="width: 100%; box-sizing: border-box;" onchange="fcmHomepageAdmin.onDefaultSettingChange('standingsCompId', this.value)">
+                <option value="auto">🤖 Automatica (Competizione Predefinita FCM)</option>
+            </select>
+            <span style="display: block; font-size: 0.7rem; color: var(--text-muted); margin-top: 3px;">Usata per i widget Classifica Lega e Classifica GP.</span>
+        </div>
+        <div>
+            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 5px;">Competizione Widget Coppa di Lega:</label>
+            <select id="adminSettingCoppaComp" class="calc-input-select" style="width: 100%; box-sizing: border-box;" onchange="fcmHomepageAdmin.onDefaultSettingChange('coppaCompId', this.value)">
+                <option value="auto">🤖 Automatica (Rileva Coppa da nome/ID)</option>
+            </select>
+            <span style="display: block; font-size: 0.7rem; color: var(--text-muted); margin-top: 3px;">Usata per il widget Coppa di Lega nella sidebar.</span>
+        </div>
+        <div>
             <label style="display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 5px;">Campetto Top/Flop 11 Iniziale:</label>
             <select id="adminSettingTopFlop" class="calc-input-select" style="width: 100%; box-sizing: border-box;" onchange="fcmHomepageAdmin.onDefaultSettingChange('topFlopDefaultTab', this.value)">
                 <option value="top">⭐ Top 11 (Migliori fantavoti)</option>
@@ -442,17 +456,59 @@ if (!defined('PN_ADMIN_HOME_VIEW') && !isset($isAdminLogged)) {
         <!-- FORM DI CONFIGURAZIONE -->
         <form id="adminCustomWidgetForm" onsubmit="return false;" style="display: flex; flex-direction: column; gap: 14px;">
             <input type="hidden" id="customWidgetEditingId" value="">
-            <input type="hidden" id="customWidgetColumn" value="main">
 
-            <div>
-                <label style="display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 5px;">Tipo di Widget:</label>
-                <select id="customWidgetType" class="calc-input-select" style="width: 100%; box-sizing: border-box;">
-                    <option value="banner">📢 Avviso / Banner con Link</option>
-                    <option value="button_card">🔘 Scheda con Bottone / Social</option>
-                    <option value="countdown">⏳ Conto alla Rovescia (Countdown)</option>
-                    <option value="image">🖼️ Immagine / Locandina Promo</option>
-                    <option value="embed">💻 Codice HTML / Embed Libero</option>
-                </select>
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+                <div>
+                    <label style="display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 5px;">Tipo di Widget:</label>
+                    <select id="customWidgetType" class="calc-input-select" style="width: 100%; max-width: 100%; box-sizing: border-box;">
+                        <option value="competition_standings">🏆 Classifica / Tabellone Competizione</option>
+                        <option value="banner">📢 Avviso / Banner con Link</option>
+                        <option value="button_card">🔘 Scheda con Bottone / Social</option>
+                        <option value="countdown">⏳ Conto alla Rovescia (Countdown)</option>
+                        <option value="image">🖼️ Immagine / Locandina Promo</option>
+                        <option value="embed">💻 Codice HTML / Embed Libero</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 5px;">Colonna Homepage:</label>
+                    <select id="customWidgetColumn" class="calc-input-select" style="width: 100%; max-width: 100%; box-sizing: border-box;">
+                        <option value="main">📰 Principale (Main)</option>
+                        <option value="side">📋 Laterale (Side)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Gruppo Competizione (Classifica / Scontri Diretti / Ibrida) -->
+            <div id="groupWidgetCompetition" style="display: none;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px;">
+                    <div>
+                        <label style="display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 5px;">Competizione FCM:</label>
+                        <select id="customWidgetCompId" class="calc-input-select" style="width: 100%; max-width: 100%; box-sizing: border-box;">
+                            <option value="">-- Seleziona Competizione --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 5px;">Formula / Formato:</label>
+                        <select id="customWidgetCompFormat" class="calc-input-select" style="width: 100%; max-width: 100%; box-sizing: border-box;">
+                            <option value="auto">🤖 Automatica (Rileva da FCM)</option>
+                            <option value="round_robin">📊 Girone all'italiana (Classifica a punti)</option>
+                            <option value="knockout">⚔️ Scontri diretti (Eliminazione diretta)</option>
+                            <option value="hybrid">🔄 Ibrida (Gironi + Scontri diretti)</option>
+                            <option value="gp">🏎️ Classifica Gran Prix (Somma Punti GP)</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label style="display: block; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 5px;">Comportamento Card (Fisarmonica):</label>
+                    <select id="customWidgetAccordionMode" class="calc-input-select" style="width: 100%; max-width: 100%; box-sizing: border-box;">
+                        <option value="static">📌 Sempre aperta (Fissa senza fisarmonica)</option>
+                        <option value="open">🔼 Fisarmonica (Aperta di default)</option>
+                        <option value="closed">🔽 Fisarmonica (Chiusa di default)</option>
+                    </select>
+                </div>
+                <div id="customWidgetCompDetectedHint" style="margin-top: 8px; font-size: 0.74rem; color: var(--text-muted); padding: 7px 10px; background: rgba(59, 130, 246, 0.08); border-radius: 6px; border: 1px solid rgba(59, 130, 246, 0.2);">
+                    💡 Seleziona una competizione per mostrare in homepage la classifica a gironi, il tabellone a scontri diretti o entrambi.
+                </div>
             </div>
 
             <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">

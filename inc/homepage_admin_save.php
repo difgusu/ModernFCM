@@ -72,7 +72,9 @@ function fcm_get_default_homepage_config() {
             'quotesMode' => 'all',
             'gpAccordionOpen' => true,
             'coppaAccordionOpen' => false,
-            'coppaDefaultTab' => 'knockout'
+            'coppaDefaultTab' => 'knockout',
+            'standingsCompId' => 'auto',
+            'coppaCompId' => 'auto'
         ],
         'columns' => [
             'main' => [

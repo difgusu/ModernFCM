@@ -18,6 +18,12 @@ const archivioView = {
    * Helper: recupera l'icona del trofeo della competizione
    */
   getCompTrophyIcon(comp, isSmall = true) {
+    const formatIcon = (iconFile) => {
+      if (!iconFile) return isSmall ? 'img/small-ico-coppa.gif' : 'img/ico-coppa.gif';
+      const isDefaultGif = /^ico-(scudetto|coppa|supercoppa|gp)\.gif$/i.test(iconFile);
+      return (isSmall && isDefaultGif) ? `img/small-${iconFile}` : `img/${iconFile}`;
+    };
+
     const palmaresList = (this.data && Array.isArray(this.data.palmares))
       ? this.data.palmares
       : ((typeof arrPalmares !== 'undefined' && Array.isArray(arrPalmares)) ? arrPalmares.slice(1) : []);
@@ -26,10 +32,14 @@ const archivioView = {
       ? (comp.idCompetizione || comp.id || comp.IDc || comp.ID)
       : comp;
 
+    if (id && typeof fcmDataLoader !== 'undefined' && fcmDataLoader._compLogosMap && fcmDataLoader._compLogosMap[id]) {
+      return formatIcon(fcmDataLoader._compLogosMap[id]);
+    }
+
     for (const p of palmaresList) {
       if (p && (p.Competizione == id || p.compId == id || p.id == id)) {
         const iconFile = p.Icona || p.icon;
-        if (iconFile) return isSmall ? `img/small-${iconFile}` : `img/${iconFile}`;
+        if (iconFile) return formatIcon(iconFile);
       }
     }
 
@@ -44,7 +54,7 @@ const archivioView = {
         const pLabel = (p.Label || p.label || p.name || '').toLowerCase().trim();
         if (pLabel && (pLabel === norm || norm.includes(pLabel) || pLabel.includes(norm))) {
           const iconFile = p.Icona || p.icon;
-          if (iconFile) return isSmall ? `img/small-${iconFile}` : `img/${iconFile}`;
+          if (iconFile) return formatIcon(iconFile);
         }
       }
     }

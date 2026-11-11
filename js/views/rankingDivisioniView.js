@@ -21,8 +21,9 @@ const rankingDivisioniView = {
         if (!pal || !pal.Competizione) continue;
         const count = item.trophies ? item.trophies[pal.Competizione] : 0;
         if (count && count > 0) {
-          const iconSrc = `img/${pal.Icona}`;
-          const smallSrc = `img/small-${pal.Icona}`;
+          const iconFile = (typeof fcmDataLoader !== 'undefined' && fcmDataLoader._compLogosMap && fcmDataLoader._compLogosMap[pal.Competizione]) || pal.Icona || pal.icon || 'ico-coppa.gif';
+          const iconSrc = `img/${iconFile}`;
+          const smallSrc = /^ico-(scudetto|coppa|supercoppa|gp)\.gif$/i.test(iconFile) ? `img/small-${iconFile}` : 'img/ico-coppa.gif';
           trophies.push(`<span class="trophy-badge" title="${count} ${pal.Label}"><img src="${iconSrc}" onerror="this.onerror=null;this.src='${smallSrc}';" alt="${pal.Label}" /> ${count}</span>`);
         }
       }

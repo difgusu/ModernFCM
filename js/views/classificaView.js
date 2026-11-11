@@ -107,12 +107,13 @@ const classificaView = {
     if (!trophiesObj || !palmaresList || typeof trophiesObj !== 'object') return '';
     const badges = [];
     palmaresList.forEach(p => {
-      const pId = p.id || p.ID;
+      const pId = p.id || p.ID || p.Competizione;
       const count = trophiesObj[pId] || trophiesObj[String(pId)];
       if (count && count > 0) {
-        const icon = p.Icona || p.icon || 'ico-coppa.gif';
+        const icon = (typeof fcmDataLoader !== 'undefined' && fcmDataLoader._compLogosMap && fcmDataLoader._compLogosMap[pId]) || p.Icona || p.icon || 'ico-coppa.gif';
+        const fallbackSrc = /^ico-(scudetto|coppa|supercoppa|gp)\.gif$/i.test(icon) ? `img/small-${icon}` : 'img/ico-coppa.gif';
         const name = p.name || p.Nome || p.Label || 'Trofeo';
-        badges.push(`<span class="trophy-badge" title="${count}x ${name}"><img src="img/${icon}" onerror="this.onerror=null;this.src='img/small-${icon}';" alt="${name}" /> ${count}</span>`);
+        badges.push(`<span class="trophy-badge" title="${count}x ${name}"><img src="img/${icon}" onerror="this.onerror=null;this.src='${fallbackSrc}';" alt="${name}" /> ${count}</span>`);
       }
     });
     return badges.join(' ');

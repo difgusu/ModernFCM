@@ -169,7 +169,9 @@ const fcmHomeConfigManager = {
         quotesMode: 'all',
         gpAccordionOpen: true,
         coppaAccordionOpen: false,
-        coppaDefaultTab: 'knockout'
+        coppaDefaultTab: 'knockout',
+        standingsCompId: 'auto',
+        coppaCompId: 'auto'
       },
       columns: {
         main: [
@@ -317,9 +319,17 @@ const fcmHomeConfigManager = {
       return config;
     }
 
-    // 2. Opzioni generiche widget
+    // 2. Opzioni generiche widget (preservando le associazioni competizione scelte dall'admin)
+    const adminStandingsCompId = config.defaultSettings ? config.defaultSettings.standingsCompId : 'auto';
+    const adminCoppaCompId = config.defaultSettings ? config.defaultSettings.coppaCompId : 'auto';
     if (userPrefs.userSettings) {
       Object.assign(config.defaultSettings, userPrefs.userSettings);
+    }
+    if (adminStandingsCompId !== undefined) {
+      config.defaultSettings.standingsCompId = adminStandingsCompId;
+    }
+    if (adminCoppaCompId !== undefined) {
+      config.defaultSettings.coppaCompId = adminCoppaCompId;
     }
 
     // 3. Riordino e visibilità per colonna (supporta riordino e spostamento tra main e side)
@@ -743,7 +753,8 @@ const fcmHomeConfigManager = {
       case 'image':
         return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-purple, #a855f7)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
       case 'table':
-        return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line></svg>';
+      case 'competition_standings':
+        return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold)" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path></svg>';
       default:
         return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="4"></rect><line x1="8" y1="12" x2="16" y2="12"></line></svg>';
     }
@@ -909,7 +920,450 @@ const fcmHomeConfigManager = {
             </div>
           </div>
         `;
+
+      case 'competition_standings':
+        return this.renderCompetitionStandingsWidget(custom, context);
     }
+  },
+
+  /**
+   * Analizza la struttura di una competizione (gironi e partite) per rilevarne la formula
+   */
+  detectCompetitionFormat(compIdOrObj) {
+    if (typeof fcmDataLoader === 'undefined') {
+      return { format: 'round_robin', label: 'Girone all\'italiana', roundRobinGroups: [], knockoutMatches: [], allGroups: [], allMatches: [] };
+    }
+    const comps = fcmDataLoader.getCompetitions ? fcmDataLoader.getCompetitions() : [];
+    const comp = (compIdOrObj && typeof compIdOrObj === 'object')
+      ? compIdOrObj
+      : comps.find(c => String(c.id) === String(compIdOrObj));
+    if (!comp) {
+      return { format: 'round_robin', label: 'Non trovata', roundRobinGroups: [], knockoutMatches: [], allGroups: [], allMatches: [] };
+    }
+    const calendar = fcmDataLoader.getCalendarData ? fcmDataLoader.getCalendarData() : { matches: [] };
+    const allGroups = Array.isArray(comp.groups) ? comp.groups : [];
+    const allMatches = (calendar && Array.isArray(calendar.matches))
+      ? calendar.matches.filter(m => String(m.compId) === String(comp.id) && !m.isRiposo)
+      : [];
+
+    let roundRobinGroups = allGroups.filter(g => {
+      const gName = String(g.Nome || '').toLowerCase();
+      const st = fcmDataLoader.getStandings ? fcmDataLoader.getStandings(g.ID) : [];
+      return gName.includes('girone') || st.length > 2;
+    });
+
+    // Se c'è un solo girone con 2 squadre ma giocano più di 2 partite (mini-campionato), è comunque round_robin
+    if (roundRobinGroups.length === 0 && allGroups.length === 1) {
+      const st = fcmDataLoader.getStandings ? fcmDataLoader.getStandings(allGroups[0].ID) : [];
+      if (st.length > 0 && allMatches.length > 2) {
+        roundRobinGroups = [allGroups[0]];
+      }
+    }
+
+    const knockoutMatches = allMatches.filter(m => !roundRobinGroups.some(g => g.ID === m.groupId));
+    let format = 'round_robin';
+    let label = 'Girone all\'italiana';
+
+    if (roundRobinGroups.length > 0 && knockoutMatches.length > 0) {
+      format = 'hybrid';
+      label = `Ibrida (${roundRobinGroups.length} giron${roundRobinGroups.length === 1 ? 'e' : 'i'} + Scontri diretti)`;
+    } else if (roundRobinGroups.length === 0 && (knockoutMatches.length > 0 || allMatches.length > 0)) {
+      format = 'knockout';
+      label = `Scontri diretti (${(knockoutMatches.length || allMatches.length)} incontr${(knockoutMatches.length || allMatches.length) === 1 ? 'o' : 'i'})`;
+    } else {
+      const gCount = roundRobinGroups.length || allGroups.length;
+      label = `Girone all'italiana (${gCount} giron${gCount === 1 ? 'e' : 'i'})`;
+    }
+
+    return { comp, format, label, roundRobinGroups, knockoutMatches, allGroups, allMatches };
+  },
+
+  /**
+   * Renderizza un widget di Classifica / Tabellone Competizione (supporta round_robin, knockout, hybrid, gp, auto)
+   */
+  renderCompetitionStandingsWidget(custom, context) {
+    const escapeHtml = str => String(str || '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
+    if (typeof fcmDataLoader === 'undefined') return '';
+
+    const comps = fcmDataLoader.getCompetitions ? fcmDataLoader.getCompetitions() : [];
+    const targetCompId = (custom.compId !== undefined && custom.compId !== null && custom.compId !== '') ? custom.compId : null;
+    let comp = targetCompId ? comps.find(c => String(c.id) === String(targetCompId)) : null;
+    if (!comp && custom.compName) {
+      comp = comps.find(c => String(c.name || '').toLowerCase() === String(custom.compName || '').toLowerCase());
+    }
+    if (!comp && comps.length > 0) {
+      comp = comps[0];
+    }
+
+    if (!comp) {
+      return `
+        <div class="card custom-widget-card" id="${escapeHtml(custom.id || '')}">
+          <div class="card-header">
+            <div class="card-title">${this.getCustomWidgetIcon({ type: 'competition_standings' })} <span>${escapeHtml(custom.title || 'Competizione')}</span></div>
+          </div>
+          <div style="text-align:center;padding:14px;color:var(--text-muted);font-size:0.82rem;">
+            Competizione non trovata nei dati di lega.
+          </div>
+        </div>
+      `;
+    }
+
+    const calendar = (context && context.calendar) || (fcmDataLoader.getCalendarData ? fcmDataLoader.getCalendarData() : { matches: [], nextMatchday: 1 });
+    const favoriteTeamId = (context && context.favoriteTeamId !== undefined) ? context.favoriteTeamId : this.getFavoriteTeamId();
+    const isEditMode = !!(context && context.isEditMode);
+    const detected = this.detectCompetitionFormat(comp);
+    const chosenFormat = (custom.compFormat && custom.compFormat !== 'auto') ? custom.compFormat : detected.format;
+    const accordionMode = custom.accordionMode || 'static';
+    const isAccordion = accordionMode === 'open' || accordionMode === 'closed';
+    const isOpen = accordionMode !== 'closed';
+    const widgetTitle = custom.title || comp.name || 'Competizione';
+    const logoHtml = (typeof fcmDataLoader.getCompetitionLogoHtml === 'function')
+      ? fcmDataLoader.getCompetitionLogoHtml(comp.name, comp.id, 20)
+      : this.getCustomWidgetIcon({ type: 'competition_standings' });
+
+    // Caso 1: Classifica GP (Somma Punti Totali)
+    if (chosenFormat === 'gp') {
+      const targetGroups = (detected.allGroups && detected.allGroups.length > 0)
+        ? detected.allGroups
+        : [{ ID: comp.defaultGroupId || 1, Nome: comp.name }];
+      const gpGroupsData = targetGroups.map(g => ({
+        group: g,
+        standings: fcmDataLoader.getGPStandings ? fcmDataLoader.getGPStandings(g.ID) : []
+      })).filter(d => d.standings && d.standings.length > 0);
+
+      const gpBodyHtml = gpGroupsData.length > 0 ? gpGroupsData.map((d, gIdx) => `
+        <div class="coppa-group-section" style="${gIdx > 0 ? 'margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border-subtle);' : ''}">
+          ${gpGroupsData.length > 1 ? `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size: 0.8rem; font-weight: 700; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(d.group.Nome)}</span>
+              <span style="font-size: 0.68rem; color: var(--text-muted);">${d.standings.length} squadre</span>
+            </div>
+          ` : ''}
+          <div class="table-responsive">
+            <table class="modern-table">
+              <thead>
+                <tr>
+                  <th style="width:28px;">#</th>
+                  <th>Squadra</th>
+                  <th class="text-right">PT GP</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${d.standings.map((s, idx) => {
+                  const isFav = favoriteTeamId && (s.teamId == favoriteTeamId || s.name == favoriteTeamId);
+                  return `
+                    <tr class="${isFav ? 'favorite-team-row' : ''}">
+                      <td class="table-pos ${idx === 0 ? 'table-pos-1' : idx === 1 ? 'table-pos-2' : idx === 2 ? 'table-pos-3' : ''}">${idx + 1}</td>
+                      <td>
+                        <div class="table-col-team">
+                          <a href="#rose?team=${encodeURIComponent(s.teamId || s.name)}" class="team-rose-link" title="Vai alla rosa"><img src="${fcmDataLoader.getTeamLogo(s.name || s.teamId)}" style="width:22px;height:22px;object-fit:contain;vertical-align:middle;flex-shrink:0;" alt="${escapeHtml(s.name)}" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" /></a>
+                          ${isFav ? '<span class="favorite-team-badge" title="La tua Squadra del Cuore">⭐</span>' : ''}
+                          ${isEditMode ? `<button type="button" class="btn-tap-to-star ${isFav ? 'is-fav' : ''}" data-team-id="${s.teamId || ''}" data-team-name="${escapeHtml(s.name)}" title="Imposta come squadra del cuore">${isFav ? '⭐' : '☆'}</button>` : ''}
+                          <span><a href="#rose?team=${encodeURIComponent(s.teamId || s.name)}" class="team-rose-link" title="Vai alla rosa">${escapeHtml(s.name)}</a></span>
+                        </div>
+                      </td>
+                      <td class="text-right table-pts" style="color:var(--accent-cyan);font-weight:800;">${(s.sommaTotali || 0).toFixed(2)}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `).join('') : `<div style="text-align:center;padding:14px;color:var(--text-muted);font-size:0.8rem;">Nessun dato GP disponibile per questa competizione.</div>`;
+
+      return `
+        <div class="card custom-widget-card custom-comp-card" id="${escapeHtml(custom.id || '')}">
+          <div class="card-header ${isAccordion ? 'comp-widget-accordion-header' : ''}" style="${isAccordion ? 'cursor: pointer; user-select: none; margin-bottom: 0; padding-bottom: 4px;' : ''}">
+            <div class="card-title" style="font-size: 0.95rem;">
+              ${logoHtml}
+              <span>${escapeHtml(widgetTitle)}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <a href="#classifica?comp=${comp.id}" class="badge badge-primary" style="font-size: 0.68rem;" onclick="event.stopPropagation();">Completa &rarr;</a>
+              ${isAccordion ? `<span class="badge badge-primary comp-widget-toggle-badge" style="font-size: 0.68rem;">${isOpen ? 'Chiudi ▲' : 'Apri ▼'}</span>` : ''}
+            </div>
+          </div>
+          <div class="comp-widget-body" style="display: ${isOpen ? 'block' : 'none'}; ${isAccordion ? 'padding-top: 10px;' : ''}">
+            ${gpBodyHtml}
+          </div>
+        </div>
+      `;
+    }
+
+    // Caso 2: Gironi all'italiana, Scontri diretti o Ibrida
+    const groupsSource = (chosenFormat === 'round_robin')
+      ? (detected.allGroups.length > 0 ? detected.allGroups : [{ ID: comp.defaultGroupId || 1, Nome: comp.name }])
+      : detected.roundRobinGroups;
+
+    const groupsData = groupsSource.map(g => {
+      const gMatches = detected.allMatches.filter(m => m.groupId === g.ID);
+      const playedCount = gMatches.filter(m => m.played).length;
+      const totalCount = gMatches.length;
+      const minDay = gMatches.length ? Math.min(...gMatches.map(m => m.serieADay)) : 999;
+      const maxDay = gMatches.length ? Math.max(...gMatches.map(m => m.serieADay)) : 0;
+      const inProgress = (playedCount > 0 && playedCount < totalCount) ||
+        (calendar.nextMatchday >= minDay && calendar.nextMatchday <= maxDay && playedCount < totalCount);
+      return {
+        group: g,
+        standings: fcmDataLoader.getStandings ? fcmDataLoader.getStandings(g.ID) : [],
+        inProgress
+      };
+    }).filter(d => d.standings && d.standings.length > 0);
+
+    const activeGroups = groupsData.some(d => d.inProgress)
+      ? groupsData.filter(d => d.inProgress)
+      : groupsData;
+
+    const koMatchesPool = (chosenFormat === 'knockout' && detected.knockoutMatches.length === 0)
+      ? detected.allMatches
+      : detected.knockoutMatches;
+
+    let upcomingKnockoutMatches = [];
+    if (koMatchesPool.length > 0) {
+      const unplayedKo = koMatchesPool.filter(m => !m.played);
+      if (unplayedKo.length > 0) {
+        const nextTargetDay = Math.min(...unplayedKo.map(m => m.serieADay));
+        upcomingKnockoutMatches = unplayedKo.filter(m => m.serieADay === nextTargetDay);
+      } else {
+        const lastTargetDay = Math.max(...koMatchesPool.map(m => m.serieADay));
+        upcomingKnockoutMatches = koMatchesPool.filter(m => m.serieADay === lastTargetDay);
+      }
+    }
+
+    const leagueTeams = fcmDataLoader.getTeams ? fcmDataLoader.getTeams() : [];
+    const realTeamNames = new Set(
+      leagueTeams.map(t => (t.Nome || t.name || '').trim().toLowerCase()).filter(Boolean)
+    );
+    const isPlaceholderTeam = (name) => {
+      if (!name || typeof name !== 'string') return true;
+      const trimmed = name.trim();
+      if (!trimmed) return true;
+      if (/^\d+[\^°aoe]?\s+(girone|classificat[ao]|quarto|semi|finale)/i.test(trimmed)) return true;
+      if (/^(quarto|semifinale|finale|vincente|perdente)\b/i.test(trimmed)) return true;
+      if (/\bgirone\s+[a-z0-9]/i.test(trimmed)) return true;
+      if (realTeamNames.size > 0 && !realTeamNames.has(trimmed.toLowerCase())) return true;
+      return false;
+    };
+
+    const groupMatches = detected.allMatches.filter(m => groupsSource.some(g => g.ID === m.groupId));
+    const hasUnplayedGroupMatches = groupsData.length > 0 && groupMatches.some(m => !m.played);
+    const hasKoPlayed = koMatchesPool.some(m => m.played);
+    const areKoPopulated = upcomingKnockoutMatches.length > 0 &&
+      upcomingKnockoutMatches.every(m => !isPlaceholderTeam(m.homeTeamName) && !isPlaceholderTeam(m.awayTeamName));
+
+    let showKnockoutPanel = false;
+    let showGroupsPanel = false;
+    let defaultTab = 'groups';
+
+    if (chosenFormat === 'round_robin') {
+      showGroupsPanel = true;
+      defaultTab = 'groups';
+    } else if (chosenFormat === 'knockout') {
+      showKnockoutPanel = true;
+      defaultTab = 'knockout';
+    } else if (chosenFormat === 'hybrid') {
+      showGroupsPanel = activeGroups.length > 0;
+      showKnockoutPanel = koMatchesPool.length > 0;
+      if (!showGroupsPanel && !showKnockoutPanel) showGroupsPanel = true;
+      const koReady = showKnockoutPanel && !hasUnplayedGroupMatches && (hasKoPlayed || areKoPopulated);
+      defaultTab = koReady ? 'knockout' : (showGroupsPanel ? 'groups' : 'knockout');
+    } else {
+      // auto
+      const koReady = koMatchesPool.length > 0 && !hasUnplayedGroupMatches && (hasKoPlayed || areKoPopulated);
+      showGroupsPanel = activeGroups.length > 0;
+      showKnockoutPanel = koReady || (!showGroupsPanel && koMatchesPool.length > 0);
+      defaultTab = showKnockoutPanel ? 'knockout' : 'groups';
+    }
+
+    const knockoutHtml = upcomingKnockoutMatches.length > 0 ? `
+      <div class="matches-list" style="margin-top: 4px;">
+        ${upcomingKnockoutMatches.map(m => {
+          const isHomeFav = favoriteTeamId && (m.homeTeamId == favoriteTeamId || m.homeTeamName == favoriteTeamId);
+          const isAwayFav = favoriteTeamId && (m.awayTeamId == favoriteTeamId || m.awayTeamName == favoriteTeamId);
+          const isMatchFav = isHomeFav || isAwayFav;
+          const trophiesHome = fcmDataLoader.getTeamTrophiesHtml ? fcmDataLoader.getTeamTrophiesHtml(m.homeTeamName) : '';
+          const trophiesAway = fcmDataLoader.getTeamTrophiesHtml ? fcmDataLoader.getTeamTrophiesHtml(m.awayTeamName) : '';
+          return `
+            <div class="coppa-knockout-match ${isMatchFav ? 'is-favorite-match favorite-team-row' : ''}">
+              <div class="coppa-match-header">
+                <span>${escapeHtml(m.groupName || comp.name)}</span>
+                <span class="coppa-match-day-badge">${escapeHtml(m.fantagiornataNome || `${m.serieADay}ª Serie A`)}</span>
+              </div>
+              <div class="match-teams-row" style="gap: 4px;">
+                <div class="match-team home">
+                  <a href="#rose?team=${encodeURIComponent(m.homeTeamId || m.homeTeamName)}" class="team-rose-link" title="Vai alla rosa"><img src="${fcmDataLoader.getTeamLogo(m.homeTeamName || m.homeTeamId)}" class="team-badge-img" style="width: 22px; height: 22px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" /></a>
+                  <div class="team-info-wrap">
+                    <div class="team-name-row">
+                      ${isHomeFav ? '<span class="favorite-team-badge" title="La tua Squadra del Cuore">⭐</span>' : ''}
+                      <span class="team-name-text" style="font-size: 0.78rem;" title="${escapeHtml(m.homeTeamName)}"><a href="#rose?team=${encodeURIComponent(m.homeTeamId || m.homeTeamName)}" class="team-rose-link" title="Vai alla rosa">${escapeHtml(m.homeTeamName)}</a></span>
+                    </div>
+                    ${trophiesHome ? `<span class="team-trophies-badge">${trophiesHome}</span>` : ''}
+                  </div>
+                </div>
+                <div class="match-score-pill" style="padding: 3px 6px; min-width: 48px;">
+                  ${m.played
+                    ? `<span class="score-digits" style="font-size: 0.88rem;">${m.homeGoals}-${m.awayGoals}</span>`
+                    : `<span class="score-unplayed" style="font-size: 0.72rem;">VS</span>`
+                  }
+                </div>
+                <div class="match-team away">
+                  <a href="#rose?team=${encodeURIComponent(m.awayTeamId || m.awayTeamName)}" class="team-rose-link" title="Vai alla rosa"><img src="${fcmDataLoader.getTeamLogo(m.awayTeamName || m.awayTeamId)}" class="team-badge-img" style="width: 22px; height: 22px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" /></a>
+                  <div class="team-info-wrap">
+                    <div class="team-name-row">
+                      ${isAwayFav ? '<span class="favorite-team-badge" title="La tua Squadra del Cuore">⭐</span>' : ''}
+                      <span class="team-name-text" style="font-size: 0.78rem;" title="${escapeHtml(m.awayTeamName)}"><a href="#rose?team=${encodeURIComponent(m.awayTeamId || m.awayTeamName)}" class="team-rose-link" title="Vai alla rosa">${escapeHtml(m.awayTeamName)}</a></span>
+                    </div>
+                    ${trophiesAway ? `<span class="team-trophies-badge">${trophiesAway}</span>` : ''}
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    ` : `
+      <div style="text-align:center;padding:14px;color:var(--text-muted);font-size:0.8rem;">
+        Nessun incontro a eliminazione diretta programmato al momento.
+      </div>
+    `;
+
+    const groupsHtml = activeGroups.length > 0 ? `
+      <div class="coppa-groups-list">
+        ${activeGroups.map((d, gIdx) => `
+          <div class="coppa-group-section" style="${gIdx > 0 ? 'margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border-subtle);' : ''}">
+            ${(activeGroups.length > 1 || showKnockoutPanel) ? `
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-size: 0.8rem; font-weight: 700; color: var(--accent-purple, #a855f7); text-transform: uppercase; letter-spacing: 0.5px;">
+                  ${escapeHtml(d.group.Nome)}
+                </span>
+                <span style="font-size: 0.68rem; color: var(--text-muted);">
+                  ${d.standings.length} squadre
+                </span>
+              </div>
+            ` : ''}
+            <div class="table-responsive">
+              <table class="modern-table">
+                <thead>
+                  <tr>
+                    <th style="width:28px;">#</th>
+                    <th>Squadra</th>
+                    <th class="text-right">PT</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${d.standings.map((s, idx) => {
+                    const isFav = favoriteTeamId && (s.teamId == favoriteTeamId || s.name == favoriteTeamId);
+                    const trophies = fcmDataLoader.getTeamTrophiesHtml ? fcmDataLoader.getTeamTrophiesHtml(s.name) : '';
+                    return `
+                      <tr class="${isFav ? 'favorite-team-row' : ''}">
+                        <td class="table-pos ${idx === 0 ? 'table-pos-1' : idx === 1 ? 'table-pos-2' : idx === 2 ? 'table-pos-3' : ''}">${s.pos || (idx + 1)}</td>
+                        <td>
+                          <div class="table-col-team">
+                            <a href="#rose?team=${encodeURIComponent(s.teamId || s.name)}" class="team-rose-link" title="Vai alla rosa"><img src="${fcmDataLoader.getTeamLogo(s.name || s.teamId)}" style="width:22px;height:22px;object-fit:contain;vertical-align:middle;flex-shrink:0;" alt="${escapeHtml(s.name)}" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" /></a>
+                            ${isFav ? '<span class="favorite-team-badge" title="La tua Squadra del Cuore">⭐</span>' : ''}
+                            ${isEditMode ? `<button type="button" class="btn-tap-to-star ${isFav ? 'is-fav' : ''}" data-team-id="${s.teamId || ''}" data-team-name="${escapeHtml(s.name)}" title="Imposta come squadra del cuore">${isFav ? '⭐' : '☆'}</button>` : ''}
+                            <span><a href="#rose?team=${encodeURIComponent(s.teamId || s.name)}" class="team-rose-link" title="Vai alla rosa">${escapeHtml(s.name)}</a></span>
+                            ${trophies}
+                          </div>
+                        </td>
+                        <td class="text-right table-pts font-bold">${s.points}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : `
+      <div style="text-align:center;padding:14px;color:var(--text-muted);font-size:0.8rem;">
+        Nessuna classifica a gironi disponibile per questa competizione.
+      </div>
+    `;
+
+    return `
+      <div class="card custom-widget-card custom-comp-card" id="${escapeHtml(custom.id || '')}">
+        <div class="card-header ${isAccordion ? 'comp-widget-accordion-header' : ''}" style="${isAccordion ? 'cursor: pointer; user-select: none; margin-bottom: 0; padding-bottom: 4px;' : ''}">
+          <div class="card-title" style="font-size: 0.95rem;">
+            ${logoHtml}
+            <span>${escapeHtml(widgetTitle)}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <a href="#classifica?comp=${comp.id}" class="badge badge-primary" style="font-size: 0.68rem;" onclick="event.stopPropagation();">Completa &rarr;</a>
+            ${isAccordion ? `<span class="badge badge-primary comp-widget-toggle-badge" style="font-size: 0.68rem;">${isOpen ? 'Chiudi ▲' : 'Apri ▼'}</span>` : ''}
+          </div>
+        </div>
+        <div class="comp-widget-body" style="display: ${isOpen ? 'block' : 'none'}; ${isAccordion ? 'padding-top: 10px;' : ''}">
+          ${(showKnockoutPanel && showGroupsPanel) ? `
+            <div class="coppa-phase-tabs-container" style="display:flex;justify-content:center;margin-bottom:12px;">
+              <div class="coppa-phase-tabs">
+                <button type="button" class="coppa-phase-btn comp-phase-tab-btn ${defaultTab === 'knockout' ? 'active' : ''}" data-phase-target="knockout">
+                  Scontri Diretti
+                </button>
+                <button type="button" class="coppa-phase-btn comp-phase-tab-btn ${defaultTab === 'groups' ? 'active' : ''}" data-phase-target="groups">
+                  Classifica Gironi
+                </button>
+              </div>
+            </div>
+          ` : ''}
+          ${showKnockoutPanel ? `
+            <div class="comp-phase-panel" data-phase-panel="knockout" style="display: ${defaultTab === 'knockout' ? 'block' : 'none'};">
+              ${knockoutHtml}
+            </div>
+          ` : ''}
+          ${showGroupsPanel ? `
+            <div class="comp-phase-panel" data-phase-panel="groups" style="display: ${defaultTab === 'groups' ? 'block' : 'none'};">
+              ${groupsHtml}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  },
+
+  /**
+   * Inizializza l'interattività (fisarmonica e switch tab gironi/scontri diretti) per i widget competizione
+   */
+  initCustomCompetitionWidgets(container) {
+    if (!container || typeof container.querySelectorAll !== 'function') return;
+
+    container.querySelectorAll('.comp-widget-accordion-header').forEach(header => {
+      if (header.dataset.boundCompAcc === '1') return;
+      header.dataset.boundCompAcc = '1';
+      header.addEventListener('click', (e) => {
+        if (e.target && e.target.closest && e.target.closest('a')) return;
+        const card = header.closest('.card');
+        if (!card) return;
+        const body = card.querySelector('.comp-widget-body');
+        const badge = header.querySelector('.comp-widget-toggle-badge');
+        if (body) {
+          const isHidden = body.style.display === 'none';
+          body.style.display = isHidden ? 'block' : 'none';
+          if (badge) {
+            badge.textContent = isHidden ? 'Chiudi ▲' : 'Apri ▼';
+          }
+        }
+      });
+    });
+
+    container.querySelectorAll('.comp-phase-tab-btn').forEach(btn => {
+      if (btn.dataset.boundCompTab === '1') return;
+      btn.dataset.boundCompTab = '1';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const target = btn.getAttribute('data-phase-target');
+        const card = btn.closest('.card');
+        if (!card || !target) return;
+        card.querySelectorAll('.comp-phase-tab-btn').forEach(b => {
+          b.classList.toggle('active', b.getAttribute('data-phase-target') === target);
+        });
+        card.querySelectorAll('.comp-phase-panel').forEach(panel => {
+          panel.style.display = (panel.getAttribute('data-phase-panel') === target) ? 'block' : 'none';
+        });
+      });
+    });
   },
 
   /**

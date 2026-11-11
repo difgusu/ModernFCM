@@ -702,19 +702,242 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $dest = "$sqliteBase/competition_map.json";
     $ok = fcm_write_file_atomic($dest, json_encode((object)$cleanMap, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), 0644);
     if ($ok !== false) {
-        // Rigenera cache confronti e ranking
+        // Rigenera cache confronti, ranking e classifica perpetua
         if (file_exists(__DIR__ . '/api_storico.php')) {
             ob_start();
             $_GET['refresh'] = '1';
             require_once __DIR__ . '/api_storico.php';
             handleApiAction('confronti', $sqliteBase, true);
             handleApiAction('ranking', $sqliteBase, true);
+            handleApiAction('classifica_perpetua', $sqliteBase, true);
             ob_end_clean();
         }
         echo json_encode(['success' => true, 'message' => 'Mappatura competizioni salvata e ranking/confronti ricalcolati con successo!', 'updated' => date('d/m/Y H:i:s')]);
     } else {
         echo json_encode(['success' => false, 'error' => 'Impossibile salvare competition_map.json in sqlite/.']);
     }
+    exit;
+}
+
+// 5d-bis. Upload Logo Competizione Custom
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'upload_competition_logo') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (!$isAdminLogged) {
+        echo json_encode(['success' => false, 'error' => 'Non autorizzato: sessione amministratore scaduta o non valida.']);
+        exit;
+    }
+    fcm_require_csrf();
+
+    $uploadedFile = $_FILES['logo_file'] ?? ($_FILES['logo'] ?? null);
+    if (!$uploadedFile || $uploadedFile['error'] !== UPLOAD_ERR_OK) {
+        $errorCode = $uploadedFile ? $uploadedFile['error'] : 'no_file';
+        echo json_encode([
+            'success' => false,
+            'error' => 'Nessun file selezionato o errore durante il caricamento (codice: ' . $errorCode . ')'
+        ]);
+        exit;
+    }
+
+    $compLogosDir = dirname(__DIR__) . '/img/comp_logos';
+    if (!is_dir($compLogosDir)) {
+        @mkdir($compLogosDir, 0755, true);
+    }
+
+    $file = $uploadedFile;
+    if (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+        echo json_encode(['success' => false, 'error' => 'Upload non valido.']);
+        exit;
+    }
+
+    $origName = basename($file['name']);
+    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+    $allowedExts = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+
+    if (!in_array($ext, $allowedExts, true)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Estensione file non valida. Formati consentiti: PNG, JPG, JPEG, GIF, WEBP.'
+        ]);
+        exit;
+    }
+
+    $imgInfo = @getimagesize($file['tmp_name']);
+    $expectedTypes = [
+        'png'  => IMAGETYPE_PNG,
+        'jpg'  => IMAGETYPE_JPEG,
+        'jpeg' => IMAGETYPE_JPEG,
+        'gif'  => IMAGETYPE_GIF,
+        'webp' => defined('IMAGETYPE_WEBP') ? IMAGETYPE_WEBP : 18
+    ];
+    if (!$imgInfo || !isset($expectedTypes[$ext]) || (int)$imgInfo[2] !== $expectedTypes[$ext]) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Il contenuto del file non corrisponde a un\'immagine valida del formato dichiarato.'
+        ]);
+        exit;
+    }
+
+    $cleanName = preg_replace('/[^a-zA-Z0-9_\-]/', '_', pathinfo($origName, PATHINFO_FILENAME));
+    if (empty($cleanName)) {
+        $cleanName = 'comp_logo_' . time();
+    }
+    $targetFilename = $cleanName . '.' . $ext;
+    $targetPath = $compLogosDir . '/' . $targetFilename;
+
+    if (file_exists($targetPath)) {
+        $targetFilename = $cleanName . '_' . bin2hex(random_bytes(3)) . '.' . $ext;
+        $targetPath = $compLogosDir . '/' . $targetFilename;
+    }
+
+    if (move_uploaded_file($file['tmp_name'], $targetPath)) {
+        @chmod($targetPath, 0644);
+        echo json_encode([
+            'success' => true,
+            'filename' => $targetFilename,
+            'value' => 'comp_logos/' . $targetFilename,
+            'path' => 'img/comp_logos/' . $targetFilename
+        ]);
+    } else {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Impossibile salvare il file nella cartella img/comp_logos. Verificare i permessi.'
+        ]);
+    }
+    exit;
+}
+
+// 5d-ter. Salvataggio Configurazione Loghi Competizioni
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_competition_logos') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (!$isAdminLogged) {
+        echo json_encode(['success' => false, 'error' => 'Non autorizzato: sessione amministratore scaduta o non valida.']);
+        exit;
+    }
+    fcm_require_csrf();
+
+    $rawLogos = isset($_POST['logos']) && is_array($_POST['logos']) ? $_POST['logos'] : [];
+    $allowedDefaults = ['ico-scudetto.gif', 'ico-coppa.gif', 'ico-supercoppa.gif', 'ico-gp.gif'];
+    $cleanLogos = [];
+
+    foreach ($rawLogos as $cId => $val) {
+        $cIdInt = (int)$cId;
+        if ($cIdInt <= 0) continue;
+        $valStr = trim((string)$val);
+        if ($valStr === '' || $valStr === 'auto') {
+            continue;
+        }
+        if (in_array($valStr, $allowedDefaults, true) || preg_match('/^comp_logos\/[a-zA-Z0-9_\-\.]+\.(png|jpg|jpeg|gif|webp)$/i', $valStr)) {
+            $cleanLogos[(string)$cIdInt] = $valStr;
+        }
+    }
+
+    $dataDir = __DIR__ . '/data';
+    if (!is_dir($dataDir)) {
+        @mkdir($dataDir, 0755, true);
+    }
+    $logosFile = $dataDir . '/competition_logos.json';
+    if (file_exists($logosFile)) {
+        @copy($logosFile, $logosFile . '.bak');
+    }
+
+    $ok = fcm_write_file_atomic($logosFile, json_encode((object)$cleanLogos, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), 0644);
+    if ($ok !== false) {
+        $sqliteBase = realpath(__DIR__ . '/../sqlite');
+        if ($sqliteBase && file_exists(__DIR__ . '/api_storico.php')) {
+            ob_start();
+            $_GET['refresh'] = '1';
+            require_once __DIR__ . '/api_storico.php';
+            handleApiAction('confronti', $sqliteBase, true);
+            handleApiAction('ranking', $sqliteBase, true);
+            handleApiAction('classifica_perpetua', $sqliteBase, true);
+            ob_end_clean();
+        }
+        echo json_encode([
+            'success' => true,
+            'message' => 'Loghi competizioni salvati e applicati con successo!',
+            'logos' => $cleanLogos,
+            'updated' => date('d/m/Y H:i:s')
+        ]);
+    } else {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Impossibile salvare inc/data/competition_logos.json. Verificare i permessi di scrittura.'
+        ]);
+    }
+    exit;
+}
+
+// 5d-quater. Eliminazione Logo Competizione Custom dal server
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_competition_logo') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (!$isAdminLogged) {
+        echo json_encode(['success' => false, 'error' => 'Non autorizzato: sessione amministratore scaduta o non valida.']);
+        exit;
+    }
+    fcm_require_csrf();
+
+    $rawLogo = trim((string)($_POST['logo'] ?? ''));
+    $filename = basename(str_replace('\\', '/', $rawLogo));
+    if ($filename === '' || !preg_match('/^[a-zA-Z0-9_\-\.]+\.(png|jpg|jpeg|gif|webp)$/i', $filename)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Nome file logo custom non valido.'
+        ]);
+        exit;
+    }
+
+    $compLogosDir = dirname(__DIR__) . '/img/comp_logos';
+    $targetPath = $compLogosDir . '/' . $filename;
+    $relValue = 'comp_logos/' . $filename;
+
+    if (file_exists($targetPath)) {
+        if (!@unlink($targetPath)) {
+            echo json_encode([
+                'success' => false,
+                'error' => 'Impossibile eliminare il file da img/comp_logos/. Verificare i permessi.'
+            ]);
+            exit;
+        }
+    }
+
+    // Rimuove eventuali riferimenti al file eliminato in inc/data/competition_logos.json
+    $resetCompIds = [];
+    $logosFile = __DIR__ . '/data/competition_logos.json';
+    if (file_exists($logosFile)) {
+        $existingLogos = json_decode(@file_get_contents($logosFile), true);
+        if (is_array($existingLogos)) {
+            $changed = false;
+            foreach ($existingLogos as $cIdKey => $val) {
+                if ($val === $relValue) {
+                    unset($existingLogos[$cIdKey]);
+                    $resetCompIds[] = (int)$cIdKey;
+                    $changed = true;
+                }
+            }
+            if ($changed) {
+                @copy($logosFile, $logosFile . '.bak');
+                fcm_write_file_atomic($logosFile, json_encode((object)$existingLogos, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), 0644);
+                $sqliteBase = realpath(__DIR__ . '/../sqlite');
+                if ($sqliteBase && file_exists(__DIR__ . '/api_storico.php')) {
+                    ob_start();
+                    $_GET['refresh'] = '1';
+                    require_once __DIR__ . '/api_storico.php';
+                    handleApiAction('confronti', $sqliteBase, true);
+                    handleApiAction('ranking', $sqliteBase, true);
+                    handleApiAction('classifica_perpetua', $sqliteBase, true);
+                    ob_end_clean();
+                }
+            }
+        }
+    }
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Logo custom "' . $filename . '" eliminato dal server.',
+        'filename' => $filename,
+        'deletedValue' => $relValue,
+        'resetCompIds' => $resetCompIds
+    ]);
     exit;
 }
 

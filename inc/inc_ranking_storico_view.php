@@ -17,33 +17,6 @@ $toPct = function($val, $default = 0) {
     return round($v);
 };
 
-// Helper visualizzazione logo competizione con fallback trasparente a emoji
-if (!function_exists('renderCompLogoWithFallback')) {
-    function renderCompLogoWithFallback($cName, $cEmoji = '🏆', $size = 20) {
-        $clean = strtolower(trim((string)$cName));
-        $imgSrc = '../img/coppa.png';
-        if (strpos($clean, 'supercoppa') !== false || strpos($clean, 'shield') !== false) {
-            $imgSrc = '../img/supercoppa.png';
-        } elseif (strpos($clean, 'gp') !== false || strpos($clean, 'gran prix') !== false || strpos($clean, 'formula') !== false) {
-            $imgSrc = '../img/gp.png';
-        } elseif (strpos($clean, 'coppa') !== false || strpos($clean, 'cup') !== false) {
-            $imgSrc = '../img/coppa.png';
-        } elseif (strpos($clean, 'scudetto') !== false || strpos($clean, 'lega') !== false || strpos($clean, 'campionato') !== false || strpos($clean, 'premier') !== false || strpos($clean, 'serie') !== false) {
-            $imgSrc = '../img/scudo.png';
-        }
-
-        $escName = htmlspecialchars($cName);
-        $escEmoji = $cEmoji ?: '🏆';
-        $sz = (int)$size;
-        $fontSize = round($sz * 0.85);
-
-        return '<span class="comp-icon-badge" style="display:inline-flex;align-items:center;justify-content:center;width:' . $sz . 'px;height:' . $sz . 'px;flex-shrink:0;vertical-align:middle;" title="' . $escName . '">'
-            . '<img src="' . $imgSrc . '" alt="' . $escName . '" width="' . $sz . '" height="' . $sz . '" style="object-fit:contain;vertical-align:middle;display:inline-block;" onerror="this.style.display=\'none\';if(this.nextElementSibling)this.nextElementSibling.style.display=\'inline\';" />'
-            . '<span class="comp-emoji-fallback" style="display:none;font-size:' . $fontSize . 'px;line-height:1;">' . $escEmoji . '</span>'
-            . '</span>';
-    }
-}
-
 // Carica stagioni disponibili e franchigie master
 $stagioniDisponibili = getStagioniDisponibili($sqliteBase);
 $latestSeason = !empty($stagioniDisponibili) ? (int)$stagioniDisponibili[0]['id'] : 14;
@@ -52,12 +25,87 @@ $masterTeams = $franchiseInfo['alboTeams']; // ID, IDAttuale, Nome
 $customOverrides = $franchiseInfo['override']; // [season => [localTeamId => masterId]]
 $alboTeamNames = $franchiseInfo['alboTeamNames'] ?? [];
 
-// Carica competizioni master e mappature
+// Carica competizioni master, mappature e loghi configurati
 $compInfo = getCompetitionResolver($sqliteBase, $latestSeason);
-$masterComps = $compInfo['alboComps']; // ID, IDAttuale, Nome
+$masterComps = $compInfo['alboComps']; // ID, IDAttuale, Nome, icon, autoIcon, customIcon
 $customCompOverrides = $compInfo['override']; // [season => [localCompId => masterCompId]]
 $alboCompNames = $compInfo['alboCompNames'] ?? [];
+$customCompLogos = $compInfo['customLogos'] ?? [];
 $cfgRanking = getRankingConfig($sqliteBase, $masterComps);
+
+// Scansiona eventuali loghi custom già caricati in img/comp_logos/
+$uploadedCompLogos = [];
+$compLogosDir = dirname(__DIR__) . '/img/comp_logos';
+if (is_dir($compLogosDir)) {
+    $logoFiles = @scandir($compLogosDir);
+    if (is_array($logoFiles)) {
+        foreach ($logoFiles as $lf) {
+            if ($lf === '.' || $lf === '..') continue;
+            if (preg_match('/\.(png|jpe?g|gif|webp)$/i', $lf)) {
+                $uploadedCompLogos['comp_logos/' . $lf] = $lf;
+            }
+        }
+    }
+}
+foreach ($customCompLogos as $cIdKey => $cLogoVal) {
+    if (strpos((string)$cLogoVal, 'comp_logos/') === 0 && !isset($uploadedCompLogos[$cLogoVal])) {
+        $uploadedCompLogos[$cLogoVal] = basename($cLogoVal);
+    }
+}
+
+// Helper visualizzazione logo competizione con fallback trasparente a emoji
+if (!function_exists('renderCompLogoWithFallback')) {
+    function renderCompLogoWithFallback($cName, $cEmoji = '🏆', $size = 20, $cId = 0) {
+        global $masterComps;
+        $configuredIcon = '';
+        if (!empty($masterComps) && is_array($masterComps)) {
+            if ($cId > 0 && isset($masterComps[$cId])) {
+                $configuredIcon = $masterComps[$cId]['icon'] ?? '';
+            } else {
+                $normTarget = strtolower(trim((string)$cName));
+                foreach ($masterComps as $mc) {
+                    if (strtolower(trim((string)($mc['Nome'] ?? ''))) === $normTarget) {
+                        $configuredIcon = $mc['icon'] ?? '';
+                        $cId = (int)($mc['ID'] ?? 0);
+                        break;
+                    }
+                }
+            }
+        }
+
+        $imgSrc = '';
+        if ($configuredIcon !== '') {
+            if ($configuredIcon === 'ico-scudetto.gif') $imgSrc = '../img/scudo.png';
+            elseif ($configuredIcon === 'ico-coppa.gif') $imgSrc = '../img/coppa.png';
+            elseif ($configuredIcon === 'ico-supercoppa.gif') $imgSrc = '../img/supercoppa.png';
+            elseif ($configuredIcon === 'ico-gp.gif') $imgSrc = '../img/gp.png';
+            else $imgSrc = '../img/' . $configuredIcon;
+        } else {
+            $clean = strtolower(trim((string)$cName));
+            $imgSrc = '../img/coppa.png';
+            if (strpos($clean, 'supercoppa') !== false || strpos($clean, 'shield') !== false) {
+                $imgSrc = '../img/supercoppa.png';
+            } elseif (strpos($clean, 'gp') !== false || strpos($clean, 'gran prix') !== false || strpos($clean, 'formula') !== false) {
+                $imgSrc = '../img/gp.png';
+            } elseif (strpos($clean, 'coppa') !== false || strpos($clean, 'cup') !== false) {
+                $imgSrc = '../img/coppa.png';
+            } elseif (strpos($clean, 'scudetto') !== false || strpos($clean, 'lega') !== false || strpos($clean, 'campionato') !== false || strpos($clean, 'premier') !== false || strpos($clean, 'serie') !== false) {
+                $imgSrc = '../img/scudo.png';
+            }
+        }
+
+        $escName = htmlspecialchars($cName);
+        $escEmoji = $cEmoji ?: '🏆';
+        $sz = (int)$size;
+        $fontSize = round($sz * 0.85);
+        $dataAttr = $cId > 0 ? ' data-comp-badge-img="' . (int)$cId . '"' : '';
+
+        return '<span class="comp-icon-badge" style="display:inline-flex;align-items:center;justify-content:center;width:' . $sz . 'px;height:' . $sz . 'px;flex-shrink:0;vertical-align:middle;" title="' . $escName . '">'
+            . '<img src="' . htmlspecialchars($imgSrc) . '" alt="' . $escName . '" width="' . $sz . '" height="' . $sz . '"' . $dataAttr . ' style="object-fit:contain;vertical-align:middle;display:inline-block;" onerror="this.style.display=\'none\';if(this.nextElementSibling)this.nextElementSibling.style.display=\'inline\';" />'
+            . '<span class="comp-emoji-fallback" style="display:none;font-size:' . $fontSize . 'px;line-height:1;">' . $escEmoji . '</span>'
+            . '</span>';
+    }
+}
 
 // Carica configurazione cartelle storiche legacy (inc/data/storico_config.json)
 $storicoConfigFile = __DIR__ . '/data/storico_config.json';
@@ -653,7 +701,7 @@ foreach ($stagioniDisponibili as $stg) {
                         ?>
                             <div class="comp-group-block">
                                 <div class="comp-group-title">
-                                    <?php echo renderCompLogoWithFallback($cName, $cEmoji, 22); ?>
+                                    <?php echo renderCompLogoWithFallback($cName, $cEmoji, 22, $cId); ?>
                                     <span><?php echo htmlspecialchars($cName); ?></span>
                                     <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500;">(ID Master <?php echo $cId; ?>)</span>
                                 </div>
@@ -765,7 +813,7 @@ foreach ($stagioniDisponibili as $stg) {
                             <div class="comp-group-block" data-comp-id="<?php echo $cId; ?>">
                                 <div class="comp-group-title" style="justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                                     <div style="display: flex; align-items: center; gap: 6px;">
-                                        <?php echo renderCompLogoWithFallback($cName, $cEmoji, 22); ?>
+                                        <?php echo renderCompLogoWithFallback($cName, $cEmoji, 22, $cId); ?>
                                         <span>Incontri <?php echo htmlspecialchars($cName); ?></span>
                                         <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500;">(ID Master <?php echo $cId; ?>)</span>
                                     </div>
@@ -1049,6 +1097,179 @@ foreach ($stagioniDisponibili as $stg) {
         </form>
     </section>
 
+    <!-- SEZIONE 1b: LOGHI E ICONE COMPETIZIONI -->
+    <section class="calc-card-section">
+        <div class="calc-section-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+            <div>
+                <h3 class="calc-section-title">
+                    <span>🖼️</span>
+                    <span>Loghi e Icone Competizioni</span>
+                </h3>
+                <p class="calc-section-desc">
+                    Imposta il logo associato a ciascuna competizione nel sito (Albo d'Oro, Ranking, Archivio, Rose, Confronti e Classifica Perpetua). Puoi scegliere uno dei loghi di default della skin (<strong>Scudetto</strong>, <strong>Coppa</strong>, <strong>Supercoppa</strong>, <strong>GP</strong>), caricare un logo personalizzato oppure mantenere il riconoscimento automatico dal nome.
+                </p>
+            </div>
+            <div style="background: var(--bg-surface-elevated, #f8fafc); border: 1px solid var(--border-subtle, #e2e8f0); border-radius: var(--radius-sm, 6px); padding: 8px 12px; font-size: 0.78rem; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 8px;">
+                <span>📐</span>
+                <span>Dimensioni consigliate logo custom: <strong>250×250 px</strong> (PNG trasparente, WEBP, JPG, GIF)</span>
+            </div>
+        </div>
+
+        <!-- ACTION BAR SEZIONE LOGHI COMPETIZIONI -->
+        <div class="calc-actions-bar" style="margin-top: 14px; margin-bottom: 16px;">
+            <div class="badge-wrap">
+                <span class="badge-status-changes no-changes" id="badgeCompLogosChanges">
+                    <span>⚪</span> Nessuna modifica non salvata
+                </span>
+            </div>
+            <div class="calc-actions-buttons">
+                <button type="button" class="calc-btn-action calc-btn-cancel" id="btnResetCompLogos" disabled onclick="ripristinaLoghiCompetizioni()">
+                    <span>Annulla</span>
+                </button>
+                <button type="button" class="calc-btn-action calc-btn-save" id="btnSaveCompLogos" disabled onclick="salvaLoghiCompetizioni()">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                    <span>Salva Loghi Competizioni</span>
+                </button>
+            </div>
+        </div>
+
+        <form id="competitionLogosForm" onsubmit="return false;">
+            <div class="table-responsive">
+                <table class="calc-mapping-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 70px; text-align: center;">ID Master</th>
+                            <th>Competizione Master</th>
+                            <th style="width: 110px; text-align: center;">Anteprima</th>
+                            <th>Logo / Icona Selezionata</th>
+                            <th style="width: 125px; text-align: center;">Stato</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($masterComps)): ?>
+                            <tr>
+                                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 22px;">
+                                    Nessuna competizione trovata nell'Albo d'Oro o negli archivi.
+                                </td>
+                            </tr>
+                        <?php else: 
+                            $defaultSkinLabels = [
+                                'ico-scudetto.gif'   => '🛡️ Scudetto / Campionato (ico-scudetto.gif)',
+                                'ico-coppa.gif'      => '🏆 Coppa / Torneo (ico-coppa.gif)',
+                                'ico-supercoppa.gif' => '⚡ Supercoppa / Shield (ico-supercoppa.gif)',
+                                'ico-gp.gif'         => '🏎️ Gran Premio / Formula GP (ico-gp.gif)',
+                            ];
+                            $defaultSkinShortLabels = [
+                                'ico-scudetto.gif'   => 'Scudetto',
+                                'ico-coppa.gif'      => 'Coppa',
+                                'ico-supercoppa.gif' => 'Supercoppa',
+                                'ico-gp.gif'         => 'GP',
+                            ];
+                        ?>
+                            <?php foreach ($masterComps as $mc):
+                                $cId = (int)$mc['ID'];
+                                $cName = $mc['Nome'];
+                                $autoIcon = $mc['autoIcon'] ?? 'ico-coppa.gif';
+                                $customIcon = $mc['customIcon'] ?? '';
+                                $effectiveIcon = $mc['icon'] ?? $autoIcon;
+                                $origVal = ($customIcon !== '') ? $customIcon : 'auto';
+                                $autoShortLabel = $defaultSkinShortLabels[$autoIcon] ?? $autoIcon;
+                                $isCustomUploaded = (strpos($customIcon, 'comp_logos/') === 0);
+                                $isManualDefault = ($customIcon !== '' && !$isCustomUploaded);
+                            ?>
+                                <tr class="comp-logo-row" data-comp-id="<?php echo $cId; ?>">
+                                    <td style="text-align: center; font-weight: 700; color: var(--text-muted);">
+                                        #<?php echo $cId; ?>
+                                    </td>
+                                    <td>
+                                        <div style="font-weight: 800; color: var(--text-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
+                                            <?php echo renderCompLogoWithFallback($cName, $mc['emoji'] ?? '🏆', 20, $cId); ?>
+                                            <span><?php echo htmlspecialchars($cName); ?></span>
+                                        </div>
+                                        <div style="font-size: 0.73rem; color: var(--text-muted); margin-top: 3px;">
+                                            Riconoscimento automatico dal nome: <strong><?php echo htmlspecialchars($autoShortLabel); ?></strong> (<code><?php echo htmlspecialchars($autoIcon); ?></code>)
+                                        </div>
+                                    </td>
+                                    <td style="text-align: center;">
+                                        <div style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 6px 10px; min-width: 56px; height: 42px;">
+                                            <img id="compLogoPreview_<?php echo $cId; ?>" src="../img/<?php echo htmlspecialchars($effectiveIcon); ?>" alt="<?php echo htmlspecialchars($cName); ?>" style="max-height: 28px; max-width: 44px; width: auto; height: auto; object-fit: contain;" onerror="this.onerror=null;this.src='../img/ico-coppa.gif';" />
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                            <label for="compLogoSelect_<?php echo $cId; ?>" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;">Logo per <?php echo htmlspecialchars($cName); ?></label>
+                                            <select id="compLogoSelect_<?php echo $cId; ?>" name="logos[<?php echo $cId; ?>]" class="calc-input-select comp-logo-select" style="flex: 1; min-width: 220px; max-width: 340px;" data-comp-id="<?php echo $cId; ?>" data-original="<?php echo htmlspecialchars($origVal); ?>" data-auto-icon="<?php echo htmlspecialchars($autoIcon); ?>" onchange="onCompLogoSelectChange(this)">
+                                                <option value="auto" <?php echo ($origVal === 'auto') ? 'selected' : ''; ?>>
+                                                    🤖 Automatico da nome: <?php echo htmlspecialchars($autoShortLabel); ?> (<?php echo htmlspecialchars($autoIcon); ?>)
+                                                </option>
+                                                <optgroup label="── Loghi di Default della Skin ──">
+                                                    <?php foreach ($defaultSkinLabels as $iconFile => $iconLabel): ?>
+                                                        <option value="<?php echo htmlspecialchars($iconFile); ?>" <?php echo ($origVal === $iconFile) ? 'selected' : ''; ?>>
+                                                            <?php echo htmlspecialchars($iconLabel); ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
+                                                </optgroup>
+                                                <optgroup label="── Loghi Custom Caricati ──" class="comp-custom-logos-optgroup">
+                                                    <?php foreach ($uploadedCompLogos as $relPath => $fileName): ?>
+                                                        <option value="<?php echo htmlspecialchars($relPath); ?>" <?php echo ($origVal === $relPath) ? 'selected' : ''; ?>>
+                                                            🖼️ Custom: <?php echo htmlspecialchars($fileName); ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
+                                                </optgroup>
+                                            </select>
+
+                                            <button type="button" class="pill-btn" id="btnUploadCompLogo_<?php echo $cId; ?>" onclick="triggerCompLogoUpload(<?php echo $cId; ?>)" style="padding: 6px 12px; font-size: 0.78rem; border: 1px solid var(--border-subtle); background: var(--bg-surface-elevated); color: var(--text-primary); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; min-height: 36px;" title="Carica un file immagine personalizzato (consigliato 250×250 px — PNG, JPG, WEBP, GIF)">
+                                                <span>📁 Carica Custom (250×250px)</span>
+                                            </button>
+                                            <button type="button" class="pill-btn" id="btnDeleteCompLogo_<?php echo $cId; ?>" onclick="deleteSelectedCompLogo(<?php echo $cId; ?>)" style="padding: 6px 10px; font-size: 0.78rem; border: 1px solid rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.08); color: var(--accent-crimson, #ef4444); display: <?php echo $isCustomUploaded ? 'inline-flex' : 'none'; ?>; align-items: center; gap: 4px; cursor: pointer; min-height: 36px;" title="Elimina definitivamente questo logo custom dal server">
+                                                <span>🗑️ Elimina Custom</span>
+                                            </button>
+                                            <input type="file" id="compLogoFile_<?php echo $cId; ?>" accept="image/png,image/jpeg,image/webp,image/gif" style="display: none;" onchange="handleCompLogoUpload(this, <?php echo $cId; ?>)" />
+                                        </div>
+                                    </td>
+                                    <td style="text-align: center;">
+                                        <?php if ($isCustomUploaded): ?>
+                                            <span class="franchise-status-pill pill-manual" id="statusCompLogoPill_<?php echo $cId; ?>" style="background: rgba(168, 85, 247, 0.14); color: var(--accent-purple, #a855f7); border-color: rgba(168, 85, 247, 0.3);">
+                                                🟣 Custom
+                                            </span>
+                                        <?php elseif ($isManualDefault): ?>
+                                            <span class="franchise-status-pill pill-manual" id="statusCompLogoPill_<?php echo $cId; ?>">
+                                                🔵 Default Skin
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="franchise-status-pill pill-auto" id="statusCompLogoPill_<?php echo $cId; ?>">
+                                                🟢 Auto
+                                            </span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- GESTIONE LOGHI CUSTOM CARICATI SUL SERVER -->
+            <div id="customCompLogosGalleryWrap" style="margin-top: 14px; padding: 12px 16px; background: var(--bg-surface-elevated, #f8fafc); border: 1px solid var(--border-subtle, #e2e8f0); border-radius: var(--radius-sm, 6px); display: <?php echo !empty($uploadedCompLogos) ? 'block' : 'none'; ?>;">
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                    <span>🗂️ Loghi Custom presenti sul server (<code>img/comp_logos/</code>)</span>
+                    <span style="font-weight: 500; color: var(--text-muted);">Puoi rimuovere i file caricati non più utilizzati</span>
+                </div>
+                <div id="customCompLogosGalleryList" style="display: flex; flex-wrap: wrap; gap: 10px;">
+                    <?php foreach ($uploadedCompLogos as $relPath => $fileName): ?>
+                        <div class="custom-logo-chip" data-logo-value="<?php echo htmlspecialchars($relPath); ?>" style="display: inline-flex; align-items: center; gap: 8px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm, 6px); padding: 5px 10px; font-size: 0.8rem;">
+                            <img src="../img/<?php echo htmlspecialchars($relPath); ?>" alt="<?php echo htmlspecialchars($fileName); ?>" style="width: 24px; height: 24px; object-fit: contain;" />
+                            <span style="color: var(--text-primary); font-weight: 600;"><?php echo htmlspecialchars($fileName); ?></span>
+                            <button type="button" onclick="deleteCustomCompLogoByValue('<?php echo htmlspecialchars(addslashes($relPath)); ?>')" style="background: transparent; border: none; color: var(--accent-crimson, #ef4444); cursor: pointer; padding: 2px 4px; font-size: 0.85rem; line-height: 1;" title="Elimina <?php echo htmlspecialchars($fileName); ?> dal server">
+                                🗑️
+                            </button>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </form>
+    </section>
+
     <!-- SEZIONE 2: MAPPATURA FRANCHIGIE STORICHE -->
     <section class="calc-card-section">
         <div class="calc-section-header">
@@ -1318,7 +1539,7 @@ foreach ($stagioniDisponibili as $stg) {
                                             </td>
                                             <td>
                                                 <div style="font-weight: 800; color: var(--text-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
-                                                    <?php echo renderCompLogoWithFallback($cp['nome'], '🏆', 18); ?>
+                                                    <?php echo renderCompLogoWithFallback($cp['nome'], '🏆', 18, (int)$cp['currentMasterId']); ?>
                                                     <span><?php echo htmlspecialchars($cp['nome']); ?></span>
                                                 </div>
                                                 <div style="font-size: 0.73rem; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; gap: 6px;">
@@ -1331,7 +1552,7 @@ foreach ($stagioniDisponibili as $stg) {
                                             </td>
                                             <td>
                                                 <div style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; color: var(--text-secondary);">
-                                                    <?php echo renderCompLogoWithFallback($cp['autoMasterName'], '🤖', 18); ?>
+                                                    <?php echo renderCompLogoWithFallback($cp['autoMasterName'], '🤖', 18, (int)$cp['autoMasterId']); ?>
                                                     <span><strong><?php echo htmlspecialchars($cp['autoMasterName']); ?></strong></span>
                                                     <span style="font-size: 0.72rem; color: var(--text-muted);">(ID Master <?php echo $cp['autoMasterId']; ?>)</span>
                                                 </div>
@@ -2501,6 +2722,347 @@ foreach ($stagioniDisponibili as $stg) {
                 btnSave.innerHTML = originalBtnHtml;
             }
             checkLegacyFoldersChanges();
+        });
+    };
+
+    // -------------------------------------------------------------
+    // SEZIONE 1b: LOGHI E ICONE COMPETIZIONI
+    // -------------------------------------------------------------
+    function mapCompIconToBadgeSrc(iconVal) {
+        if (iconVal === 'ico-scudetto.gif') return '../img/scudo.png';
+        if (iconVal === 'ico-coppa.gif') return '../img/coppa.png';
+        if (iconVal === 'ico-supercoppa.gif') return '../img/supercoppa.png';
+        if (iconVal === 'ico-gp.gif') return '../img/gp.png';
+        return '../img/' + iconVal;
+    }
+
+    function updateCompLogoRowVisuals(selectElem) {
+        if (!selectElem) return;
+        var cId = selectElem.getAttribute('data-comp-id');
+        var origVal = selectElem.getAttribute('data-original') || 'auto';
+        var autoIcon = selectElem.getAttribute('data-auto-icon') || 'ico-coppa.gif';
+        var currentVal = selectElem.value;
+        var effectiveIcon = (currentVal === 'auto' || !currentVal) ? autoIcon : currentVal;
+
+        var previewImg = document.getElementById('compLogoPreview_' + cId);
+        if (previewImg) {
+            previewImg.src = '../img/' + effectiveIcon;
+        }
+
+        var btnDelete = document.getElementById('btnDeleteCompLogo_' + cId);
+        if (btnDelete) {
+            btnDelete.style.display = (currentVal.indexOf('comp_logos/') === 0) ? 'inline-flex' : 'none';
+        }
+
+        // Aggiorna in tempo reale i badge di questa competizione nella pagina
+        var badgeImgs = document.querySelectorAll('img[data-comp-badge-img="' + cId + '"]');
+        var badgeSrc = mapCompIconToBadgeSrc(effectiveIcon);
+        badgeImgs.forEach(function(img) {
+            img.src = badgeSrc;
+            img.style.display = 'inline-block';
+            if (img.nextElementSibling) img.nextElementSibling.style.display = 'none';
+        });
+
+        var pill = document.getElementById('statusCompLogoPill_' + cId);
+        if (pill) {
+            pill.removeAttribute('style');
+            if (currentVal !== origVal) {
+                pill.className = 'franchise-status-pill pill-modified';
+                pill.textContent = '✏️ Modificato';
+            } else if (currentVal.indexOf('comp_logos/') === 0) {
+                pill.className = 'franchise-status-pill pill-manual';
+                pill.style.background = 'rgba(168, 85, 247, 0.14)';
+                pill.style.color = 'var(--accent-purple, #a855f7)';
+                pill.style.borderColor = 'rgba(168, 85, 247, 0.3)';
+                pill.textContent = '🟣 Custom';
+            } else if (currentVal !== 'auto') {
+                pill.className = 'franchise-status-pill pill-manual';
+                pill.textContent = '🔵 Default Skin';
+            } else {
+                pill.className = 'franchise-status-pill pill-auto';
+                pill.textContent = '🟢 Auto';
+            }
+        }
+    }
+
+    window.onCompLogoSelectChange = function(selectElem) {
+        updateCompLogoRowVisuals(selectElem);
+        checkCompLogosChanges();
+    };
+
+    window.checkCompLogosChanges = function() {
+        var selects = document.querySelectorAll('.comp-logo-select');
+        var changedCount = 0;
+        selects.forEach(function(sel) {
+            var orig = sel.getAttribute('data-original') || 'auto';
+            if (sel.value !== orig) changedCount++;
+        });
+
+        var badge = document.getElementById('badgeCompLogosChanges');
+        var btnSave = document.getElementById('btnSaveCompLogos');
+        var btnReset = document.getElementById('btnResetCompLogos');
+        if (!badge || !btnSave) return;
+
+        if (changedCount > 0) {
+            badge.className = 'badge-status-changes has-changes';
+            badge.innerHTML = '<span>🟡</span> ' + changedCount + (changedCount === 1 ? ' logo modificato non salvato' : ' loghi modificati non salvati');
+            btnSave.disabled = false;
+            if (btnReset) btnReset.disabled = false;
+        } else {
+            badge.className = 'badge-status-changes no-changes';
+            badge.innerHTML = '<span>⚪</span> Nessuna modifica non salvata';
+            btnSave.disabled = true;
+            if (btnReset) btnReset.disabled = true;
+        }
+    };
+
+    window.ripristinaLoghiCompetizioni = function() {
+        var selects = document.querySelectorAll('.comp-logo-select');
+        selects.forEach(function(sel) {
+            sel.value = sel.getAttribute('data-original') || 'auto';
+            updateCompLogoRowVisuals(sel);
+        });
+        checkCompLogosChanges();
+        if (typeof showToast === 'function') {
+            showToast('Loghi competizioni ripristinati ai valori salvati.', 'info');
+        }
+    };
+
+    window.triggerCompLogoUpload = function(cId) {
+        var fileInput = document.getElementById('compLogoFile_' + cId);
+        if (fileInput) {
+            fileInput.value = '';
+            fileInput.click();
+        }
+    };
+
+    window.handleCompLogoUpload = function(fileInput, cId) {
+        if (!fileInput || !fileInput.files || !fileInput.files[0]) return;
+        var file = fileInput.files[0];
+        var btnUpload = document.getElementById('btnUploadCompLogo_' + cId);
+        var origBtnHtml = btnUpload ? btnUpload.innerHTML : '';
+        if (btnUpload) {
+            btnUpload.disabled = true;
+            btnUpload.innerHTML = '<span>⏳ Upload...</span>';
+        }
+
+        var formData = new FormData();
+        formData.append('action', 'upload_competition_logo');
+        formData.append('comp_id', cId);
+        formData.append('logo_file', file);
+
+        fetch('impostazioni.php', {
+            method: 'POST',
+            headers: getRankingCsrfHeaders(),
+            body: formData
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data && data.success && data.value) {
+                // Aggiungi l'opzione a tutte le select dei loghi competizione se non presente
+                var allSelects = document.querySelectorAll('.comp-logo-select');
+                allSelects.forEach(function(sel) {
+                    var optGroup = sel.querySelector('.comp-custom-logos-optgroup');
+                    if (!optGroup) return;
+                    var exists = false;
+                    for (var i = 0; i < sel.options.length; i++) {
+                        if (sel.options[i].value === data.value) {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (!exists) {
+                        var opt = document.createElement('option');
+                        opt.value = data.value;
+                        opt.textContent = '🖼️ Custom: ' + (data.filename || data.value.replace('comp_logos/', ''));
+                        optGroup.appendChild(opt);
+                    }
+                });
+
+                var targetSelect = document.getElementById('compLogoSelect_' + cId);
+                if (targetSelect) {
+                    targetSelect.value = data.value;
+                    onCompLogoSelectChange(targetSelect);
+                }
+
+                // Aggiungi chip nella galleria dei loghi custom caricati
+                var galleryWrap = document.getElementById('customCompLogosGalleryWrap');
+                var galleryList = document.getElementById('customCompLogosGalleryList');
+                if (galleryWrap && galleryList) {
+                    galleryWrap.style.display = 'block';
+                    var existingChip = galleryList.querySelector('.custom-logo-chip[data-logo-value="' + data.value + '"]');
+                    if (!existingChip) {
+                        var fName = data.filename || data.value.replace('comp_logos/', '');
+                        var chip = document.createElement('div');
+                        chip.className = 'custom-logo-chip';
+                        chip.setAttribute('data-logo-value', data.value);
+                        chip.style.cssText = 'display: inline-flex; align-items: center; gap: 8px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm, 6px); padding: 5px 10px; font-size: 0.8rem;';
+                        chip.innerHTML = '<img src="../img/' + data.value + '" alt="" style="width: 24px; height: 24px; object-fit: contain;" />'
+                            + '<span style="color: var(--text-primary); font-weight: 600;"></span>'
+                            + '<button type="button" style="background: transparent; border: none; color: var(--accent-crimson, #ef4444); cursor: pointer; padding: 2px 4px; font-size: 0.85rem; line-height: 1;" title="Elimina dal server">🗑️</button>';
+                        chip.querySelector('span').textContent = fName;
+                        chip.querySelector('button').onclick = function() {
+                            deleteCustomCompLogoByValue(data.value);
+                        };
+                        galleryList.appendChild(chip);
+                    }
+                }
+
+                if (typeof showToast === 'function') {
+                    showToast('✅ Logo caricato! Clicca su "Salva Loghi Competizioni" per confermare.', 'success');
+                }
+            } else {
+                var errMsg = (data && data.error) ? data.error : 'Errore durante il caricamento del file.';
+                if (typeof showToast === 'function') {
+                    showToast('❌ ' + errMsg, 'error');
+                } else {
+                    alert('❌ ' + errMsg);
+                }
+            }
+        })
+        .catch(function(err) {
+            if (typeof showToast === 'function') {
+                showToast('❌ Errore connessione: ' + err.message, 'error');
+            } else {
+                alert('❌ Errore connessione: ' + err.message);
+            }
+        })
+        .finally(function() {
+            if (btnUpload) {
+                btnUpload.disabled = false;
+                btnUpload.innerHTML = origBtnHtml;
+            }
+        });
+    };
+
+    window.deleteSelectedCompLogo = function(cId) {
+        var sel = document.getElementById('compLogoSelect_' + cId);
+        if (!sel || sel.value.indexOf('comp_logos/') !== 0) return;
+        deleteCustomCompLogoByValue(sel.value);
+    };
+
+    window.deleteCustomCompLogoByValue = function(logoValue) {
+        if (!logoValue || logoValue.indexOf('comp_logos/') !== 0) return;
+        var fileName = logoValue.replace('comp_logos/', '');
+        if (!confirm('Vuoi eliminare definitivamente il logo custom "' + fileName + '" dal server?\nEventuali competizioni che lo utilizzano torneranno al logo automatico.')) {
+            return;
+        }
+
+        var formData = new FormData();
+        formData.append('action', 'delete_competition_logo');
+        formData.append('logo', logoValue);
+
+        fetch('impostazioni.php', {
+            method: 'POST',
+            headers: getRankingCsrfHeaders(),
+            body: formData
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data && data.success) {
+                var delVal = data.deletedValue || logoValue;
+                var allSelects = document.querySelectorAll('.comp-logo-select');
+                allSelects.forEach(function(sel) {
+                    var wasSelected = (sel.value === delVal);
+                    var wasOriginal = (sel.getAttribute('data-original') === delVal);
+                    for (var i = sel.options.length - 1; i >= 0; i--) {
+                        if (sel.options[i].value === delVal) {
+                            sel.remove(i);
+                        }
+                    }
+                    if (wasOriginal) {
+                        sel.setAttribute('data-original', 'auto');
+                    }
+                    if (wasSelected) {
+                        sel.value = sel.getAttribute('data-original') || 'auto';
+                    }
+                    updateCompLogoRowVisuals(sel);
+                });
+
+                var galleryList = document.getElementById('customCompLogosGalleryList');
+                var galleryWrap = document.getElementById('customCompLogosGalleryWrap');
+                if (galleryList) {
+                    var chip = galleryList.querySelector('.custom-logo-chip[data-logo-value="' + delVal + '"]');
+                    if (chip) chip.remove();
+                    if (galleryWrap && galleryList.children.length === 0) {
+                        galleryWrap.style.display = 'none';
+                    }
+                }
+
+                checkCompLogosChanges();
+                if (typeof showToast === 'function') {
+                    showToast('🗑️ ' + (data.message || 'Logo custom eliminato.'), 'info');
+                }
+            } else {
+                var errMsg = (data && data.error) ? data.error : 'Errore durante l\'eliminazione del logo.';
+                if (typeof showToast === 'function') {
+                    showToast('❌ ' + errMsg, 'error');
+                } else {
+                    alert('❌ ' + errMsg);
+                }
+            }
+        })
+        .catch(function(err) {
+            if (typeof showToast === 'function') {
+                showToast('❌ Errore connessione: ' + err.message, 'error');
+            } else {
+                alert('❌ Errore connessione: ' + err.message);
+            }
+        });
+    };
+
+    window.salvaLoghiCompetizioni = function() {
+        var form = document.getElementById('competitionLogosForm');
+        var btnSave = document.getElementById('btnSaveCompLogos');
+        if (!form || !btnSave) return;
+
+        var origBtnHtml = btnSave.innerHTML;
+        btnSave.disabled = true;
+        btnSave.innerHTML = '<span>⏳ Salvataggio &amp; Aggiornamento...</span>';
+
+        var formData = new FormData(form);
+        formData.append('action', 'save_competition_logos');
+
+        fetch('impostazioni.php', {
+            method: 'POST',
+            headers: getRankingCsrfHeaders(),
+            body: formData
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data && data.success) {
+                var selects = document.querySelectorAll('.comp-logo-select');
+                selects.forEach(function(sel) {
+                    sel.setAttribute('data-original', sel.value);
+                    updateCompLogoRowVisuals(sel);
+                });
+                checkCompLogosChanges();
+                if (typeof showToast === 'function') {
+                    showToast('✅ ' + data.message, 'success');
+                } else {
+                    alert('✅ ' + data.message);
+                }
+            } else {
+                var errMsg = (data && data.error) ? data.error : 'Errore durante il salvataggio dei loghi.';
+                if (typeof showToast === 'function') {
+                    showToast('❌ ' + errMsg, 'error');
+                } else {
+                    alert('❌ ' + errMsg);
+                }
+                checkCompLogosChanges();
+            }
+        })
+        .catch(function(err) {
+            if (typeof showToast === 'function') {
+                showToast('❌ Errore connessione: ' + err.message, 'error');
+            } else {
+                alert('❌ Errore connessione: ' + err.message);
+            }
+            checkCompLogosChanges();
+        })
+        .finally(function() {
+            btnSave.innerHTML = origBtnHtml;
+            checkCompLogosChanges();
         });
     };
 

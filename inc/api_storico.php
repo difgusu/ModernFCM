@@ -342,6 +342,22 @@ if (!function_exists('getFranchiseResolver')) {
     }
 }
 
+if (!function_exists('resolveCompetitionDefaultIconAndEmoji')) {
+    function resolveCompetitionDefaultIconAndEmoji($cName, $defaultEmoji = '🏆') {
+        $clean = strtolower(trim((string)$cName));
+        if (strpos($clean, 'supercoppa') !== false || strpos($clean, 'shield') !== false) {
+            return ['icon' => 'ico-supercoppa.gif', 'emoji' => '🛡️'];
+        } elseif (strpos($clean, 'gp') !== false || strpos($clean, 'gran prix') !== false || strpos($clean, 'formula') !== false) {
+            return ['icon' => 'ico-gp.gif', 'emoji' => '🏎️'];
+        } elseif (strpos($clean, 'coppa') !== false || strpos($clean, 'cup') !== false) {
+            return ['icon' => 'ico-coppa.gif', 'emoji' => '🍷'];
+        } elseif (strpos($clean, 'scudetto') !== false || strpos($clean, 'lega') !== false || strpos($clean, 'campionato') !== false || strpos($clean, 'premier') !== false || strpos($clean, 'serie') !== false) {
+            return ['icon' => 'ico-scudetto.gif', 'emoji' => '🏆'];
+        }
+        return ['icon' => 'ico-coppa.gif', 'emoji' => $defaultEmoji];
+    }
+}
+
 if (!function_exists('getCompetitionResolver')) {
     function getCompetitionResolver($sqliteBase, $latestSeasonId) {
         $override = [];
@@ -350,16 +366,63 @@ if (!function_exists('getCompetitionResolver')) {
             $override = json_decode(file_get_contents($mapFile), true) ?: [];
         }
 
+        $customLogos = [];
+        $logosFile = __DIR__ . '/data/competition_logos.json';
+        if (file_exists($logosFile)) {
+            $decodedLogos = json_decode(file_get_contents($logosFile), true);
+            if (is_array($decodedLogos)) {
+                $customLogos = $decodedLogos;
+            }
+        }
+
         $masterPath = "$sqliteBase/stagione_$latestSeasonId/lega_$latestSeasonId.sqlite";
         if ((int)$latestSeasonId <= 0 || !file_exists($masterPath)) {
+            $fallbackMasterComps = [];
+            $fallbackAlboNames = [];
+            $jsAlboFile = dirname(__DIR__) . '/js/fcmAlboDOroDati.js';
+            if (file_exists($jsAlboFile)) {
+                $jsContent = @file_get_contents($jsAlboFile);
+                if ($jsContent && preg_match_all('/new\s+AdOC\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^"]*)"\s*,\s*(\d+)\s*\)/i', $jsContent, $matches, PREG_SET_ORDER)) {
+                    foreach ($matches as $m) {
+                        $cId = (int)$m[1];
+                        $cAtt = (int)$m[2];
+                        $cName = trim($m[3]);
+                        $cYear = (int)$m[4];
+                        $defMeta = resolveCompetitionDefaultIconAndEmoji($cName);
+                        $autoIcon = $defMeta['icon'];
+                        $cfgIcon = isset($customLogos[$cId]) && is_string($customLogos[$cId]) && trim($customLogos[$cId]) !== '' && trim($customLogos[$cId]) !== 'auto'
+                            ? trim($customLogos[$cId])
+                            : '';
+                        $finalIcon = $cfgIcon !== '' ? $cfgIcon : $autoIcon;
+                        $fallbackMasterComps[] = [
+                            'id' => $cId,
+                            'ID' => $cId,
+                            'name' => $cName,
+                            'Nome' => $cName,
+                            'idAttuale' => $cAtt,
+                            'IDAttuale' => $cAtt,
+                            'icon' => $finalIcon,
+                            'Icona' => $finalIcon,
+                            'autoIcon' => $autoIcon,
+                            'customIcon' => $cfgIcon,
+                            'isCustomLogo' => ($cfgIcon !== ''),
+                            'emoji' => $defMeta['emoji'],
+                            'iniziataNel' => $cYear
+                        ];
+                        $fallbackAlboNames[$cId] = $cName;
+                    }
+                }
+            }
             return [
                 'resolver' => function($s, $rawCId) use ($override) {
                     return isset($override[$s][$rawCId]) ? (int)$override[$s][$rawCId] : (int)$rawCId;
                 },
                 'autoResolver' => function($s, $rawCId) { return (int)$rawCId; },
-                'masterComps' => [],
-                'alboCompNames' => [],
-                'override' => $override
+                'masterComps' => $fallbackMasterComps,
+                'alboComps' => $fallbackMasterComps,
+                'alboCompNames' => $fallbackAlboNames,
+                'override' => $override,
+                'customLogos' => $customLogos
             ];
         }
 
@@ -379,24 +442,13 @@ if (!function_exists('getCompetitionResolver')) {
             $masterIdsSeen[$cId] = true;
 
             $clean = strtolower($cName);
-            $icon = 'ico-coppa.gif';
-            $emoji = '🏆';
-            if (strpos($clean, 'supercoppa') !== false || strpos($clean, 'shield') !== false) {
-                $icon = 'ico-supercoppa.gif';
-                $emoji = '🛡️';
-            } elseif (strpos($clean, 'gp') !== false || strpos($clean, 'gran prix') !== false || strpos($clean, 'formula') !== false) {
-                $icon = 'ico-gp.gif';
-                $emoji = '🏎️';
-            } elseif (strpos($clean, 'coppa') !== false || strpos($clean, 'cup') !== false) {
-                $icon = 'ico-coppa.gif';
-                $emoji = '🍷';
-            } elseif (strpos($clean, 'scudetto') !== false || strpos($clean, 'lega') !== false || strpos($clean, 'campionato') !== false || strpos($clean, 'serie') !== false) {
-                $icon = 'ico-scudetto.gif';
-                $emoji = '🏆';
-            } else {
-                $icon = 'ico-coppa.gif';
-                $emoji = '🎖️';
-            }
+            $defMeta = resolveCompetitionDefaultIconAndEmoji($cName, '🎖️');
+            $autoIcon = $defMeta['icon'];
+            $emoji = $defMeta['emoji'];
+            $cfgIcon = isset($customLogos[$cId]) && is_string($customLogos[$cId]) && trim($customLogos[$cId]) !== '' && trim($customLogos[$cId]) !== 'auto'
+                ? trim($customLogos[$cId])
+                : '';
+            $icon = $cfgIcon !== '' ? $cfgIcon : $autoIcon;
 
             $masterComps[] = [
                 'id' => $cId,
@@ -407,6 +459,9 @@ if (!function_exists('getCompetitionResolver')) {
                 'IDAttuale' => $cAtt,
                 'icon' => $icon,
                 'Icona' => $icon,
+                'autoIcon' => $autoIcon,
+                'customIcon' => $cfgIcon,
+                'isCustomLogo' => ($cfgIcon !== ''),
                 'emoji' => $emoji,
                 'iniziataNel' => (int)($ac['IniziataNel'] ?? 0)
             ];
@@ -443,7 +498,12 @@ if (!function_exists('getCompetitionResolver')) {
                         $masterIdsSeen[$scId] = true;
                         $scName = trim($sac['Nome'] ?? "Competizione $scId");
                         $clean = strtolower($scName);
-                        $icon = (strpos($clean, 'supercoppa') !== false) ? 'ico-supercoppa.gif' : ((strpos($clean, 'gp') !== false) ? 'ico-gp.gif' : 'ico-coppa.gif');
+                        $defMeta = resolveCompetitionDefaultIconAndEmoji($scName, '🎖️');
+                        $autoIcon = $defMeta['icon'];
+                        $cfgIcon = isset($customLogos[$scId]) && is_string($customLogos[$scId]) && trim($customLogos[$scId]) !== '' && trim($customLogos[$scId]) !== 'auto'
+                            ? trim($customLogos[$scId])
+                            : '';
+                        $icon = $cfgIcon !== '' ? $cfgIcon : $autoIcon;
                         $masterComps[] = [
                             'id' => $scId,
                             'ID' => $scId,
@@ -453,7 +513,10 @@ if (!function_exists('getCompetitionResolver')) {
                             'IDAttuale' => (int)($sac['IDAttuale'] ?? 0),
                             'icon' => $icon,
                             'Icona' => $icon,
-                            'emoji' => '🎖️',
+                            'autoIcon' => $autoIcon,
+                            'customIcon' => $cfgIcon,
+                            'isCustomLogo' => ($cfgIcon !== ''),
+                            'emoji' => $defMeta['emoji'],
                             'iniziataNel' => (int)($sac['IniziataNel'] ?? 0)
                         ];
                         $alboCompNames[$scId] = $scName;
@@ -474,7 +537,12 @@ if (!function_exists('getCompetitionResolver')) {
                         $masterIdsSeen[$synthMasterId] = true;
                         $ccName = trim($cc['Nome'] ?? "Competizione $ccId");
                         $clean = strtolower($ccName);
-                        $icon = 'ico-coppa.gif';
+                        $defMeta = resolveCompetitionDefaultIconAndEmoji($ccName, '⚽');
+                        $autoIcon = $defMeta['icon'];
+                        $cfgIcon = isset($customLogos[$synthMasterId]) && is_string($customLogos[$synthMasterId]) && trim($customLogos[$synthMasterId]) !== '' && trim($customLogos[$synthMasterId]) !== 'auto'
+                            ? trim($customLogos[$synthMasterId])
+                            : '';
+                        $icon = $cfgIcon !== '' ? $cfgIcon : $autoIcon;
                         $masterComps[] = [
                             'id' => $synthMasterId,
                             'ID' => $synthMasterId,
@@ -484,7 +552,10 @@ if (!function_exists('getCompetitionResolver')) {
                             'IDAttuale' => $ccId,
                             'icon' => $icon,
                             'Icona' => $icon,
-                            'emoji' => '⚽',
+                            'autoIcon' => $autoIcon,
+                            'customIcon' => $cfgIcon,
+                            'isCustomLogo' => ($cfgIcon !== ''),
+                            'emoji' => $defMeta['emoji'],
                             'iniziataNel' => 0
                         ];
                         $alboCompNames[$synthMasterId] = $ccName;
@@ -532,7 +603,8 @@ if (!function_exists('getCompetitionResolver')) {
             'masterComps' => $masterComps,
             'alboComps' => $masterComps,
             'alboCompNames' => $alboCompNames,
-            'override' => $override
+            'override' => $override,
+            'customLogos' => $customLogos
         ];
     }
 }

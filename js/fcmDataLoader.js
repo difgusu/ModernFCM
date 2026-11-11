@@ -914,10 +914,11 @@ const fcmDataLoader = {
         if (!cId || cId === 0) continue;
         const res = this.cercaVincitore(cId);
         if (res && res.name) {
+          const customIcon = (this._compLogosMap && this._compLogosMap[cId]) ? this._compLogosMap[cId] : null;
           this._defendingWinnersCache.push({
             compId: cId,
             label: pal.Label || pal.label || pal.name || `Comp ${cId}`,
-            icon: pal.Icona || pal.icon || 'ico-scudetto.gif',
+            icon: customIcon || pal.Icona || pal.icon || 'ico-scudetto.gif',
             winnerName: res.name,
             idAttuale: res.idAttuale
           });
@@ -934,8 +935,10 @@ const fcmDataLoader = {
       const matchByName = (targetNorm && norm(w.winnerName) === targetNorm);
       const matchById = (!isNaN(parsedId) && parsedId > 0 && w.idAttuale === parsedId);
       if (matchByName || matchById) {
-        const smallIcon = this._resolvePath(`img/small-${w.icon}`);
-        const mainIcon = this._resolvePath(`img/${w.icon}`);
+        const currentIcon = (this._compLogosMap && this._compLogosMap[w.compId]) || w.icon;
+        const isDefaultGif = /^ico-(scudetto|coppa|supercoppa|gp)\.gif$/i.test(currentIcon);
+        const mainIcon = this._resolvePath(`img/${currentIcon}`);
+        const smallIcon = isDefaultGif ? this._resolvePath(`img/small-${currentIcon}`) : mainIcon;
         html += `<img src="${smallIcon}" onerror="this.onerror=null;this.src='${mainIcon}';" alt="${w.label}" title="Detentore ${w.label}" style="height:16px;width:auto;vertical-align:middle;margin-left:4px;" />`;
       }
     }
@@ -3707,6 +3710,54 @@ const fcmDataLoader = {
   },
 
   /**
+   * Helper: Carica la configurazione dei loghi competizioni da inc/data/competition_logos.json
+   */
+  async loadCompetitionLogos() {
+    if (this._compLogosMap) return this._compLogosMap;
+    try {
+      const cfg = await this.fetchJson('inc/data/competition_logos.json');
+      if (cfg && typeof cfg === 'object') {
+        this._compLogosMap = cfg;
+      } else {
+        this._compLogosMap = {};
+      }
+    } catch (e) {
+      this._compLogosMap = {};
+    }
+    return this._compLogosMap;
+  },
+
+  /**
+   * Applica i loghi personalizzati o configurati dall'admin ad una lista palmares (e a window.arrPalmares)
+   */
+  applyCompetitionLogosToPalmares(palmaresList) {
+    const map = this._compLogosMap;
+    if (!map || typeof map !== 'object') return palmaresList;
+    if (Array.isArray(palmaresList)) {
+      for (const p of palmaresList) {
+        if (!p) continue;
+        const cId = p.Competizione || p.compId || p.id || p.ID;
+        if (cId && map[cId]) {
+          p.Icona = map[cId];
+          p.icon = map[cId];
+        }
+      }
+    }
+    if (typeof window !== 'undefined' && Array.isArray(window.arrPalmares)) {
+      for (let i = 1; i < window.arrPalmares.length; i++) {
+        const p = window.arrPalmares[i];
+        if (!p) continue;
+        const cId = p.Competizione || p.compId || p.id || p.ID;
+        if (cId && map[cId]) {
+          p.Icona = map[cId];
+          p.icon = map[cId];
+        }
+      }
+    }
+    return palmaresList;
+  },
+
+  /**
    * Carica e aggrega l'archivio completo delle sole stagioni concluse (season < currentSeason).
    * Autorità primaria: archivi storici SQLite.
    * Include podi e competizioni dinamiche da arrAdOPosizioni (divisioni solo se presenti)
@@ -3747,8 +3798,12 @@ const fcmDataLoader = {
       (this.fetchJson('sqlite/top_costi.json').then(d => d || this.fetchJson('inc/api_storico.php?action=top_costi'))).catch(() => null),
       this.loadFantamisterStorico().catch(() => null),
       (this.fetchJson('sqlite/confronti.json').then(d => d || this.fetchJson('inc/api_storico.php?action=confronti'))).catch(() => null),
-      this.loadStoricoConfig().catch(() => ({ showLegacySites: true, seasons: {} }))
+      this.loadStoricoConfig().catch(() => ({ showLegacySites: true, seasons: {} })),
+      this.loadCompetitionLogos().catch(() => ({}))
     ]);
+    if (confrontiData && Array.isArray(confrontiData.palmares)) {
+      this.applyCompetitionLogosToPalmares(confrontiData.palmares);
+    }
 
     // Mappe per nomi competizioni e fantasquadre
     const compMap = new Map();
@@ -3958,15 +4013,23 @@ const fcmDataLoader = {
    * Load and compute Ranking Storico
    */
   async loadRanking() {
-    let data = await this.fetchJson('sqlite/ranking.json');
+    const [, rawData] = await Promise.all([
+      this.loadCompetitionLogos().catch(() => ({})),
+      this.fetchJson('sqlite/ranking.json')
+    ]);
+    let data = rawData;
     if (!data) {
       data = await this.fetchJson('inc/api_storico.php?action=ranking');
     }
     if (!data) return [];
 
+    if (data.palmares) {
+      this.applyCompetitionLogosToPalmares(data.palmares);
+    }
     this._cachedRankingData = data;
     if (data.palmares && (!window.arrPalmares || window.arrPalmares.length <= 1)) {
       window.arrPalmares = [null, ...data.palmares];
+      this.applyCompetitionLogosToPalmares(data.palmares);
     }
     return Array.isArray(data) ? data : (data.ranking || []);
   },
@@ -4532,7 +4595,11 @@ const fcmDataLoader = {
         try { await this.loadScript('js/fcmAlboDOroDati.js'); } catch (e) { }
       }
 
-      let data = await this.fetchJson('sqlite/confronti.json');
+      const [, rawData] = await Promise.all([
+        this.loadCompetitionLogos().catch(() => ({})),
+        this.fetchJson('sqlite/confronti.json')
+      ]);
+      let data = rawData;
       if (!data) {
         data = await this.fetchJson('inc/api_storico.php?action=confronti');
       }
@@ -4565,7 +4632,10 @@ const fcmDataLoader = {
     window.arrConfronti = [null, ...matches];
     const arrConfronti = window.arrConfronti;
     if (data.palmares) {
+      this.applyCompetitionLogosToPalmares(data.palmares);
       window.arrPalmares = [null, ...data.palmares];
+    } else if (window.arrPalmares) {
+      this.applyCompetitionLogosToPalmares();
     }
     if (data.posizioni && (!window.arrAdOPosizioni || window.arrAdOPosizioni.length <= 1)) {
       window.arrAdOPosizioni = [null, ...data.posizioni];
@@ -5557,9 +5627,16 @@ const fcmDataLoader = {
    * Carica la classifica perpetua all-time della lega da SQLite
    */
   async loadClassificaPerpetua() {
-    let data = await this.fetchJson('sqlite/classifica_perpetua.json');
+    const [, rawData] = await Promise.all([
+      this.loadCompetitionLogos().catch(() => ({})),
+      this.fetchJson('sqlite/classifica_perpetua.json')
+    ]);
+    let data = rawData;
     if (!data) {
       data = await this.fetchJson('inc/api_storico.php?action=classifica_perpetua');
+    }
+    if (data && Array.isArray(data.palmares)) {
+      this.applyCompetitionLogosToPalmares(data.palmares);
     }
     return data;
   },

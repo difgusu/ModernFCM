@@ -36,6 +36,7 @@ const fcmHomepageAdmin = {
     await this.loadConfig();
     await this.loadLeagueData();
     await this.loadSponsorImages();
+    this.populateCompetitionSelects();
     this.syncDefaultSettingsInputs();
     this.renderColumns();
     this.renderCustomWidgetsList();
@@ -68,8 +69,54 @@ const fcmHomepageAdmin = {
     }
   },
 
+  populateCompetitionSelects() {
+    const comps = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getCompetitions === 'function')
+      ? fcmDataLoader.getCompetitions()
+      : [];
+    const escapeHtml = str => String(str || '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
+
+    const standingsSel = document.getElementById('adminSettingStandingsComp');
+    if (standingsSel) {
+      standingsSel.innerHTML = `<option value="auto">🤖 Automatica (Competizione Predefinita FCM)</option>` +
+        comps.map(c => `<option value="${escapeHtml(c.id)}">🏆 ${escapeHtml(c.name)} (ID: ${escapeHtml(c.id)})</option>`).join('');
+    }
+
+    const coppaSel = document.getElementById('adminSettingCoppaComp');
+    if (coppaSel) {
+      coppaSel.innerHTML = `<option value="auto">🤖 Automatica (Rileva Coppa da nome/ID)</option>` +
+        comps.map(c => `<option value="${escapeHtml(c.id)}">🏆 ${escapeHtml(c.name)} (ID: ${escapeHtml(c.id)})</option>`).join('');
+    }
+
+    const customCompSel = document.getElementById('customWidgetCompId');
+    if (customCompSel) {
+      if (comps.length === 0) {
+        customCompSel.innerHTML = `<option value="">-- Nessuna competizione trovata --</option>`;
+      } else {
+        customCompSel.innerHTML = comps.map(c => {
+          const det = (typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.detectCompetitionFormat)
+            ? fcmHomeConfigManager.detectCompetitionFormat(c)
+            : null;
+          const suffix = det && det.label ? ` — ${det.label}` : '';
+          return `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}${escapeHtml(suffix)}</option>`;
+        }).join('');
+      }
+    }
+  },
+
   syncDefaultSettingsInputs() {
     const settings = (this.currentConfig && this.currentConfig.defaultSettings) ? this.currentConfig.defaultSettings : {};
+    const standingsCompSel = document.getElementById('adminSettingStandingsComp');
+    if (standingsCompSel) {
+      standingsCompSel.value = (settings.standingsCompId !== undefined && settings.standingsCompId !== null && settings.standingsCompId !== '')
+        ? String(settings.standingsCompId)
+        : 'auto';
+    }
+    const coppaCompSel = document.getElementById('adminSettingCoppaComp');
+    if (coppaCompSel) {
+      coppaCompSel.value = (settings.coppaCompId !== undefined && settings.coppaCompId !== null && settings.coppaCompId !== '')
+        ? String(settings.coppaCompId)
+        : 'auto';
+    }
     const topFlopSel = document.getElementById('adminSettingTopFlop');
     if (topFlopSel && settings.topFlopDefaultTab) {
       topFlopSel.value = settings.topFlopDefaultTab;
@@ -95,6 +142,9 @@ const fcmHomepageAdmin = {
     }
     this.currentConfig.defaultSettings[key] = value;
     this.setDirty(true);
+    if (key === 'standingsCompId' || key === 'coppaCompId') {
+      this.renderColumns();
+    }
   },
 
   getApiUrl(action) {
@@ -194,6 +244,11 @@ const fcmHomepageAdmin = {
     this.attachColumnEvents('main');
     this.attachColumnEvents('side');
 
+    if (typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.initCustomCompetitionWidgets) {
+      fcmHomeConfigManager.initCustomCompetitionWidgets(mainList);
+      fcmHomeConfigManager.initCustomCompetitionWidgets(sideList);
+    }
+
     this.setDirty(this.isDirty);
   },
 
@@ -265,9 +320,25 @@ const fcmHomepageAdmin = {
     ];
   },
 
+  getResolvedMainComp() {
+    const comps = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getCompetitions === 'function')
+      ? fcmDataLoader.getCompetitions()
+      : [];
+    const cfgId = this.currentConfig && this.currentConfig.defaultSettings
+      ? this.currentConfig.defaultSettings.standingsCompId
+      : 'auto';
+    if (cfgId && cfgId !== 'auto') {
+      const found = comps.find(c => String(c.id) === String(cfgId));
+      if (found) return found;
+    }
+    return comps.find(c => c.isDefault) || comps.find(c => c.id === 1) || comps[0] || null;
+  },
+
   getLeagueStandings() {
     if (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getStandings === 'function') {
-      const standings = fcmDataLoader.getStandings();
+      const mainComp = this.getResolvedMainComp();
+      const groupId = mainComp ? (mainComp.defaultGroupId || (mainComp.groups && mainComp.groups[0] ? mainComp.groups[0].ID : 1) || 1) : undefined;
+      const standings = fcmDataLoader.getStandings(groupId);
       if (standings && standings.length > 0) return standings;
     }
     const teams = this.getLeagueTeams();
@@ -283,7 +354,9 @@ const fcmHomepageAdmin = {
 
   getLeagueGPStandings() {
     if (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getGPStandings === 'function') {
-      const gp = fcmDataLoader.getGPStandings();
+      const mainComp = this.getResolvedMainComp();
+      const groupId = mainComp ? (mainComp.defaultGroupId || (mainComp.groups && mainComp.groups[0] ? mainComp.groups[0].ID : 1) || 1) : undefined;
+      const gp = fcmDataLoader.getGPStandings(groupId);
       if (gp && gp.length > 0) return gp;
     }
     const standings = this.getLeagueStandings();
@@ -813,6 +886,8 @@ const fcmHomepageAdmin = {
       }
 
       case 'standings': {
+        const mainComp = this.getResolvedMainComp();
+        const mainCompName = mainComp ? mainComp.name : 'Lega';
         const standings = this.getLeagueStandings().slice(0, 10);
         const rowsHtml = standings.map((s, idx) => {
           const tName = s.name || `Squadra ${s.teamId || idx + 1}`;
@@ -843,7 +918,7 @@ const fcmHomepageAdmin = {
                   <path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path>
                   <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path>
                 </svg>
-                Classifica Lega
+                Classifica ${escapeHtml(mainCompName)}
               </div>
               <span class="badge badge-primary">Completa &rarr;</span>
             </div>
@@ -907,7 +982,22 @@ const fcmHomepageAdmin = {
 
       case 'coppa': {
         const comps = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getCompetitions === 'function') ? fcmDataLoader.getCompetitions() : [];
-        const coppaComp = comps.find(c => c.id > 1 || (c.name && c.name.toLowerCase().includes('coppa'))) || { name: 'Coppa di Lega' };
+        const cfgCoppaId = this.currentConfig && this.currentConfig.defaultSettings
+          ? this.currentConfig.defaultSettings.coppaCompId
+          : 'auto';
+        const coppaComp = (cfgCoppaId && cfgCoppaId !== 'auto' ? comps.find(c => String(c.id) === String(cfgCoppaId)) : null)
+          || comps.find(c => c.id > 1 || (c.name && c.name.toLowerCase().includes('coppa')))
+          || { name: 'Coppa di Lega' };
+        if (coppaComp && coppaComp.id && typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.renderCompetitionStandingsWidget) {
+          return fcmHomeConfigManager.renderCompetitionStandingsWidget({
+            id: 'preview_coppa',
+            title: coppaComp.name,
+            compId: coppaComp.id,
+            compFormat: 'auto',
+            accordionMode: 'open',
+            enabled: true
+          }, { isMatchdayInProgress: false });
+        }
         const teams = this.getLeagueTeams();
         const t1 = teams[0] || { Nome: 'Squadra 1', ID: 1 };
         const t2 = teams[1] || { Nome: 'Squadra 2', ID: 2 };
@@ -1751,6 +1841,9 @@ const fcmHomepageAdmin = {
       setVal('customWidgetImageUrl', targetWidget.imageUrl || '');
       setVal('customWidgetCaption', targetWidget.caption || '');
       setVal('customWidgetEmbedHtml', targetWidget.embedHtml || '');
+      setVal('customWidgetCompId', targetWidget.compId !== undefined && targetWidget.compId !== null ? String(targetWidget.compId) : '');
+      setVal('customWidgetCompFormat', targetWidget.compFormat || 'auto');
+      setVal('customWidgetAccordionMode', targetWidget.accordionMode || 'static');
     } else {
       if (editingIdInput) editingIdInput.value = '';
       if (iconEl) iconEl.textContent = '✨';
@@ -1758,6 +1851,8 @@ const fcmHomepageAdmin = {
       if (descEl) descEl.textContent = 'Scegli il modello, compila le informazioni e controlla l\'anteprima in tempo reale prima di pubblicarlo. Potrai poi spostarlo liberamente tra le colonne.';
       if (submitBtn) submitBtn.innerHTML = '<span>➕ Pubblica Widget Personalizzato</span>';
 
+      const comps = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getCompetitions === 'function') ? fcmDataLoader.getCompetitions() : [];
+      const defaultComp = comps[0] || null;
       const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val !== undefined && val !== null ? val : ''; };
       setVal('customWidgetType', 'banner');
       setVal('customWidgetColumn', colKey || 'main');
@@ -1775,6 +1870,9 @@ const fcmHomepageAdmin = {
       setVal('customWidgetImageUrl', '');
       setVal('customWidgetCaption', '');
       setVal('customWidgetEmbedHtml', '');
+      setVal('customWidgetCompId', defaultComp ? String(defaultComp.id) : '');
+      setVal('customWidgetCompFormat', 'auto');
+      setVal('customWidgetAccordionMode', 'static');
     }
 
     this.updateFieldVisibility();
@@ -1827,6 +1925,9 @@ const fcmHomepageAdmin = {
 
     if (typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.renderCustomWidget) {
       modalBody.innerHTML = fcmHomeConfigManager.renderCustomWidget(customObj, { isMatchdayInProgress: false });
+      if (fcmHomeConfigManager.initCustomCompetitionWidgets) {
+        fcmHomeConfigManager.initCustomCompetitionWidgets(modalBody);
+      }
     } else {
       modalBody.innerHTML = `<pre style="color:var(--text-primary);">${escapeHtml(JSON.stringify(customObj, null, 2))}</pre>`;
     }
@@ -1865,15 +1966,28 @@ const fcmHomepageAdmin = {
     }
 
     container.innerHTML = list.map(w => {
+      let extraMeta = '';
+      if (w.type === 'competition_standings') {
+        const comps = (typeof fcmDataLoader !== 'undefined' && fcmDataLoader.getCompetitions) ? fcmDataLoader.getCompetitions() : [];
+        const cObj = comps.find(c => String(c.id) === String(w.compId));
+        const fmtLabels = {
+          auto: 'Automatica',
+          round_robin: 'Girone all\'italiana',
+          knockout: 'Scontri diretti',
+          hybrid: 'Ibrida (Gironi + Scontri diretti)',
+          gp: 'Classifica GP'
+        };
+        extraMeta = ` &bull; Competizione: <strong>${escapeHtml(cObj ? cObj.name : (w.compId || '-'))}</strong> &bull; Formula: <strong>${escapeHtml(fmtLabels[w.compFormat || 'auto'] || w.compFormat)}</strong>`;
+      }
       return `
         <div class="admin-summary-card">
           <div style="flex:1;min-width:240px;">
             <div style="font-weight:700;color:var(--text-primary);font-size:0.92rem;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
               <span>${escapeHtml(w.title)}</span>
-              <span class="badge badge-primary" style="font-size:0.68rem;">${escapeHtml(w.type || 'banner')}</span>
+              <span class="badge badge-primary" style="font-size:0.68rem;">${escapeHtml(w.type === 'competition_standings' ? '🏆 Classifica Competizione' : (w.type || 'banner'))}</span>
             </div>
             <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:4px;">
-              Visibilità: <strong>${escapeHtml(w.visibility || 'sempre')}</strong> ${w.expiresAt ? `&bull; Scadenza: <strong>${new Date(w.expiresAt).toLocaleString('it-IT')}</strong>` : ''}
+              Visibilità: <strong>${escapeHtml(w.visibility || 'sempre')}</strong>${extraMeta} ${w.expiresAt ? `&bull; Scadenza: <strong>${new Date(w.expiresAt).toLocaleString('it-IT')}</strong>` : ''}
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -1896,7 +2010,22 @@ const fcmHomepageAdmin = {
     const typeSelect = document.getElementById('customWidgetType');
     if (typeSelect) {
       typeSelect.addEventListener('change', () => {
+        const isEditing = !!(document.getElementById('customWidgetEditingId')?.value);
+        if (typeSelect.value === 'competition_standings' && !isEditing) {
+          const colSel = document.getElementById('customWidgetColumn');
+          if (colSel) colSel.value = 'side';
+          this.autoSyncCompetitionTitle(true);
+        }
         this.updateFieldVisibility();
+        this.updatePreview();
+      });
+    }
+
+    const compSelect = document.getElementById('customWidgetCompId');
+    if (compSelect) {
+      compSelect.addEventListener('change', () => {
+        this.autoSyncCompetitionTitle(false);
+        this.updateCompetitionHint();
         this.updatePreview();
       });
     }
@@ -1910,6 +2039,43 @@ const fcmHomepageAdmin = {
     this.updateFieldVisibility();
   },
 
+  autoSyncCompetitionTitle(forceIfDefault = false) {
+    const type = document.getElementById('customWidgetType')?.value;
+    if (type !== 'competition_standings') return;
+    const compId = document.getElementById('customWidgetCompId')?.value;
+    const titleInput = document.getElementById('customWidgetTitle');
+    if (!compId || !titleInput) return;
+
+    const comps = (typeof fcmDataLoader !== 'undefined' && fcmDataLoader.getCompetitions) ? fcmDataLoader.getCompetitions() : [];
+    const comp = comps.find(c => String(c.id) === String(compId));
+    if (!comp) return;
+
+    const currentTitle = (titleInput.value || '').trim();
+    const isGenericOrCompName = !currentTitle ||
+      currentTitle === 'Nuovo Avviso' ||
+      currentTitle === 'Avviso Importante' ||
+      comps.some(c => c.name === currentTitle || `Classifica ${c.name}` === currentTitle);
+
+    if (forceIfDefault || isGenericOrCompName) {
+      titleInput.value = comp.name;
+    }
+  },
+
+  updateCompetitionHint() {
+    const hintEl = document.getElementById('customWidgetCompDetectedHint');
+    const compId = document.getElementById('customWidgetCompId')?.value;
+    if (!hintEl) return;
+    if (!compId || typeof fcmHomeConfigManager === 'undefined' || !fcmHomeConfigManager.detectCompetitionFormat) {
+      hintEl.innerHTML = '💡 Seleziona una competizione per mostrare in homepage la classifica a gironi, il tabellone a scontri diretti o entrambi.';
+      return;
+    }
+    const det = fcmHomeConfigManager.detectCompetitionFormat(compId);
+    if (det && det.comp) {
+      const escapeHtml = str => String(str || '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
+      hintEl.innerHTML = `🤖 Formula rilevata automaticamente per <strong>${escapeHtml(det.comp.name)}</strong>: <strong>${escapeHtml(det.label)}</strong>. Puoi lasciare "Automatica" o forzare un formato specifico.`;
+    }
+  },
+
   updateFieldVisibility() {
     const type = document.getElementById('customWidgetType')?.value || 'banner';
     const groupContent = document.getElementById('groupWidgetContent');
@@ -1917,12 +2083,19 @@ const fcmHomepageAdmin = {
     const groupCountdown = document.getElementById('groupWidgetCountdown');
     const groupImage = document.getElementById('groupWidgetImage');
     const groupEmbed = document.getElementById('groupWidgetEmbed');
+    const groupCompetition = document.getElementById('groupWidgetCompetition');
 
     if (groupContent) groupContent.style.display = (type === 'banner' || type === 'button_card') ? 'block' : 'none';
     if (groupLink) groupLink.style.display = (type === 'banner' || type === 'button_card' || type === 'image' || type === 'countdown') ? 'block' : 'none';
     if (groupCountdown) groupCountdown.style.display = (type === 'countdown') ? 'block' : 'none';
     if (groupImage) groupImage.style.display = (type === 'image') ? 'block' : 'none';
     if (groupEmbed) groupEmbed.style.display = (type === 'embed') ? 'block' : 'none';
+    if (groupCompetition) {
+      groupCompetition.style.display = (type === 'competition_standings') ? 'block' : 'none';
+      if (type === 'competition_standings') {
+        this.updateCompetitionHint();
+      }
+    }
   },
 
   getFormData() {
@@ -1946,6 +2119,10 @@ const fcmHomepageAdmin = {
     const caption = document.getElementById('customWidgetCaption')?.value || '';
     const embedHtml = document.getElementById('customWidgetEmbedHtml')?.value || '';
 
+    const compId = document.getElementById('customWidgetCompId')?.value || '';
+    const compFormat = document.getElementById('customWidgetCompFormat')?.value || 'auto';
+    const accordionMode = document.getElementById('customWidgetAccordionMode')?.value || 'static';
+
     return {
       title,
       type,
@@ -1964,6 +2141,9 @@ const fcmHomepageAdmin = {
       imageUrl,
       caption,
       embedHtml,
+      compId,
+      compFormat,
+      accordionMode,
       enabled: true
     };
   },
@@ -1977,6 +2157,9 @@ const fcmHomepageAdmin = {
 
     if (typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.renderCustomWidget) {
       previewContainer.innerHTML = fcmHomeConfigManager.renderCustomWidget(widgetData, { isMatchdayInProgress: false });
+      if (fcmHomeConfigManager.initCustomCompetitionWidgets) {
+        fcmHomeConfigManager.initCustomCompetitionWidgets(previewContainer);
+      }
     }
   },
 

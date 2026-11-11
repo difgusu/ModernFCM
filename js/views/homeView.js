@@ -175,7 +175,13 @@ const homeView = {
       }
     }
     const comps = fcmDataLoader.getCompetitions();
-    const mainComp = comps.find(c => c.isDefault) || comps.find(c => c.id === 1) || comps[0];
+    const configuredStandingsCompId = (userSettings && userSettings.standingsCompId && userSettings.standingsCompId !== 'auto')
+      ? userSettings.standingsCompId
+      : null;
+    const mainComp = (configuredStandingsCompId ? comps.find(c => String(c.id) === String(configuredStandingsCompId)) : null)
+      || comps.find(c => c.isDefault)
+      || comps.find(c => c.id === 1)
+      || comps[0];
     const mainCompName = mainComp ? mainComp.name : 'Lega';
     const mainGroupId = mainComp ? (mainComp.defaultGroupId || (mainComp.groups && mainComp.groups[0] ? mainComp.groups[0].ID : 1) || 1) : 1;
     const standings = fcmDataLoader.getStandings(mainGroupId);
@@ -1868,7 +1874,11 @@ const homeView = {
     `;
 
     // 9. Coppa di Lega (Dinamico: Classifica Gironi vs Incontri Eliminazione Diretta)
-    const coppaComp = comps.find(c => c.name.toLowerCase().includes('coppa') || c.id === 2);
+    const configuredCoppaCompId = (userSettings && userSettings.coppaCompId && userSettings.coppaCompId !== 'auto')
+      ? userSettings.coppaCompId
+      : null;
+    const coppaComp = (configuredCoppaCompId ? comps.find(c => String(c.id) === String(configuredCoppaCompId)) : null)
+      || comps.find(c => c.name.toLowerCase().includes('coppa') || c.id === 2);
     const coppaCompName = coppaComp ? coppaComp.name : 'Coppa di Lega';
     const allCoppaGroups = coppaComp ? (coppaComp.groups || []) : [];
 
@@ -1958,10 +1968,10 @@ const homeView = {
       upcomingKnockoutMatches.every(m => !isPlaceholderTeam(m.homeTeamName) && !isPlaceholderTeam(m.awayTeamName));
 
     // Gli scontri diretti sono visualizzabili se esistono, non ci sono partite dei gironi ancora da giocare,
-    // e le squadre degli scontri diretti sono effettivamente valorizzate con nomi reali
+    // e le squadre degli scontri diretti sono effettivamente valorizzate con nomi reali (oppure non c'è fase a gironi)
     const canShowKnockout = knockoutMatches.length > 0 &&
       !hasUnplayedGroupMatches &&
-      (hasKnockoutMatchesPlayed || areKnockoutTeamsPopulated);
+      (hasKnockoutMatchesPlayed || areKnockoutTeamsPopulated || !hasGroupStage);
 
     let coppaBlock = '';
     if (coppaComp) {
@@ -2073,18 +2083,22 @@ const homeView = {
 
       const isCoppaOpen = (userSettings && userSettings.coppaAccordionOpen !== undefined) ? !!userSettings.coppaAccordionOpen : true;
 
-      coppaBlock = `
-        <div class="card" style="margin-top: -6px;">
-          <div class="card-header" id="headerCoppaStandings" style="cursor: pointer; user-select: none; margin-bottom: 0; padding-bottom: 4px;">
-            <div class="card-title" style="font-size: 0.95rem;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-purple, #a855f7)" stroke-width="2">
+      const coppaLogoHtml = (typeof fcmDataLoader.getCompetitionLogoHtml === 'function')
+        ? fcmDataLoader.getCompetitionLogoHtml(coppaCompName, coppaComp.id, 18)
+        : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-purple, #a855f7)" stroke-width="2">
                 <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path>
                 <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path>
                 <path d="M4 22h16"></path>
                 <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path>
                 <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path>
                 <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path>
-              </svg>
+              </svg>`;
+
+      coppaBlock = `
+        <div class="card" style="margin-top: -6px;">
+          <div class="card-header" id="headerCoppaStandings" style="cursor: pointer; user-select: none; margin-bottom: 0; padding-bottom: 4px;">
+            <div class="card-title" style="font-size: 0.95rem;">
+              ${coppaLogoHtml}
               ${escapeHtml(coppaCompName)}
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
@@ -2119,21 +2133,24 @@ const homeView = {
     }
 
     // Mini Standings Card
-    const standingsBlock = `
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold)" stroke-width="2">
+    const mainCompLogoHtml = (typeof fcmDataLoader.getCompetitionLogoHtml === 'function')
+      ? fcmDataLoader.getCompetitionLogoHtml(mainCompName, mainComp ? mainComp.id : null, 20)
+      : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold)" stroke-width="2">
               <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path>
               <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path>
               <path d="M4 22h16"></path>
               <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path>
               <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path>
               <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path>
-            </svg>
+            </svg>`;
+    const standingsBlock = `
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            ${mainCompLogoHtml}
             Classifica ${escapeHtml(mainCompName)}
           </div>
-          <a href="#classifica" class="badge badge-primary">Completa &rarr;</a>
+          <a href="#classifica${mainComp ? `?comp=${mainComp.id}` : ''}" class="badge badge-primary">Completa &rarr;</a>
         </div>
 
         <div class="table-responsive">
@@ -2355,7 +2372,7 @@ const homeView = {
           if (activeConfig.customWidgets && Array.isArray(activeConfig.customWidgets)) {
             const customObj = activeConfig.customWidgets.find(c => c.id === item.id);
             if (customObj && typeof fcmHomeConfigManager !== 'undefined') {
-              blockContent = fcmHomeConfigManager.renderCustomWidget(customObj, { isMatchdayInProgress, info, nextDayMatches });
+              blockContent = fcmHomeConfigManager.renderCustomWidget(customObj, { isMatchdayInProgress, info, nextDayMatches, favoriteTeamId, isEditMode: this.isEditMode, calendar });
             }
           }
         } else if (widgetBlocksMap[item.id]) {
@@ -2552,9 +2569,14 @@ const homeView = {
     this.initFantamisterSlider(container);
     this.initFormationsSlider(container);
 
-    // Inizializza timer dei custom countdown widgets
-    if (typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.initCustomCountdowns) {
-      fcmHomeConfigManager.initCustomCountdowns(container);
+    // Inizializza timer dei custom countdown widgets e widget competizione custom
+    if (typeof fcmHomeConfigManager !== 'undefined') {
+      if (fcmHomeConfigManager.initCustomCountdowns) {
+        fcmHomeConfigManager.initCustomCountdowns(container);
+      }
+      if (fcmHomeConfigManager.initCustomCompetitionWidgets) {
+        fcmHomeConfigManager.initCustomCompetitionWidgets(container);
+      }
     }
 
     // Se l'utente ha impostato Flop 11 come vista predefinita

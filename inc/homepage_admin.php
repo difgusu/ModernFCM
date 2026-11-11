@@ -20,11 +20,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && 
 }
 
 $queryString = !empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : '';
-if ($queryString === '') {
+/*if ($queryString === '') {
     $queryString = '?tab=home';
 } elseif (!str_contains($queryString, 'tab=')) {
     $queryString .= '&tab=home';
-}
+}*/
 
 header('Location: impostazioni.php' . $queryString . '#home', true, 302);
 exit;

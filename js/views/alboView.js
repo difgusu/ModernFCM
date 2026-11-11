@@ -53,15 +53,25 @@ const alboView = {
    * Helper: Determine trophy icon dynamically from arrPalmares in persjs/fcmConfrontiDati.js
    */
   getCompTrophyIcon(comp, isSmall = false) {
-    if (typeof arrPalmares !== 'undefined') {
-      const id = typeof comp === 'object' && comp !== null
-        ? (comp.IDc || comp.ID || comp.idCompetizione || comp.id)
-        : comp;
+    const formatIcon = (iconFile) => {
+      if (!iconFile) return isSmall ? 'img/small-ico-coppa.gif' : 'img/ico-coppa.gif';
+      const isDefaultGif = /^ico-(scudetto|coppa|supercoppa|gp)\.gif$/i.test(iconFile);
+      return (isSmall && isDefaultGif) ? `img/small-${iconFile}` : `img/${iconFile}`;
+    };
 
+    const id = typeof comp === 'object' && comp !== null
+      ? (comp.IDc || comp.ID || comp.idCompetizione || comp.id)
+      : comp;
+
+    if (id && typeof fcmDataLoader !== 'undefined' && fcmDataLoader._compLogosMap && fcmDataLoader._compLogosMap[id]) {
+      return formatIcon(fcmDataLoader._compLogosMap[id]);
+    }
+
+    if (typeof arrPalmares !== 'undefined') {
       for (let i = 1; i < arrPalmares.length; i++) {
         const p = arrPalmares[i];
         if (p && p.Competizione == id) {
-          return isSmall ? `img/small-${p.Icona}` : `img/${p.Icona}`;
+          return formatIcon(p.Icona || p.icon);
         }
       }
 
@@ -72,13 +82,13 @@ const alboView = {
         for (let i = 1; i < arrPalmares.length; i++) {
           const p = arrPalmares[i];
           if (p && p.Label && (p.Label.toLowerCase() === norm || norm.includes(p.Label.toLowerCase()) || p.Label.toLowerCase().includes(norm))) {
-            return isSmall ? `img/small-${p.Icona}` : `img/${p.Icona}`;
+            return formatIcon(p.Icona || p.icon);
           }
         }
       }
 
-      if (arrPalmares.length > 1 && arrPalmares[1] && arrPalmares[1].Icona) {
-        return isSmall ? `img/small-${arrPalmares[1].Icona}` : `img/${arrPalmares[1].Icona}`;
+      if (arrPalmares.length > 1 && arrPalmares[1] && (arrPalmares[1].Icona || arrPalmares[1].icon)) {
+        return formatIcon(arrPalmares[1].Icona || arrPalmares[1].icon);
       }
     }
     return isSmall ? 'img/small-ico-coppa.gif' : 'img/ico-coppa.gif';
@@ -91,6 +101,12 @@ const alboView = {
         this.Label = Label;
         this.Icona = Icona;
       };
+    }
+    if (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.loadCompetitionLogos === 'function') {
+      try {
+        await fcmDataLoader.loadCompetitionLogos();
+        fcmDataLoader.applyCompetitionLogosToPalmares();
+      } catch (e) {}
     }
     if (typeof arrPalmares === 'undefined') {
       try {
