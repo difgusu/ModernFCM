@@ -7,7 +7,11 @@ require_once __DIR__ . '/inc/rules.php';
 
 $teamId = mercato_get_logged_team_id();
 $sessione = mercato_get_current_session();
+$settings = get_mercato_settings();
 $financials = $teamId ? mercato_get_team_financials($teamId, $sessione['id'] ?? null) : null;
+$chiamateAltri = ($sessione && !empty($settings['mostra_chiamate_altri']))
+    ? mercato_get_session_public_bids($sessione['id'], $teamId, $_SESSION['mercato_divisione'] ?? null)
+    : [];
 $fcmData = fcm_parse_all_data();
 $squadre = $fcmData['fantasquadre'];
 
@@ -18,11 +22,7 @@ function get_shirt_img_html($club, $size = 20) {
     if (empty($club)) return '';
     $clean = trim($club);
     $enc = htmlspecialchars(rawurlencode($clean));
-    if (strpos($clean, '{') === 0) {
-        $src = "../img/sq/{$enc}.png";
-    } else {
-        $src = "../img/live/sq/{$enc}.png";
-    }
+    $src = "../img/sq/{$enc}.png";
     return '<img src="' . $src . '" style="width:' . $size . 'px; height:' . $size . 'px; object-fit:contain; vertical-align:middle; margin-right:6px; flex-shrink:0; filter:drop-shadow(0 1px 2px rgba(0,0,0,0.15));" onerror="if(!this.dataset.fallback){this.dataset.fallback=\'1\';this.src=\'../img/sq/' . $enc . '.png\';}else{this.src=\'../img/sq/undefined.svg\';}" alt="' . htmlspecialchars($clean) . '">';
 }
 ?>
@@ -31,8 +31,42 @@ function get_shirt_img_html($club, $size = 20) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="<?= htmlspecialchars(fcm_csrf_token()) ?>">
   <title>Mercato Libero - ModernFCM</title>
+  <link rel="stylesheet" href="../css/style.css">
   <link rel="stylesheet" href="mercato.css?v=<?= time() ?>">
+  <?php
+  if (file_exists(__DIR__ . '/../inc/theme_loader.php')) {
+      require_once __DIR__ . '/../inc/theme_loader.php';
+      echo fcm_render_custom_theme_css();
+  }
+  $fcmDefaultThemePref = isset($GLOBALS['fcmThemeConfig']['default_mode']) ? $GLOBALS['fcmThemeConfig']['default_mode'] : 'system';
+  ?>
+  <script>
+  (function() {
+      var defaultPref = <?= json_encode($fcmDefaultThemePref) ?>;
+      var saved = null;
+      try { saved = localStorage.getItem('pn_theme'); } catch(e) {}
+      var pref = saved || defaultPref || 'system';
+      var resolved = pref;
+      if (window.self !== window.top) {
+          document.documentElement.classList.add('in-iframe');
+          try {
+              var topTheme = window.top.document.documentElement.getAttribute('data-theme');
+              if (topTheme === 'light' || topTheme === 'dark') resolved = topTheme;
+          } catch(e) {}
+      }
+      if (resolved !== 'light' && resolved !== 'dark') {
+          resolved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', resolved);
+      window.addEventListener('message', function(e) {
+          if (e.data && e.data.type === 'pn_theme_change' && (e.data.theme === 'light' || e.data.theme === 'dark')) {
+              document.documentElement.setAttribute('data-theme', e.data.theme);
+          }
+      });
+  })();
+  </script>
 </head>
 <body>
 
@@ -60,6 +94,69 @@ function get_shirt_img_html($club, $size = 20) {
 
       <button type="submit" class="btn btn-primary" style="width:100%; padding:12px; font-size:1rem;">Entra nel Mercato</button>
     </form>
+    
+    <script>
+    function applyFavoriteTeamSelection() {
+      const select = document.getElementById('loginSquadraSelect');
+      if (!select) return;
+
+      let favId = null;
+      try {
+        const parentMgr = (window.parent && window.parent !== window && window.parent.fcmHomeConfigManager)
+          ? window.parent.fcmHomeConfigManager
+          : ((window.top && window.top.fcmHomeConfigManager) ? window.top.fcmHomeConfigManager : null);
+        if (parentMgr && typeof parentMgr.getFavoriteTeamId === 'function') {
+          const id = parentMgr.getFavoriteTeamId();
+          if (id !== null && id !== undefined && id !== '') {
+            favId = id;
+          }
+        }
+      } catch (e) {}
+
+      if (!favId) {
+        try {
+          const rawCfg = localStorage.getItem('pn_home_layout');
+          if (rawCfg) {
+            const parsed = JSON.parse(rawCfg);
+            if (parsed) {
+              if (parsed.favoriteTeamId !== undefined && parsed.favoriteTeamId !== null && parsed.favoriteTeamId !== '') {
+                favId = parsed.favoriteTeamId;
+              } else if (parsed.defaultSettings && parsed.defaultSettings.favoriteTeamId !== undefined && parsed.defaultSettings.favoriteTeamId !== null) {
+                favId = parsed.defaultSettings.favoriteTeamId;
+              }
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (!favId) {
+        try {
+          const rawFav = localStorage.getItem('pn_favorite_team') || localStorage.getItem('fcm_favorite_team');
+          if (rawFav) favId = rawFav;
+        } catch (e) {}
+      }
+
+      if (!favId) return;
+
+      const targetOpt = Array.from(select.options).find(opt => {
+        if (!opt.value) return false;
+        if (String(opt.value) === String(favId)) return true;
+        if (isNaN(Number(favId)) && opt.textContent.toLowerCase().includes(String(favId).toLowerCase())) return true;
+        return false;
+      });
+
+      if (targetOpt) {
+        if (!targetOpt.textContent.startsWith('⭐')) {
+          targetOpt.textContent = '⭐ ' + targetOpt.textContent;
+        }
+        targetOpt.selected = true;
+        select.value = targetOpt.value;
+      }
+    }
+    applyFavoriteTeamSelection();
+    window.addEventListener('DOMContentLoaded', applyFavoriteTeamSelection);
+    window.addEventListener('load', applyFavoriteTeamSelection);
+    </script>
     
     <div style="margin-top:16px; text-align:center;">
       <a href="admin.php" style="color:var(--m-text-muted); font-size:0.8rem; text-decoration:none;">Sei un amministratore? Accedi al pannello</a>
@@ -174,6 +271,63 @@ function get_shirt_img_html($club, $size = 20) {
   </div>
   <?php endif; ?>
 
+  <!-- Chiamate e Tagli delle Altre Squadre (se abilitato dall'Amministratore) -->
+  <?php if (!empty($settings['mostra_chiamate_altri']) && $sessione): ?>
+  <div class="buste-box" style="margin-bottom:30px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+      <h3 style="margin:0;">👥 Chiamate e Tagli delle Altre Squadre (<?= count($chiamateAltri) ?>)</h3>
+      <span style="font-size:0.8rem; color:var(--m-text-muted); display:inline-flex; align-items:center; gap:4px;">
+        🔒 Importi offerti rigorosamente segreti
+      </span>
+    </div>
+
+    <?php if (empty($chiamateAltri)): ?>
+      <p style="color:var(--m-text-muted); font-size:0.9rem; margin:0; padding:10px 0;">
+        Nessun'altra squadra ha ancora effettuato chiamate o tagli in questa sessione.
+      </p>
+    <?php else: ?>
+      <table class="table-custom buste-table">
+        <thead>
+          <tr>
+            <th>Squadra</th>
+            <th>Ruolo</th>
+            <th>Calciatore Chiamato</th>
+            <th>Eventuale Taglio</th>
+            <th>Data Chiamata</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($chiamateAltri as $c): ?>
+          <tr>
+            <td data-label="Squadra"><strong><?= htmlspecialchars($c['nome_squadra']) ?></strong></td>
+            <td data-label="Ruolo"><span class="badge-role badge-<?= $c['ruolo_label'] ?>"><?= $c['ruolo_label'] ?></span></td>
+            <td data-label="Calciatore">
+              <div style="display:inline-flex; align-items:center; gap:6px;">
+                <?= get_shirt_img_html($c['club'] ?? '', 22) ?>
+                <strong><?= htmlspecialchars($c['nome_giocatore']) ?></strong>
+              </div>
+            </td>
+            <td data-label="Eventuale Taglio">
+              <?php if (!empty($c['nome_giocatore_taglio'])): ?>
+                <div style="display:inline-flex; align-items:center; gap:6px;">
+                  <?= get_shirt_img_html($c['club_taglio'] ?? '', 18) ?>
+                  <span><?= htmlspecialchars($c['nome_giocatore_taglio']) ?></span>
+                </div>
+              <?php else: ?>
+                <span style="color:var(--m-text-muted);">Nessun taglio</span>
+              <?php endif; ?>
+            </td>
+            <td data-label="Data Chiamata" style="color:var(--m-text-muted); font-size:0.85rem;">
+              <?= date('d/m H:i', strtotime($c['timest'])) ?>
+            </td>
+          </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
+
   <?php if ($sessione && $sessione['is_open']): ?>
   <!-- Controlli Filtro e Ricerca Calciatori Svincolati -->
   <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
@@ -275,6 +429,9 @@ function get_shirt_img_html($club, $size = 20) {
       </div>
     </div>
 
+    <!-- Avviso Calciatore già chiamato da altri (se visibile) -->
+    <div id="modalChiamateInfo" class="alert-mercato alert-warning" style="display:none; font-size:0.82rem; padding:8px 12px; margin-bottom:12px;"></div>
+
     <label for="modalOffertaInput">La Tua Offerta Segreta (in crediti)</label>
     <input type="number" id="modalOffertaInput" min="1" required placeholder="Inserisci crediti...">
 
@@ -307,19 +464,32 @@ function get_shirt_img_html($club, $size = 20) {
 // Dati passati dal server
 const SESSION_DATA = <?= json_encode($sessione) ?>;
 const FINANCIALS = <?= json_encode($financials) ?>;
+const SETTINGS = <?= json_encode($settings) ?>;
+let CHIAMATE_ALTRI = <?= json_encode($chiamateAltri) ?>;
 let CURRENT_PLAYERS = [];
 let ACTIVE_ROLE_FILTER = 'all';
 const PAGE_SIZE = 30;
 let CURRENT_PAGE = 1;
 let TOTAL_PAGES = 1;
+let MERCATO_CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+function getCsrfHeaders() {
+  return MERCATO_CSRF_TOKEN ? { 'X-CSRF-Token': MERCATO_CSRF_TOKEN } : {};
+}
+
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 function getShirtImgUrl(club) {
   if (!club) return '../img/sq/undefined.svg';
   const cleanTeam = club.trim();
-  if (cleanTeam.startsWith('{') && cleanTeam.endsWith('}')) {
-    return `../img/sq/${encodeURIComponent(cleanTeam)}.png`;
-  }
-  return `../img/live/sq/${encodeURIComponent(cleanTeam)}.png`;
+  return `../img/sq/${encodeURIComponent(cleanTeam)}.png`;
 }
 
 function handleShirtError(img) {
@@ -333,11 +503,71 @@ function handleShirtError(img) {
   }
 }
 
+// Centratura dinamica del Modal sia in viewport standalone sia dentro l'iframe seamless di ModernFCM
+function centerModalInView(modal) {
+  if (!modal) return;
+
+  const isIframe = (window.self !== window.top);
+  if (isIframe) {
+    let screenCenterInIframe = 0;
+    let vh = 800;
+
+    try {
+      if (window.top && window.top.document) {
+        const iframe = window.frameElement || window.top.document.getElementById('spaEmbeddedFrame');
+        if (iframe) {
+          const iframeRect = iframe.getBoundingClientRect();
+          vh = window.top.innerHeight || 800;
+          screenCenterInIframe = -iframeRect.top + (vh / 2);
+        }
+      }
+    } catch (e) {}
+
+    if (!screenCenterInIframe) {
+      const activeEl = document.activeElement;
+      const elRect = (activeEl && typeof activeEl.getBoundingClientRect === 'function') ? activeEl.getBoundingClientRect() : null;
+      if (elRect) {
+        screenCenterInIframe = (window.pageYOffset || document.documentElement.scrollTop || 0) + elRect.top;
+      } else {
+        screenCenterInIframe = 250;
+      }
+    }
+
+    const modalH = modal.offsetHeight || 380;
+    const halfH = modalH / 2;
+    const safeTop = Math.max(halfH + 20, screenCenterInIframe);
+
+    modal.style.position = 'absolute';
+    modal.style.top = safeTop + 'px';
+    modal.style.left = '50%';
+    modal.style.transform = 'translate(-50%, -50%)';
+    modal.style.margin = '0';
+    modal.style.maxHeight = Math.max(300, vh - 40) + 'px';
+    modal.style.overflowY = 'auto';
+
+    notifyParentResize(Math.ceil(safeTop + halfH + 60));
+  } else {
+    modal.style.position = 'fixed';
+    modal.style.top = '50%';
+    modal.style.left = '50%';
+    modal.style.transform = 'translate(-50%, -50%)';
+    modal.style.margin = '0';
+    modal.style.maxHeight = '88vh';
+    modal.style.overflowY = 'auto';
+  }
+}
+
 // Fallback light-dismiss per browser senza supporto nativo closedby (da modern-web-guidance)
 const bidModal = document.getElementById('bidModal');
 if (bidModal) {
   bidModal.addEventListener('close', () => {
     document.body.classList.remove('modal-open');
+    bidModal.style.position = '';
+    bidModal.style.top = '';
+    bidModal.style.left = '';
+    bidModal.style.transform = '';
+    bidModal.style.margin = '';
+    bidModal.style.maxHeight = '';
     notifyParentResize();
   });
   if (!('closedBy' in HTMLDialogElement.prototype)) {
@@ -378,8 +608,10 @@ if (FINANCIALS) {
   fetch('api.php?action=get_state')
     .then(r => r.json())
     .then(data => {
-      if (data.success && data.liberi) {
-        CURRENT_PLAYERS = data.liberi;
+      if (data.success) {
+        if (data.csrf_token) MERCATO_CSRF_TOKEN = data.csrf_token;
+        if (data.liberi) CURRENT_PLAYERS = data.liberi;
+        if (data.chiamate_altri) CHIAMATE_ALTRI = data.chiamate_altri;
         renderPlayers();
       }
     });
@@ -429,18 +661,33 @@ function renderPlayers() {
     if (pagBottom) pagBottom.style.display = 'none';
   }
 
-  container.innerHTML = pagePlayers.map(p => `
+  container.innerHTML = pagePlayers.map(p => {
+    let chiamateBadge = '';
+    if (SETTINGS && SETTINGS.mostra_chiamate_altri && Array.isArray(CHIAMATE_ALTRI)) {
+      const calls = CHIAMATE_ALTRI.filter(c => c.codice_giocatore == p.id);
+      if (calls.length > 0) {
+        const teamNames = calls.map(c => c.nome_squadra).join(', ');
+        chiamateBadge = `<span class="badge-chiamate" title="Chiamato da: ${escapeHtml(teamNames)}">🔥 ${calls.length} ${calls.length === 1 ? 'chiamata' : 'chiamate'}</span>`;
+      }
+    }
+    const safeClub = escapeHtml(p.club);
+    const safeNome = escapeHtml(p.nome);
+    const safeRole = escapeHtml(roleMap[p.ruolo] || '?');
+    const safeCosto = parseInt(p.costo, 10) || 0;
+    const safeId = parseInt(p.id, 10) || 0;
+    return `
     <div class="player-card">
       <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
-        <img src="${getShirtImgUrl(p.club)}" alt="${p.club}" data-team="${p.club}" class="player-shirt-img" onerror="handleShirtError(this)">
+        <img src="${escapeHtml(getShirtImgUrl(p.club))}" alt="${safeClub}" data-team="${safeClub}" class="player-shirt-img" onerror="handleShirtError(this)">
         <div class="player-meta">
-          <h3><span class="badge-role badge-${roleMap[p.ruolo]}">${roleMap[p.ruolo]}</span> ${p.nome}</h3>
-          <small>${p.club} &bull; Quotazione: <strong>${p.costo} cr</strong></small>
+          <h3><span class="badge-role badge-${safeRole}">${safeRole}</span> ${safeNome}${chiamateBadge}</h3>
+          <small>${safeClub} &bull; Quotazione: <strong>${safeCosto} cr</strong></small>
         </div>
       </div>
-      <button class="btn btn-primary" style="flex-shrink:0; margin-left:8px;" onclick="openOfferModal(${p.id})">Offri</button>
+      <button class="btn btn-primary" style="flex-shrink:0; margin-left:8px;" onclick="openOfferModal(${safeId})">Offri</button>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   notifyParentResize();
 }
@@ -548,15 +795,35 @@ function openOfferModal(id) {
 
   updateTaglioPreview();
   updateMaxOfferLabel();
-  document.getElementById('modalOffertaInput').value = '';
-  document.getElementById('bidModal').showModal();
-  notifyParentResize(1050);
-  setTimeout(() => notifyParentResize(1050), 60);
-  try {
-    if (window.parent && window.parent !== window) {
-      window.parent.postMessage({ type: 'pn_scroll_to_modal', offset: 0 }, '*');
+
+  // Informazione chiamate concorrenti senza svelare importo
+  const infoCallsEl = document.getElementById('modalChiamateInfo');
+  if (infoCallsEl) {
+    if (SETTINGS && SETTINGS.mostra_chiamate_altri && Array.isArray(CHIAMATE_ALTRI)) {
+      const calls = CHIAMATE_ALTRI.filter(c => c.codice_giocatore == id);
+      if (calls.length > 0) {
+        const teamNames = calls.map(c => c.nome_squadra).join(', ');
+        infoCallsEl.style.display = 'block';
+        infoCallsEl.innerHTML = `⚠️ <strong>Attenzione:</strong> Questo calciatore è già stato chiamato da: <em>${escapeHtml(teamNames)}</em> (importi segreti).`;
+      } else {
+        infoCallsEl.style.display = 'none';
+        infoCallsEl.innerHTML = '';
+      }
+    } else {
+      infoCallsEl.style.display = 'none';
+      infoCallsEl.innerHTML = '';
     }
-  } catch (e) { }
+  }
+
+  document.getElementById('modalOffertaInput').value = '';
+  const modal = document.getElementById('bidModal');
+  if (typeof modal.showModal === 'function') {
+    modal.showModal();
+  } else {
+    modal.setAttribute('open', '');
+  }
+  centerModalInView(modal);
+  requestAnimationFrame(() => centerModalInView(modal));
 }
 
 function updateTaglioPreview() {
@@ -588,7 +855,7 @@ function updateTaglioPreview() {
     .then(res => {
       if (res.success && res.data) {
         const d = res.data;
-        taglioHelp.innerHTML = `♻️ Categoria: <strong>${d.label}</strong> (Recupero ${d.percentuale}%): recuperi <strong style="color:var(--m-success);">+${d.recupero} crediti</strong>`;
+        taglioHelp.innerHTML = `♻️ Categoria: <strong>${escapeHtml(d.label)}</strong> (Recupero ${parseInt(d.percentuale, 10) || 0}%): recuperi <strong style="color:var(--m-success);">+${parseInt(d.recupero, 10) || 0} crediti</strong>`;
         taglioHelp.style.color = "var(--m-text)";
       }
     })
@@ -599,7 +866,13 @@ function updateMaxOfferLabel() {
   const hasTaglio = !!document.getElementById('modalTaglioSelect').value;
   const mancanti = FINANCIALS.mancanti_totale;
   const slotRimasti = hasTaglio ? mancanti : Math.max(0, mancanti - 1);
-  const maxConsentito = Math.max(1, FINANCIALS.budget_disponibile - slotRimasti);
+  const currentCodiceG = parseInt(document.getElementById('modalCodiceG')?.value || '0', 10);
+  let ownExistingBidCredits = 0;
+  if (FINANCIALS && Array.isArray(FINANCIALS.buste_attive)) {
+    const existing = FINANCIALS.buste_attive.find(b => parseInt(b.codice_giocatore, 10) === currentCodiceG);
+    if (existing) ownExistingBidCredits = parseInt(existing.crediti_in_chiaro, 10) || 0;
+  }
+  const maxConsentito = Math.max(1, (FINANCIALS.budget_disponibile + ownExistingBidCredits) - slotRimasti);
 
   document.getElementById('modalOffertaInput').max = maxConsentito;
   document.getElementById('modalMaxHelp').innerText = `Tetto massimo consentito con riserva: ${maxConsentito} crediti (devi conservare 1 credito per ciascuno dei ${slotRimasti} slot vuoti rimasti).`;
@@ -628,7 +901,7 @@ function handleBidSubmit(e) {
   fd.append('offerta', offerta);
   if (idTaglio) fd.append('id_taglio', idTaglio);
 
-  fetch('api.php', { method: 'POST', body: fd })
+  fetch('api.php', { method: 'POST', headers: getCsrfHeaders(), body: fd })
     .then(r => r.json())
     .then(data => {
       if (data.success) {
@@ -648,7 +921,7 @@ function handleDeleteBid(id) {
   fd.append('action', 'delete_bid');
   fd.append('id_offerta', id);
 
-  fetch('api.php', { method: 'POST', body: fd })
+  fetch('api.php', { method: 'POST', headers: getCsrfHeaders(), body: fd })
     .then(r => r.json())
     .then(data => {
       if (data.success) location.reload();
@@ -670,7 +943,7 @@ if (teamLoginForm) {
     fd.append('id_squadra', idSq);
     fd.append('password', pwd);
 
-    fetch('api.php', { method: 'POST', body: fd })
+    fetch('api.php', { method: 'POST', headers: getCsrfHeaders(), body: fd })
       .then(r => r.json())
       .then(res => {
         if (res.success) {
@@ -686,7 +959,9 @@ if (teamLoginForm) {
 }
 
 function handleLogout() {
-  fetch('api.php?action=logout').then(() => location.reload());
+  const fd = new FormData();
+  fd.append('action', 'logout');
+  fetch('api.php', { method: 'POST', headers: getCsrfHeaders(), body: fd }).then(() => location.reload());
 }
 
 function notifyParentResize(minH) {

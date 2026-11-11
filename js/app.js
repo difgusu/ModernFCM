@@ -21,6 +21,7 @@ const App = {
     '#topcosti': topCostiView,
     '#topcostistagione': topCostiView,
     '#confronti': confrontiStoriciView,
+    '#confrontistorici': confrontiStoriciView,
     '#recordstorici': recordStoriciView,
     '#schede_giocatori': schedeGiocatoriView,
     '#schedagiocatori': schedeGiocatoriView,
@@ -36,16 +37,27 @@ const App = {
     '#indisponibili_check': indisponibiliView,
     '#records': recordsView,
     '#fantam': fantamView,
+    '#fantamstorico': fantamStoricoView,
+    '#fantamisterstorico': fantamStoricoView,
+    '#fantam_storico': fantamStoricoView,
     '#live': liveVotiView,
     '#liveFP': liveVotiView,
     '#liveFM': liveVotiView,
+    '#liveFC': liveVotiView,
     '#liveVU': liveVotiView,
     '#liveFG': liveVotiView,
     '#calcolo': calcoloView,
+    '#impostazioni': calcoloView,
     '#impostazioni_calcolo': calcoloView,
     '#impostazioni-calcolo': calcoloView,
+    '#etaRose': etaRoseView,
+    '#etarose': etaRoseView,
+    '#seavessiavuto': inverticalendarioView,
+    '#inverticalendario': inverticalendarioView,
+    '#incroci': inverticalendarioView,
     '#storico': sectionsView,
-    '#extra': sectionsView
+    '#extra': sectionsView,
+    '#archivio': archivioView
   },
 
   // Pagine esterne/standalone integrate nella SPA (mantengono header, menu e drawer)
@@ -57,6 +69,7 @@ const App = {
     '#gbook': { file: 'gbook182/gbook.php', title: 'Guestbook di Lega' },
     '#stats': { file: 'fkounter5/stats.php?id=index', title: 'Statistiche Visite' },
     '#counter': { file: 'fkounter5/stats.php?id=index', title: 'Statistiche Visite' },
+    '#impostazioni': { file: 'inc/impostazioni.php', title: 'Impostazioni' },
   },
 
   currentRoute: '#home',
@@ -86,6 +99,12 @@ const App = {
 
     // Reset default matchdays on menu clicks
     this.initNavDefaultResetListeners();
+
+    // Scroll verso l'alto su click logo header e pulsante home (desktop e mobile)
+    this.initHomeScrollToTopListeners();
+
+    // Auto-hide dell'header principale allo scorrimento verso il basso (su tutte le viste e pagine embedded)
+    this.initHeaderAutoHide();
 
     // Listen to messages from child frames (e.g. scroll to modal, auto-resize)
     window.addEventListener('message', (e) => {
@@ -167,15 +186,128 @@ const App = {
     // Sincronizza istantaneamente anche l'eventuale iframe attivo
     const iframe = document.getElementById('spaEmbeddedFrame');
     if (iframe) {
-      if (iframe.contentDocument && iframe.contentDocument.documentElement) {
-        iframe.contentDocument.documentElement.setAttribute('data-theme', effectiveTheme);
-      }
+      this.syncIframeCustomTheme(iframe, effectiveTheme);
       if (iframe.contentWindow) {
         try {
           iframe.contentWindow.postMessage({ type: 'pn_theme_change', theme: effectiveTheme, preference: preference }, '*');
         } catch (err) { }
       }
     }
+  },
+
+  /**
+   * Propaga il tema attivo (light/dark), i Google Fonts e i token custom (#fcm-custom-theme) dentro l'iframe
+   */
+  syncIframeCustomTheme(iframe, forcedTheme) {
+    try {
+      if (!iframe || !iframe.contentDocument || !iframe.contentDocument.documentElement) return;
+      const doc = iframe.contentDocument;
+      const theme = forcedTheme || document.documentElement.getAttribute('data-theme') || 'dark';
+      doc.documentElement.setAttribute('data-theme', theme);
+
+      if (!doc.head) return;
+
+      // 1. Propaga eventuali Google Fonts caricati nel documento principale
+      const parentFontLinks = document.head.querySelectorAll('link[href*="fonts.googleapis.com/css2"]');
+      parentFontLinks.forEach(link => {
+        const href = link.getAttribute('href');
+        if (href && !doc.head.querySelector(`link[href="${href}"]`)) {
+          const cloneLink = doc.createElement('link');
+          cloneLink.rel = 'stylesheet';
+          cloneLink.href = href;
+          doc.head.appendChild(cloneLink);
+        }
+      });
+
+      // 2. Propaga <style id="fcm-custom-theme"> dal documento principale (se presente)
+      const parentCustomStyle = document.getElementById('fcm-custom-theme');
+      const iframeCustomStyle = doc.getElementById('fcm-custom-theme');
+      if (parentCustomStyle && parentCustomStyle.textContent) {
+        let styleEl = iframeCustomStyle;
+        if (!styleEl) {
+          styleEl = doc.createElement('style');
+          styleEl.id = 'fcm-custom-theme';
+        }
+        styleEl.textContent = parentCustomStyle.textContent;
+        // Posiziona in coda a <head> per garantire priorità sui fogli di stile locali dell'iframe
+        doc.head.appendChild(styleEl);
+      }
+    } catch (e) { }
+  },
+
+  /**
+   * Auto-hide dell'header principale allo scorrimento verso il basso, ricomparsa immediata verso l'alto
+   * Attivo sia sulle viste SPA native sia sulle pagine embedded (es. invform, mercato, gbook, impostazioni)
+   */
+  initHeaderAutoHide() {
+    const header = document.querySelector('.app-header');
+    if (!header) return;
+
+    this._lastHeaderScrollY = Math.max(0, window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0);
+    let ticking = false;
+    const threshold = 5;
+
+    this._evaluateHeaderScroll = (currentScrollY) => {
+      const isEdit = (typeof homeView !== 'undefined' && homeView.isEditMode);
+      const isOverlayOpen = document.body.classList.contains('drawer-open') || document.body.classList.contains('modal-open');
+      if (isEdit || isOverlayOpen) {
+        header.classList.remove('header-hidden');
+        this._lastHeaderScrollY = currentScrollY;
+        return;
+      }
+
+      if (currentScrollY <= 60) {
+        header.classList.remove('header-hidden');
+        this._lastHeaderScrollY = currentScrollY;
+        return;
+      }
+
+      const delta = currentScrollY - (this._lastHeaderScrollY || 0);
+      if (Math.abs(delta) >= threshold) {
+        if (delta > 0) {
+          header.classList.add('header-hidden');
+        } else {
+          header.classList.remove('header-hidden');
+        }
+        this._lastHeaderScrollY = currentScrollY;
+      }
+    };
+
+    if (this._globalHeaderScrollHandler) {
+      window.removeEventListener('scroll', this._globalHeaderScrollHandler);
+    }
+
+    this._globalHeaderScrollHandler = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const y = Math.max(0, window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0);
+          this._evaluateHeaderScroll(y);
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', this._globalHeaderScrollHandler, { passive: true });
+  },
+
+  /**
+   * Collega anche gli eventi di scorrimento/wheel/touch interni dell'iframe all'auto-hide dell'header
+   */
+  attachIframeScrollAutoHide(iframe) {
+    try {
+      if (!iframe || !iframe.contentWindow || !iframe.contentDocument) return;
+      const win = iframe.contentWindow;
+      const doc = iframe.contentDocument;
+
+      win.addEventListener('scroll', () => {
+        const mainY = Math.max(0, window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0);
+        const frameY = Math.max(0, win.scrollY || win.pageYOffset || (doc.documentElement ? doc.documentElement.scrollTop : 0) || 0);
+        if (typeof this._evaluateHeaderScroll === 'function') {
+          this._evaluateHeaderScroll(Math.max(mainY, frameY));
+        }
+      }, { passive: true });
+    } catch (e) { }
   },
 
   initTheme() {
@@ -249,6 +381,30 @@ const App = {
     if (footDateEl && info.updated) {
       footDateEl.textContent = `Ultimo aggiornamento FCM: ${info.updated}`;
     }
+
+    const footCreditsEl = document.getElementById('footerCredits');
+    if (footCreditsEl) {
+      footCreditsEl.textContent = '';
+      footCreditsEl.appendChild(document.createTextNode('Skin '));
+      const bEl = document.createElement('b');
+      bEl.textContent = 'ModernFCM';
+      footCreditsEl.appendChild(bEl);
+      const wmName = (info.webmaster || '').trim();
+      const wmEmail = (info.email || '').trim();
+      if (wmName) {
+        footCreditsEl.appendChild(document.createTextNode(' \u2022 Webmaster: '));
+        if (wmEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(wmEmail)) {
+          const aEl = document.createElement('a');
+          aEl.href = `mailto:${wmEmail}`;
+          aEl.textContent = wmName;
+          footCreditsEl.appendChild(aEl);
+        } else {
+          const spanEl = document.createElement('span');
+          spanEl.textContent = wmName;
+          footCreditsEl.appendChild(spanEl);
+        }
+      }
+    }
   },
 
   initDrawer() {
@@ -277,6 +433,28 @@ const App = {
     }
     if (closeBtn) {
       closeBtn.addEventListener('click', () => this.closeDrawer());
+    }
+    const customizeHomeBtn = document.getElementById('btnDrawerCustomizeHome');
+    const desktopFabCustomizeBtn = document.getElementById('btnDesktopFabCustomizeHome');
+    const openCustomizeHome = (e) => {
+      if (e) e.preventDefault();
+      if (typeof this.closeDrawer === 'function') this.closeDrawer();
+      if (typeof homeView !== 'undefined' && homeView.toggleEditMode) {
+        if (window.location.hash !== '#home' && window.location.hash !== '' && window.location.hash !== '#') {
+          window.location.hash = '#home';
+          setTimeout(() => {
+            homeView.toggleEditMode(true);
+          }, 300);
+        } else {
+          homeView.toggleEditMode(true);
+        }
+      }
+    };
+    if (customizeHomeBtn) {
+      customizeHomeBtn.addEventListener('click', openCustomizeHome);
+    }
+    if (desktopFabCustomizeBtn) {
+      desktopFabCustomizeBtn.addEventListener('click', openCustomizeHome);
     }
     if (this.drawerBackdrop) {
       this.drawerBackdrop.addEventListener('click', () => this.closeDrawer());
@@ -320,6 +498,11 @@ const App = {
       this._lastFocusedElement = triggerEl;
     } else if (document.activeElement && document.activeElement !== document.body) {
       this._lastFocusedElement = document.activeElement;
+    }
+
+    const header = document.querySelector('.app-header');
+    if (header) {
+      header.classList.remove('header-hidden');
     }
 
     if (this.drawer) {
@@ -395,10 +578,12 @@ const App = {
     '#schede_giocatori': 'Schede Giocatori Serie A',
     '#schedagiocatori': 'Schede Giocatori Serie A',
     '#live': 'Match Center Live',
-    '#liveFP': 'Live Fantapazz',
-    '#liveFM': 'Live FantaMaster',
-    '#liveVU': 'Voti Ufficiosi Pianeta',
+    '#liveFP': 'Match Center Live',
+    '#liveFM': 'Match Center Live',
+    '#liveFC': 'Match Center Live',
+    '#liveVU': 'Match Center Live',
     '#calcolo': 'Calcolo Risultati Manuale',
+    '#impostazioni': 'Impostazioni di Lega',
     '#impostazioni_calcolo': 'Impostazioni Calcolo Risultati',
     '#impostazioni-calcolo': 'Impostazioni Calcolo Risultati',
     '#registri': 'Registri Voti FCM',
@@ -413,6 +598,7 @@ const App = {
     '#topflop': 'Top & Flop Storico',
     '#confrontidiretti': 'Scontri Diretti',
     '#confronti': 'Confronti Storici',
+    '#confrontistorici': 'Confronti Storici',
     '#recordstorici': 'Record Storici',
     '#almanacco': 'Almanacco Storico',
     '#rating': 'Fanta Rating',
@@ -427,6 +613,9 @@ const App = {
     '#fantaclassifica': 'FantaClassifica Ipotetica',
     '#records': 'Records di Lega',
     '#fantam': 'FantaMister',
+    '#fantamstorico': 'FantaMister Storico',
+    '#fantamisterstorico': 'FantaMister Storico',
+    '#fantam_storico': 'FantaMister Storico',
     '#etaRose': 'Età Rose',
     '#documenti': 'Documenti',
     '#invform': 'Invio Formazione',
@@ -470,11 +659,24 @@ const App = {
     const baseHash = fullHash.split('?')[0];
     const queryString = fullHash.includes('?') ? fullHash.substring(fullHash.indexOf('?')) : '';
 
+    // Reindirizzamento della vecchia pagina statistiche storiche alla nuova vista unificata
+    if (baseHash === '#statistichestoriche' || baseHash === '#statistiche_storiche') {
+      window.location.replace('#schede_giocatori' + queryString);
+      return;
+    }
+
     // Pulizia e distruzione eventuale vista attiva precedente (es. timer live manager)
     if (this._activeView && typeof this._activeView.destroy === 'function') {
       try { this._activeView.destroy(); } catch (e) { console.warn(e); }
       this._activeView = null;
     }
+
+    // Ripristina la visibilità dell'header al cambio di rotta
+    const appHeader = document.querySelector('.app-header');
+    if (appHeader) {
+      appHeader.classList.remove('header-hidden');
+    }
+    this._lastHeaderScrollY = 0;
 
     // Chiusura automatica del drawer se aperto durante navigazione interna
     if (this.drawer && this.drawer.classList.contains('open')) {
@@ -486,7 +688,7 @@ const App = {
       ['rosterDrawerBackdrop', 'rosterDrawerSheet', 'moduleModalBackdrop', 'moduleModalDialog'].forEach(id => {
         const el = document.getElementById(id);
         if (el && el.parentNode) {
-          try { el.parentNode.removeChild(el); } catch (e) {}
+          try { el.parentNode.removeChild(el); } catch (e) { }
         }
       });
       document.body.classList.remove('drawer-open', 'modal-open');
@@ -511,12 +713,8 @@ const App = {
     }
 
     const extraTabRoutes = {
-      '#seavessiavuto': 'incroci',
       '#confrontidiretti': 'confronti',
-      '#etaRose': 'eta',
-      '#etarose': 'eta',
-      '#documenti': 'documenti',
-      '#archivio': 'archivio'
+      '#documenti': 'documenti'
     };
 
     if (extraTabRoutes[baseHash]) {
@@ -536,19 +734,30 @@ const App = {
     if (this.embeddedPages[baseHash]) {
       const pageInfo = this.embeddedPages[baseHash];
       let finalQuery = queryString;
-      if (baseHash === '#invform' && !queryString.includes('Gio=')) {
-        let targetDay = null;
-        if (typeof fcmDataLoader !== 'undefined') {
-          const cal = fcmDataLoader.getCalendarData();
-          if (cal && cal.nextMatchday > 0 && cal.nextMatchday <= 38) {
-            targetDay = cal.nextMatchday;
+      if (baseHash === '#invform') {
+        if (!queryString.includes('Gio=')) {
+          let targetDay = null;
+          if (typeof fcmDataLoader !== 'undefined') {
+            const cal = fcmDataLoader.getCalendarData();
+            if (cal && cal.nextMatchday > 0 && cal.nextMatchday <= 38) {
+              targetDay = cal.nextMatchday;
+            }
+          }
+          if (!targetDay && typeof GetProssimaGiornataDaGiocare === 'function') {
+            targetDay = GetProssimaGiornataDaGiocare();
+          }
+          if (targetDay) {
+            finalQuery = (finalQuery ? finalQuery + '&' : '?') + 'Gio=' + targetDay;
           }
         }
-        if (!targetDay && typeof GetProssimaGiornataDaGiocare === 'function') {
-          targetDay = GetProssimaGiornataDaGiocare();
-        }
-        if (targetDay) {
-          finalQuery = (finalQuery ? finalQuery + '&' : '?') + 'Gio=' + targetDay;
+        if (!finalQuery.includes('Fsq=')) {
+          let favId = null;
+          if (typeof fcmHomeConfigManager !== 'undefined') {
+            favId = fcmHomeConfigManager.getFavoriteTeamId();
+          }
+          if (favId) {
+            finalQuery = (finalQuery ? finalQuery + '&' : '?') + 'Fsq=' + favId;
+          }
         }
       }
       const targetSrc = pageInfo.file + finalQuery;
@@ -655,20 +864,27 @@ const App = {
           'statistiche': 'statistiche',
           'schede_giocatori': 'schedegiocatori',
           'schedegiocatori': 'schedegiocatori',
+          'schedagiocatori': 'schedegiocatori',
           'indisponibili': 'indisponibili',
           'indisponibili_covid': 'indisponibili',
           'indisponibili_check': 'indisponibili',
           'documenti': 'documenti',
           'confronti': 'confronti',
+          'confrontistorici': 'confronti',
           'confrontidiretti': 'confronti',
           'incroci': 'incroci',
           'seavessiavuto': 'incroci',
+          'inverticalendario': 'incroci',
           'eta': 'eta',
           'etarose': 'eta',
           'fantam': 'fantamister',
           'fantamister': 'fantamister',
+          'fantamstorico': 'fantamister',
+          'fantamisterstorico': 'fantamister',
+          'fantam_storico': 'fantamister',
           'fantamassimi': 'fantamister',
           'fantaclassifica': 'fantamister',
+          'top11': 'fantamister',
           'ranking': 'ranking',
           'rankingdivisioni': 'ranking',
           'albo': 'albo',
@@ -680,15 +896,27 @@ const App = {
           'topcostistagione': 'topcostistagione',
           'topflop': 'topflop',
           'calcolo': 'calcolo',
+          'impostazioni': 'calcolo',
           'impostazioni_calcolo': 'calcolo',
           'impostazioni-calcolo': 'calcolo',
           'live': 'live',
           'livefp': 'live',
           'livefm': 'live',
+          'livefc': 'live',
           'livevu': 'live',
           'livefg': 'live',
           'invform': 'invform',
-          'invform_prec': 'invform'
+          'invform_prec': 'invform',
+          'archivio': 'archivio',
+          'records': 'records',
+          'recordstorici': 'recordstorici',
+          'mercato': 'mercato',
+          'mercato_admin': 'mercato',
+          'gbook': 'gbook',
+          'storico': 'storico',
+          'extra': 'extra',
+          'stats': 'stats',
+          'counter': 'stats'
         };
         const counterId = validIds[clean];
         if (!counterId) return;
@@ -719,11 +947,36 @@ const App = {
         }
       });
     });
-    document.querySelectorAll('a[href="#live"], a[href="#liveFP"], a[href="#liveFM"], a[href="#liveVU"], a[href="#liveFG"]').forEach(el => {
+    document.querySelectorAll('a[href="#live"], a[href="#liveFP"], a[href="#liveFM"], a[href="#liveFC"], a[href="#liveVU"], a[href="#liveFG"]').forEach(el => {
       el.addEventListener('click', () => {
         if (typeof liveVotiView !== 'undefined') {
           liveVotiView.currentDay = null;
           liveVotiView.currentMatch = 'all';
+        }
+      });
+    });
+  },
+
+  /**
+   * Riporta la pagina in alto su click su logo/scritta lega o pulsante Home (desktop e mobile)
+   */
+  initHomeScrollToTopListeners() {
+    const homeTriggers = document.querySelectorAll('.brand-wrapper, .bottom-nav a[href="#home"], .desktop-nav a[href="#home"], .drawer a[href="#home"]');
+    homeTriggers.forEach(trigger => {
+      trigger.addEventListener('click', (e) => {
+        const isCurrentHome = !window.location.hash || window.location.hash === '#home' || window.location.hash === '#';
+
+        // Mostra immediatamente l'header se era nascosto dallo scorrimento
+        const header = document.querySelector('.app-header');
+        if (header) {
+          header.classList.remove('header-hidden');
+        }
+
+        if (isCurrentHome) {
+          e.preventDefault();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         }
       });
     });
@@ -841,6 +1094,16 @@ const App = {
 
   updateNavStates(hash) {
     const cleanHash = (hash || '').split('?')[0].toLowerCase();
+    const isHome = cleanHash === '#home' || cleanHash === '' || cleanHash === '#';
+
+    // Gestione visibilità tasto floating personalizzazione home (visibile SOLO nella Home)
+    if (document.body) {
+      document.body.classList.toggle('is-home-view', isHome);
+    }
+    const desktopFab = document.getElementById('btnDesktopFabCustomizeHome');
+    if (desktopFab) {
+      desktopFab.style.display = isHome ? '' : 'none';
+    }
 
     // Bottom Nav (mobile)
     const bNavItems = document.querySelectorAll('.bnav-item');
@@ -849,7 +1112,7 @@ const App = {
       const itemHash = itemHref.split('?')[0].toLowerCase();
       const bnavType = item.dataset.bnavType;
 
-      const isLiveHash = cleanHash === '#livefp' || cleanHash === '#livefm' || cleanHash === '#livevu' || cleanHash === '#livefg';
+      const isLiveHash = cleanHash === '#live' || cleanHash === '#livefp' || cleanHash === '#livefm' || cleanHash === '#livefc' || cleanHash === '#livevu' || cleanHash === '#livefg';
       const isInvformHash = cleanHash === '#invform';
 
       let isActive = false;
@@ -952,10 +1215,16 @@ const App = {
       this.appContainer.classList.add('has-embedded-frame');
     }
     const safeSrc = String(src).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const isExcludedFromSkeleton = (this.currentRoute === '#gbook' || this.currentRoute === '#stats' || this.currentRoute === '#counter' || String(src).includes('gbook') || String(src).includes('counter'));
+    const frameSkeletonHtml = (!isExcludedFromSkeleton && typeof fcmSkeleton !== 'undefined')
+      ? `<div id="frameSkeletonOverlay" class="frame-skeleton-loader">${fcmSkeleton.table({ cols: 5, rows: 8, withToolbar: true, toolbarPills: 3 })}</div>`
+      : '';
+
     container.innerHTML = `
       <div class="embedded-frame-container">
         <!-- Frame incorporato -->
         <div class="embedded-frame-wrapper">
+          ${frameSkeletonHtml}
           <iframe id="spaEmbeddedFrame" src="${safeSrc}" frameborder="0" scrolling="no" allowtransparency="true" style="background-color: var(--bg-main, #0b1120);"></iframe>
         </div>
       </div>
@@ -964,6 +1233,15 @@ const App = {
     const iframe = document.getElementById('spaEmbeddedFrame');
     if (iframe) {
       iframe.addEventListener('load', () => {
+        const skeletonOverlay = document.getElementById('frameSkeletonOverlay');
+        if (skeletonOverlay) {
+          skeletonOverlay.classList.add('is-hidden');
+          setTimeout(() => {
+            if (skeletonOverlay && skeletonOverlay.parentNode) {
+              skeletonOverlay.parentNode.removeChild(skeletonOverlay);
+            }
+          }, 350);
+        }
         this.cleanupFrameObservers();
         this._lastFrameHeight = 0;
         try {
@@ -999,9 +1277,9 @@ const App = {
               }
             } catch (styleErr) { }
 
-            // Sincronizza il tema (default dark coerente con ModernFCM)
-            const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-            iframe.contentDocument.documentElement.setAttribute('data-theme', theme);
+            // Sincronizza il tema, i font e le variabili custom nell'iframe
+            this.syncIframeCustomTheme(iframe);
+            this.attachIframeScrollAutoHide(iframe);
 
             // Se l'iframe contiene <base target="_top">, impostalo a _self per non forzare la navigazione fuori dal frame
             try {
@@ -1253,6 +1531,10 @@ const App = {
     this._lastFrameHeight = 0;
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.App = App;
+}
 
 // Start application after DOM ready
 document.addEventListener('DOMContentLoaded', () => {

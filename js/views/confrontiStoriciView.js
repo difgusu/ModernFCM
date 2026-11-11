@@ -78,9 +78,11 @@ const confrontiStoriciView = {
         </div>
 
         <div id="confrontiStoriciContent">
-          <div class="text-center" style="padding:30px;color:var(--text-muted);">
-            Caricamento archivio confronti storici...
-          </div>
+          ${(typeof fcmSkeleton !== 'undefined') ? fcmSkeleton.confronti() : `
+            <div class="text-center" style="padding:30px;color:var(--text-muted);">
+              Caricamento archivio confronti storici...
+            </div>
+          `}
         </div>
       </div>
     `;
@@ -120,7 +122,7 @@ const confrontiStoriciView = {
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px;">
           <div style="display:flex;align-items:center;gap:10px;">
             <img src="img/sq/${encodeURI(currentTeam.name)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(currentTeam.name)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:32px;width:auto;vertical-align:middle;" alt="" />
-            <span style="font-weight:800;font-size:1.15rem;color:var(--text-primary);">Palmarès ${currentTeam.name}</span>
+            <span style="font-weight:800;font-size:1.15rem;color:var(--text-primary);">${(typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(currentTeam.id) || fcmHomeConfigManager.isFavoriteTeam(currentTeam.name))) ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}Palmarès ${currentTeam.name}</span>
           </div>
 
           <div style="display:flex;align-items:center;gap:8px;">
@@ -128,9 +130,12 @@ const confrontiStoriciView = {
               Fantasquadra:
             </label>
             <select id="confTeamSelect" class="form-select" style="font-weight:700;min-width:200px;">
-              ${confData.teams.map(t => `
-                <option value="${t.id}" ${t.id === this.currentTeamId ? 'selected' : ''}>${t.name}</option>
-              `).join('')}
+              ${confData.teams.map(t => {
+                const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(t) || fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
+                return `
+                  <option value="${t.id}" ${t.id === this.currentTeamId ? 'selected' : ''}>${isFav ? '⭐ ' : ''}${t.name}</option>
+                `;
+              }).join('')}
             </select>
           </div>
         </div>
@@ -317,14 +322,15 @@ const confrontiStoriciView = {
 
       // Tipografia: Grassetto per attuali, normale per storiche
       const nameWeight = o.isCurrent ? '800' : '400';
+      const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(o.teamId) || fcmHomeConfigManager.isFavoriteTeam(o.teamName));
 
       return `
-                  <tr>
+                  <tr class="${isFav ? 'table-row-favorite' : ''}">
                     <td>
                       <div style="display:flex;align-items:center;gap:10px;">
                         <img src="img/sq/${encodeURI(o.teamName)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(o.teamName)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:22px;width:auto;vertical-align:middle;flex-shrink:0;" alt="" />
                         <span class="btn-opp-action" data-opp="${o.teamId}" style="cursor:pointer;font-weight:${nameWeight};color:${nameColor};display:inline-flex;align-items:center;gap:6px;" title="Vedi dettaglio incontri con ${o.teamName}">
-                          ${o.teamName}
+                          ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${o.teamName}
                           <span style="font-size:0.75rem;opacity:0.6;">&rarr;</span>
                         </span>
                       </div>
@@ -407,15 +413,16 @@ const confrontiStoriciView = {
         statusText = 'In svantaggio';
       }
       const nameWeight = o.isCurrent ? '800' : '500';
+      const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(o.teamId) || fcmHomeConfigManager.isFavoriteTeam(o.teamName));
 
       return `
-              <div class="match-card" style="padding:10px 12px;background:var(--bg-surface-elevated);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
+              <div class="match-card ${isFav ? 'match-card-favorite' : ''}" style="padding:10px 12px;background:var(--bg-surface-elevated);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
                 <!-- Header Squadra Avversaria -->
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap;">
                   <div class="btn-opp-action" data-opp="${o.teamId}" style="display:flex;align-items:center;gap:8px;cursor:pointer;min-width:0;" title="Vedi dettaglio incontri con ${o.teamName}">
                     <img src="img/sq/${encodeURI(o.teamName)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(o.teamName)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:26px;width:auto;vertical-align:middle;flex-shrink:0;" alt="" />
                     <span style="font-weight:${nameWeight};color:${nameColor};font-size:0.92rem;display:inline-flex;align-items:center;gap:4px;">
-                      ${o.teamName}
+                      ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${o.teamName}
                       <span style="font-size:0.75rem;opacity:0.6;">↗</span>
                     </span>
                   </div>
@@ -486,12 +493,13 @@ const confrontiStoriciView = {
       if (!data) {
         return `<span style="color:var(--text-muted);font-style:italic;font-size:0.75rem;">N/D</span>`;
       }
+      const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(data.teamId) || fcmHomeConfigManager.isFavoriteTeam(data.teamName));
       return `
         <div style="display:flex;align-items:center;gap:8px;">
           <img src="img/sq/${encodeURI(data.teamName)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(data.teamName)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:22px;width:auto;vertical-align:middle;flex-shrink:0;" alt="" />
           <div>
-            <span class="btn-opp-action" data-opp="${data.teamId}" style="cursor:pointer;font-weight:700;color:var(--text-primary);font-size:0.82rem;" title="Vedi dettaglio incontri con ${data.teamName}">
-              ${data.teamName}
+            <span class="btn-opp-action" data-opp="${data.teamId}" style="cursor:pointer;font-weight:700;color:${isFav ? 'var(--accent-gold)' : 'var(--text-primary)'};font-size:0.82rem;display:inline-flex;align-items:center;gap:4px;" title="Vedi dettaglio incontri con ${data.teamName}">
+              ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${data.teamName}
             </span>
             <div style="font-size:0.72rem;color:var(--text-muted);">
               Media: <strong style="color:var(--accent-gold);">${data.val}</strong> &bull; ${data.matches} partite
@@ -505,11 +513,12 @@ const confrontiStoriciView = {
       if (!data) {
         return `<div style="color:var(--text-muted);font-style:italic;font-size:0.75rem;margin:auto 0;padding:8px 0;">N/D</div>`;
       }
+      const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(data.teamId) || fcmHomeConfigManager.isFavoriteTeam(data.teamName));
       return `
         <div style="display:flex;flex-direction:column;align-items:center;gap:4px;margin:auto 0;">
           <img src="img/sq/${encodeURI(data.teamName)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(data.teamName)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:26px;width:auto;object-fit:contain;" alt="" />
-          <div class="btn-opp-action" data-opp="${data.teamId}" style="font-size:0.75rem;font-weight:800;color:var(--text-primary);cursor:pointer;line-height:1.2;word-break:break-word;max-width:100%;" title="Vedi dettaglio incontri con ${data.teamName}">
-            ${data.teamName}
+          <div class="btn-opp-action" data-opp="${data.teamId}" style="font-size:0.75rem;font-weight:800;color:${isFav ? 'var(--accent-gold)' : 'var(--text-primary)'};cursor:pointer;line-height:1.2;word-break:break-word;max-width:100%;display:inline-flex;align-items:center;gap:3px;" title="Vedi dettaglio incontri con ${data.teamName}">
+            ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${data.teamName}
           </div>
         </div>
         <div style="margin-top:6px;border-top:1px dashed var(--border-subtle);padding-top:4px;">
@@ -657,9 +666,12 @@ const confrontiStoriciView = {
               Avversaria:
             </label>
             <select id="confOpponentSelect" class="form-select" style="font-weight:700;min-width:220px;">
-              ${teams.filter(t => t.id !== currentTeam.id).map(t => `
-                <option value="${t.id}" ${t.id === this.currentOpponentId ? 'selected' : ''}>${t.name}</option>
-              `).join('')}
+              ${teams.filter(t => t.id !== currentTeam.id).map(t => {
+                const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(t) || fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
+                return `
+                  <option value="${t.id}" ${t.id === this.currentOpponentId ? 'selected' : ''}>${isFav ? '⭐ ' : ''}${t.name}</option>
+                `;
+              }).join('')}
             </select>
           </div>
 
@@ -691,12 +703,15 @@ const confrontiStoriciView = {
               </thead>
               <tbody>
                 ${h2h.matches.map(m => {
-      const myWin = (m.isACasa && m.homeScore > m.awayScore) || (!m.isACasa && m.awayScore > m.homeScore);
-      const oppWin = (m.isACasa && m.homeScore < m.awayScore) || (!m.isACasa && m.awayScore < m.homeScore);
-      let resClass = myWin ? 'color:var(--accent-emerald);font-weight:800;' : (oppWin ? 'color:var(--accent-rose);font-weight:800;' : 'font-weight:700;');
+                  const myWin = (m.isACasa && m.homeScore > m.awayScore) || (!m.isACasa && m.awayScore > m.homeScore);
+                  const oppWin = (m.isACasa && m.homeScore < m.awayScore) || (!m.isACasa && m.awayScore < m.homeScore);
+                  let resClass = myWin ? 'color:var(--accent-emerald);font-weight:800;' : (oppWin ? 'color:var(--accent-rose);font-weight:800;' : 'font-weight:700;');
+                  const isFavHome = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(m.homeId) || fcmHomeConfigManager.isFavoriteTeam(m.homeTeam));
+                  const isFavAway = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(m.awayId) || fcmHomeConfigManager.isFavoriteTeam(m.awayTeam));
+                  const isFavMatch = isFavHome || isFavAway;
 
-      return `
-                    <tr>
+                  return `
+                    <tr class="${isFavMatch ? 'table-row-favorite' : ''}">
                       <td class="font-bold">${m.season}ª</td>
                       <td><span class="badge" style="background:var(--bg-surface);border:1px solid var(--border-subtle);font-size:0.72rem;">${m.compLabel}</span></td>
                       <td class="text-center font-bold">
@@ -707,7 +722,7 @@ const confrontiStoriciView = {
                       <td style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">${this.formatDate(m.date || m.rawDate)}</td>
                       <td style="text-align:right;${m.isACasa ? 'font-weight:800;color:var(--text-primary);' : 'color:var(--text-secondary);'}">
                         <span style="display:inline-flex;align-items:center;gap:6px;">
-                          ${m.homeTeam}
+                          ${isFavHome ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${m.homeTeam}
                           <img src="img/sq/${encodeURI(m.homeTeam)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(m.homeTeam)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:18px;width:auto;vertical-align:middle;" alt="" />
                         </span>
                       </td>
@@ -719,7 +734,7 @@ const confrontiStoriciView = {
                       <td style="text-align:left;${!m.isACasa ? 'font-weight:800;color:var(--text-primary);' : 'color:var(--text-secondary);'}">
                         <span style="display:inline-flex;align-items:center;gap:6px;">
                           <img src="img/sq/${encodeURI(m.awayTeam)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(m.awayTeam)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:18px;width:auto;vertical-align:middle;" alt="" />
-                          ${m.awayTeam}
+                          ${isFavAway ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${m.awayTeam}
                         </span>
                       </td>
                       <td class="text-center font-bold" style="color:var(--text-muted);">
@@ -727,7 +742,7 @@ const confrontiStoriciView = {
                       </td>
                     </tr>
                   `;
-    }).join('')}
+                }).join('')}
               </tbody>
             </table>
           </div>
@@ -735,12 +750,15 @@ const confrontiStoriciView = {
           <!-- Visualizzazione Mobile: Card Responsive Senza Scorrimento Orizzontale -->
           <div class="incontri-mobile-view">
             ${h2h.matches.map(m => {
-      const myWin = (m.isACasa && m.homeScore > m.awayScore) || (!m.isACasa && m.awayScore > m.homeScore);
-      const oppWin = (m.isACasa && m.homeScore < m.awayScore) || (!m.isACasa && m.awayScore < m.homeScore);
-      let resColor = myWin ? 'var(--accent-emerald, #10b981)' : (oppWin ? 'var(--accent-rose, #ef4444)' : 'var(--accent-gold, #f59e0b)');
+              const myWin = (m.isACasa && m.homeScore > m.awayScore) || (!m.isACasa && m.awayScore > m.homeScore);
+              const oppWin = (m.isACasa && m.homeScore < m.awayScore) || (!m.isACasa && m.awayScore < m.homeScore);
+              let resColor = myWin ? 'var(--accent-emerald, #10b981)' : (oppWin ? 'var(--accent-rose, #ef4444)' : 'var(--accent-gold, #f59e0b)');
+              const isFavHome = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(m.homeId) || fcmHomeConfigManager.isFavoriteTeam(m.homeTeam));
+              const isFavAway = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(m.awayId) || fcmHomeConfigManager.isFavoriteTeam(m.awayTeam));
+              const isFavMatch = isFavHome || isFavAway;
 
-      return `
-                <div class="match-card" style="padding:10px 12px;background:var(--bg-surface-elevated);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
+              return `
+                <div class="match-card ${isFavMatch ? 'match-card-favorite' : ''}" style="padding:10px 12px;background:var(--bg-surface-elevated);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
                   <!-- Riga Intestazione Partita -->
                   <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.72rem;color:var(--text-muted);margin-bottom:8px;gap:6px;flex-wrap:wrap;">
                     <div style="display:flex;align-items:center;gap:6px;">
@@ -759,7 +777,7 @@ const confrontiStoriciView = {
                     <div style="display:flex;align-items:center;gap:6px;min-width:0;">
                       <img src="img/sq/${encodeURI(m.homeTeam)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(m.homeTeam)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:22px;width:auto;flex-shrink:0;" alt="" />
                       <span style="font-size:0.82rem;font-weight:${m.isACasa ? '800' : '500'};color:${m.isACasa ? 'var(--text-primary)' : 'var(--text-secondary)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${m.homeTeam}">
-                        ${m.homeTeam}
+                        ${isFavHome ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${m.homeTeam}
                       </span>
                     </div>
 
@@ -778,14 +796,14 @@ const confrontiStoriciView = {
                     <!-- Trasferta -->
                     <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;text-align:right;">
                       <span style="font-size:0.82rem;font-weight:${!m.isACasa ? '800' : '500'};color:${!m.isACasa ? 'var(--text-primary)' : 'var(--text-secondary)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${m.awayTeam}">
-                        ${m.awayTeam}
+                        ${isFavAway ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${m.awayTeam}
                       </span>
                       <img src="img/sq/${encodeURI(m.awayTeam)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(m.awayTeam)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:22px;width:auto;flex-shrink:0;" alt="" />
                     </div>
                   </div>
                 </div>
               `;
-    }).join('')}
+            }).join('')}
           </div>
         ` : `
           <div class="text-center" style="padding:24px;color:var(--text-muted);">

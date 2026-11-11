@@ -6,7 +6,16 @@
 
 const ratingView = {
   currentTeamId: null, // Dinamico: prima squadra attiva per idAttuale (o da query param)
+  minPresenze: 20,     // Default presenze minime per il calcolo del FantaRating
   activeMobileTab: 'top', // 'top' o 'flop'
+
+  _escAttr(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  },
 
   async render(container) {
     const hash = window.location.hash || '';
@@ -17,6 +26,10 @@ const ratingView = {
         if (!isNaN(fId)) this.currentTeamId = fId;
       } else {
         this.currentTeamId = null;
+      }
+      if (params.has('minPres')) {
+        const mp = parseInt(params.get('minPres'), 10);
+        if (!isNaN(mp) && mp > 0) this.minPresenze = mp;
       }
       if (params.has('tab')) {
         this.activeMobileTab = params.get('tab') === 'flop' ? 'flop' : 'top';
@@ -39,6 +52,12 @@ const ratingView = {
           border-radius: var(--radius-md);
           border: 1px solid var(--border-subtle);
         }
+        .rating-toolbar-controls {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 14px;
+        }
         .rating-team-group {
           display: flex;
           align-items: center;
@@ -46,7 +65,7 @@ const ratingView = {
           flex-wrap: wrap;
         }
         .rating-team-select {
-          min-width: 240px;
+          min-width: 220px;
           font-weight: 700;
         }
         .rating-mobile-tabs {
@@ -89,9 +108,7 @@ const ratingView = {
         }
         .rating-table .col-player {
           text-align: left;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          overflow: visible;
         }
         .rating-table .col-stat {
           width: 44px;
@@ -104,6 +121,13 @@ const ratingView = {
           white-space: nowrap;
         }
 
+        @media (max-width: 1024px) {
+          .rating-grid {
+            grid-template-columns: 1fr;
+            gap: 18px;
+          }
+        }
+
         @media (max-width: 768px) {
           .rating-toolbar {
             flex-direction: column;
@@ -111,6 +135,12 @@ const ratingView = {
             padding: 12px;
             gap: 12px;
             margin-bottom: 16px;
+          }
+          .rating-toolbar-controls {
+            width: 100%;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 10px;
           }
           .rating-team-group {
             width: 100%;
@@ -121,6 +151,9 @@ const ratingView = {
           .rating-team-select {
             width: 100% !important;
             min-width: 0 !important;
+          }
+          .rating-minpres-group {
+            justify-content: space-between;
           }
           .rating-mobile-tabs {
             display: grid !important;
@@ -159,10 +192,10 @@ const ratingView = {
             padding: 6px 1px !important;
           }
           .rating-table .col-stat {
-            width: 36px !important;
+            width: 34px !important;
           }
           .rating-table .col-rating {
-            width: 50px !important;
+            width: 48px !important;
           }
         }
       </style>
@@ -186,9 +219,31 @@ const ratingView = {
         </div>
 
         <div id="ratingContent">
-          <div class="text-center" style="padding:30px;color:var(--text-muted);">
-            Caricamento Fanta Rating...
-          </div>
+          ${(typeof fcmSkeleton !== 'undefined') ? `
+            <div style="display:flex;flex-direction:column;gap:16px;">
+              <div class="skeleton-toolbar">
+                <div class="skeleton skeleton-btn" style="width:220px;"></div>
+                <div class="skeleton skeleton-pill" style="width:140px;"></div>
+              </div>
+              ${fcmSkeleton.heroKpi(3)}
+              <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:16px;">
+                <div class="skeleton-stat-box" style="padding:16px;">
+                  <div class="skeleton skeleton-title w-50" style="margin-bottom:12px;"></div>
+                  <div class="skeleton skeleton-text w-80"></div>
+                  <div class="skeleton skeleton-text w-60"></div>
+                </div>
+                <div class="skeleton-stat-box" style="padding:16px;">
+                  <div class="skeleton skeleton-title w-50" style="margin-bottom:12px;"></div>
+                  <div class="skeleton skeleton-text w-80"></div>
+                  <div class="skeleton skeleton-text w-60"></div>
+                </div>
+              </div>
+            </div>
+          ` : `
+            <div class="text-center" style="padding:30px;color:var(--text-muted);">
+              Caricamento Fanta Rating...
+            </div>
+          `}
         </div>
       </div>
     `;
@@ -202,7 +257,7 @@ const ratingView = {
       window.history.replaceState(
         null,
         '',
-        `#rating?fsq=${this.currentTeamId}&tab=${this.activeMobileTab}`
+        `#rating?fsq=${this.currentTeamId}&minPres=${this.minPresenze}&tab=${this.activeMobileTab}`
       );
     } catch (err) {
       // Fallback
@@ -223,23 +278,35 @@ const ratingView = {
     }
     this.currentTeamId = currentTeam.id;
 
-    const topList = almData.getTopRating(this.currentTeamId);
-    const flopList = almData.getFlopRating(this.currentTeamId);
+    const topList = almData.getTopRating(this.currentTeamId, this.minPresenze, 20);
+    const flopList = almData.getFlopRating(this.currentTeamId, this.minPresenze, 20);
 
     subContainer.innerHTML = `
-      <!-- Toolbar Fantasquadra + Mobile Tabs -->
+      <!-- Toolbar Fantasquadra + Presenze Minime + Mobile Tabs -->
       <div class="rating-toolbar">
-        <div class="rating-team-group">
-          <label for="ratingTeamSelect" style="font-size:0.8rem;font-weight:800;color:var(--accent-cyan);text-transform:uppercase;letter-spacing:0.04em;">
-            Fantasquadra:
-          </label>
-          <select id="ratingTeamSelect" class="form-select rating-team-select">
-            ${almData.teams.map(t => `
-              <option value="${t.id}" ${t.id === this.currentTeamId ? 'selected' : ''}>
-                ${t.name}
-              </option>
-            `).join('')}
-          </select>
+        <div class="rating-toolbar-controls">
+          <div class="rating-team-group">
+            <label for="ratingTeamSelect" style="font-size:0.8rem;font-weight:800;color:var(--accent-cyan);text-transform:uppercase;letter-spacing:0.04em;">
+              Fantasquadra:
+            </label>
+            <select id="ratingTeamSelect" class="form-select rating-team-select">
+              ${almData.teams.map(t => {
+                const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
+                return `
+                  <option value="${t.id}" ${t.id === this.currentTeamId ? 'selected' : ''}>
+                    ${isFav ? '⭐ ' : ''}${t.name}
+                  </option>
+                `;
+              }).join('')}
+            </select>
+          </div>
+
+          <div class="rating-minpres-group" style="display:flex;align-items:center;gap:8px;">
+            <label for="ratingMinPres" style="font-size:0.8rem;font-weight:700;color:var(--text-secondary);white-space:nowrap;">
+              Presenze Minime:
+            </label>
+            <input type="number" id="ratingMinPres" class="form-control" style="width:74px;min-height:36px;padding:4px 8px;font-weight:800;text-align:center;font-size:0.85rem;" min="1" max="500" value="${this.minPresenze}">
+          </div>
         </div>
 
         <!-- Mobile View Switcher (Top Rating vs Flop Rating) -->
@@ -253,7 +320,7 @@ const ratingView = {
         </div>
 
         <div style="font-size:0.8rem;color:var(--text-muted);">
-          Indice calcolato su presenze, fantamedia e costo storico
+          Indice calcolato su presenze (&ge; ${this.minPresenze}), fantamedia e costo storico
         </div>
       </div>
 
@@ -288,6 +355,17 @@ const ratingView = {
       this.renderRating(subContainer);
     });
 
+    // Event listener: Presenze Minime change
+    const minPresInput = subContainer.querySelector('#ratingMinPres');
+    if (minPresInput) {
+      minPresInput.addEventListener('change', (e) => {
+        const val = parseInt(e.target.value, 10);
+        this.minPresenze = (!isNaN(val) && val > 0) ? val : 20;
+        this.updateHistoryUrl();
+        this.renderRating(subContainer);
+      });
+    }
+
     // Event listeners: Mobile tabs switch
     const tabBtns = subContainer.querySelectorAll('#ratingMobileTabs button');
     tabBtns.forEach(btn => {
@@ -316,7 +394,7 @@ const ratingView = {
     if (!list || list.length === 0) {
       return `
         <div class="text-center" style="padding:24px;color:var(--text-muted);font-size:0.85rem;">
-          Nessun record di rating disponibile per questa fantasquadra.
+          Nessun calciatore trovato con almeno ${this.minPresenze} presenze per questa fantasquadra.
         </div>
       `;
     }
@@ -338,13 +416,31 @@ const ratingView = {
           </thead>
           <tbody>
             ${list.map(p => {
-      const roleBadgeClass = `role-${p.roleShort.toLowerCase()}`;
+      const rShort = p.roleShort || p.role || 'C';
+      const roleBadgeClass = `role-${rShort.toLowerCase()}`;
+      const name = p.player || '';
+      const code = p.code || null;
+      const profileLink = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getPlayerProfileLink === 'function')
+        ? fcmDataLoader.getPlayerProfileLink({ name, code })
+        : `#schede_giocatori?name=${encodeURIComponent(name)}`;
+      const photoSrc = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getPlayerPhoto === 'function')
+        ? fcmDataLoader.getPlayerPhoto(name, code)
+        : (code ? `img/foto/${code}.jpg` : 'img/foto/misterx.gif');
+      const safeName = this._escAttr(name);
+
       return `
                 <tr>
-                  <td class="col-role"><span class="role-badge ${roleBadgeClass}">${p.roleShort}</span></td>
-                  <td class="col-player font-bold" style="color:var(--text-primary);" title="${p.player}">${p.player}</td>
-                  <td class="col-rating font-bold" style="color:${ratingColor};">${p.rating.toFixed(2)}</td>
-                  <td class="col-stat">${p.fmv > 0 ? p.fmv.toFixed(2) : '-'}</td>
+                  <td class="col-role"><span class="role-badge ${roleBadgeClass}">${rShort}</span></td>
+                  <td class="col-player">
+                    <div class="hist-player-cell">
+                      <a href="${this._escAttr(profileLink)}" class="hist-player-avatar-link" aria-label="Apri scheda di ${safeName}" title="Apri scheda di ${safeName}">
+                        <img src="${this._escAttr(photoSrc)}" class="hist-player-thumb" alt="" loading="lazy" onerror="this.onerror=null;this.src='img/foto/misterx.gif';" />
+                      </a>
+                      <a href="${this._escAttr(profileLink)}" class="hist-player-name-link" title="Apri scheda di ${safeName}">${safeName}</a>
+                    </div>
+                  </td>
+                  <td class="col-rating font-bold" style="color:${ratingColor};">${Number(p.rating || 0).toFixed(2)}</td>
+                  <td class="col-stat">${Number(p.fmv || 0) > 0 ? Number(p.fmv).toFixed(2) : '-'}</td>
                   <td class="col-stat font-bold" style="color:var(--accent-gold);">${p.costo}</td>
                   <td class="col-stat font-bold">${p.appearances}</td>
                 </tr>

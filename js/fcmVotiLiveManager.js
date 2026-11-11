@@ -1,11 +1,11 @@
 /**
  * ModernFCM - Voti Live Manager
  * Gestione asincrona con Progress Bar, Timeout configurabile (30/60s) e Fallback
- * per Diretta Live Fantapazz, Voti Ufficiosi PianetaFanta e Calcolo Manuale.
+ * per Diretta Live Fantapazz, FantaMaster, Fantacalcio.it, Voti Ufficiosi PianetaFanta e Calcolo Manuale.
  */
 var FcmVotiLiveManager = (function () {
-    var config = {
-        source: 'fantapazz', // 'fantapazz' | 'pianetafanta'
+    var defaultConfig = {
+        source: 'fantapazz', // 'fantapazz' | 'pianetafanta' | 'fantamaster' | 'fantacalcio'
         endpoint: 'inc/live_extractFP.php',
         sourceName: 'Fantapazz.com',
         sourceTypeDesc: 'Voti Live',
@@ -15,14 +15,20 @@ var FcmVotiLiveManager = (function () {
         themeClass: '',
         defaultTimeout: 45, // secondi predefiniti
         autoStart: null, // null = auto basato su fresh, true/false forzato
+        force: false,
+        onStart: null,   // callback opzionale function(info) all'avvio estrazione
         onSuccess: null  // callback opzionale function(data) per rendering in-page (es. calcolo.php)
     };
+
+    var config = Object.assign({}, defaultConfig);
 
     var state = {
         timeoutSec: 45,
         elapsedSec: 0,
         timerInterval: null,
         progressInterval: null,
+        dismissTimer: null,
+        dismissFadeTimer: null,
         currentProgress: 0,
         abortController: null,
         silentRefreshTimer: null,
@@ -31,8 +37,20 @@ var FcmVotiLiveManager = (function () {
         visibilityHandler: null,
         focusHandler: null,
         isStopped: false,
-        isExtracting: false
+        isExtracting: false,
+        requestSeq: 0
     };
+
+    function clearDismissTimers() {
+        if (state.dismissTimer) {
+            clearTimeout(state.dismissTimer);
+            state.dismissTimer = null;
+        }
+        if (state.dismissFadeTimer) {
+            clearTimeout(state.dismissFadeTimer);
+            state.dismissFadeTimer = null;
+        }
+    }
 
     function checkAndShowGiornataLiveNotice(giornataLive) {
         if (!giornataLive || !config.giornata) return;
@@ -56,7 +74,12 @@ var FcmVotiLiveManager = (function () {
                 if (params.get('Div')) compParam += '&Div=' + encodeURIComponent(params.get('Div'));
             } catch (e) { }
 
-            var routePrefix = (config.source === 'fantamaster') ? '#liveFM' : '#liveFP';
+            var routePrefix = '#liveFP';
+            if (config.source === 'fantamaster') {
+                routePrefix = '#liveFM';
+            } else if (config.source === 'fantacalcio') {
+                routePrefix = '#liveFC';
+            }
             var targetUrl = routePrefix + '?Gio=' + encodeURIComponent(giornataLive) + compParam;
 
             noticeContainer.innerHTML =
@@ -72,7 +95,7 @@ var FcmVotiLiveManager = (function () {
     var checkAndShowGiornataFpNotice = checkAndShowGiornataLiveNotice;
 
     function setupLiveAutoRefresh(hasMatchLive) {
-        if (config.source !== 'fantapazz' && config.source !== 'fantamaster') return;
+        if (config.source !== 'fantapazz' && config.source !== 'fantamaster' && config.source !== 'fantacalcio') return;
 
         var liveKey = 'pn_has_match_live_' + config.source;
         if (!hasMatchLive) {
@@ -150,7 +173,7 @@ var FcmVotiLiveManager = (function () {
                     var isLive = data.hasMatchLive === true;
                     setupLiveAutoRefresh(isLive);
 
-                    var gLive = data.giornataFM || data.giornataFP;
+                    var gLive = data.giornataFM || data.giornataFP || data.giornataFC;
                     if (gLive) {
                         sessionStorage.setItem('pn_giornata_' + config.source, gLive);
                         checkAndShowGiornataLiveNotice(gLive);
@@ -158,7 +181,7 @@ var FcmVotiLiveManager = (function () {
 
                     if (typeof config.onSuccess === 'function') {
                         reloadScriptVoti(function () {
-                            try { config.onSuccess(data); } catch (e) { }
+                            try { config.onSuccess(Object.assign({}, data, { isSilent: true })); } catch (e) { }
                         });
                     } else {
                         // Ricarica pulita senza mostrare la barra di progresso
@@ -195,6 +218,8 @@ var FcmVotiLiveManager = (function () {
         var targetFile = 'js/fcmVotiDatiVU.js';
         if (config.source === 'fantamaster') {
             targetFile = 'js/fcmVotiDatiFM.js';
+        } else if (config.source === 'fantacalcio') {
+            targetFile = 'js/fcmVotiDatiFC.js';
         } else if (config.source === 'fantapazz') {
             targetFile = 'js/fcmVotiDatiFP.js';
         }
@@ -224,8 +249,10 @@ var FcmVotiLiveManager = (function () {
         setImportButtonLoading(false);
 
         var isCached = (data && data.cached === true);
+        var isVuSource = (config.source === 'pianetafanta');
+        var cacheBaseText = isVuSource ? 'Voti Ufficiosi (PianetaFanta) caricati dalla cache locale' : 'Voti caricati dalla cache locale';
         var msg = isCached
-            ? ((data && data.message) || 'Voti caricati dalla cache locale')
+            ? ((data && data.message) || cacheBaseText)
             : ('Voti e bonus/malus scaricati con successo da ' + config.sourceName + '! (' + ((data && data.count) || 0) + ' giocatori)');
         var icon = isCached ? '&#9889;' : '&#9989;';
 
@@ -248,12 +275,17 @@ var FcmVotiLiveManager = (function () {
         }
 
         var timeStr = (data && (data.lastUpdated || data.updated)) ? (data.lastUpdated || data.updated) : '';
+        var timeSuffix = timeStr ? (' (aggiornati alle ' + timeStr + ')') : '';
 
-        // Gestione banner discrepanza giornata Fantapazz
-        if (config.source === 'fantapazz') {
-            if (data && data.giornataFP) {
-                sessionStorage.setItem('pn_giornata_fp', data.giornataFP);
-                checkAndShowGiornataFpNotice(data.giornataFP);
+        // Gestione banner discrepanza giornata ed auto-refresh (Fantapazz / FantaMaster / Fantacalcio)
+        if (config.source === 'fantapazz' || config.source === 'fantamaster' || config.source === 'fantacalcio') {
+            var gLiveVal = data && (data.giornataFP || data.giornataFM || data.giornataFC);
+            if (gLiveVal) {
+                sessionStorage.setItem('pn_giornata_' + config.source, gLiveVal);
+                if (config.source === 'fantapazz') {
+                    sessionStorage.setItem('pn_giornata_fp', gLiveVal);
+                }
+                checkAndShowGiornataLiveNotice(gLiveVal);
             }
             if (data && typeof data.hasMatchLive === 'boolean') {
                 setupLiveAutoRefresh(data.hasMatchLive);
@@ -267,7 +299,7 @@ var FcmVotiLiveManager = (function () {
                 cacheStatusEl.innerHTML = '<div class="vu-cache-notice">' +
                     '<span style="display:inline-flex;align-items:center;gap:6px;">' +
                     '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>' +
-                    'Voti caricati dalla cache locale (aggiornati alle ' + timeStr + ')</span> ' +
+                    'Voti Ufficiosi (PianetaFanta) caricati dalla cache locale' + timeSuffix + '</span> ' +
                     '<button type="button" class="btn-force-inline" onclick="if(window.importaVotiUfficiosiCalcolo){window.importaVotiUfficiosiCalcolo(true);}else if(window.FcmVotiLiveManager){window.FcmVotiLiveManager.startExtraction(true, true);}">Forza Aggiornamento</button>' +
                     '</div>';
             } else {
@@ -282,7 +314,7 @@ var FcmVotiLiveManager = (function () {
                 vuNoticeContainer.innerHTML = '<div id="vuCacheNotice" class="vu-cache-notice">' +
                     '<span style="display:inline-flex;align-items:center;gap:6px;">' +
                     '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>' +
-                    'Voti caricati dalla cache locale (aggiornati alle ' + timeStr + ')</span> ' +
+                    cacheBaseText + timeSuffix + '</span> ' +
                     '<button type="button" class="btn-force-inline" onclick="if(window.FcmVotiLiveManager)FcmVotiLiveManager.startExtraction(true, true);">Forza Aggiornamento</button>' +
                     '</div>';
             } else {
@@ -292,12 +324,15 @@ var FcmVotiLiveManager = (function () {
 
         // Funzione helper per dissolvere la card di progresso
         function dismissCard(delay) {
-            setTimeout(function () {
+            clearDismissTimers();
+            state.dismissTimer = setTimeout(function () {
+                state.dismissTimer = null;
                 var container = document.getElementById(config.containerId);
                 if (container) {
                     container.style.transition = 'opacity 0.4s ease';
                     container.style.opacity = '0';
-                    setTimeout(function () {
+                    state.dismissFadeTimer = setTimeout(function () {
+                        state.dismissFadeTimer = null;
                         container.style.display = 'none';
                         container.style.opacity = '1';
                     }, 400);
@@ -356,6 +391,9 @@ var FcmVotiLiveManager = (function () {
     }
 
     function init(userOptions) {
+        stopAutoRefresh();
+        config = Object.assign({}, defaultConfig);
+
         if (userOptions) {
             for (var key in userOptions) {
                 if (userOptions.hasOwnProperty(key)) {
@@ -529,8 +567,10 @@ var FcmVotiLiveManager = (function () {
 
     function startExtraction(isManualRefresh, force) {
         if (state.isExtracting) return;
+        clearDismissTimers();
         state.isStopped = false;
         state.isExtracting = true;
+        var reqId = ++state.requestSeq;
         state.elapsedSec = 0;
         state.currentProgress = 5;
         setImportButtonLoading(true);
@@ -540,6 +580,10 @@ var FcmVotiLiveManager = (function () {
         clearInterval(state.progressInterval);
 
         renderProgressBarCard(isManualRefresh || force);
+
+        if (typeof config.onStart === 'function') {
+            try { config.onStart({ isManualRefresh: !!isManualRefresh, force: !!force }); } catch (e) { }
+        }
 
         // Timer di incremento secondi ed avanzamento simulato
         state.timerInterval = setInterval(function () {
@@ -600,12 +644,14 @@ var FcmVotiLiveManager = (function () {
 
         fetch(fetchUrl, fetchOptions)
             .then(function (res) {
+                if (reqId !== state.requestSeq || state.isStopped) return null;
                 if (!res.ok) {
                     throw new Error('Risposta HTTP non valida: ' + res.status);
                 }
                 return res.json();
             })
             .then(function (data) {
+                if (reqId !== state.requestSeq || state.isStopped) return;
                 clearInterval(state.timerInterval);
                 clearInterval(state.progressInterval);
 
@@ -617,6 +663,7 @@ var FcmVotiLiveManager = (function () {
                 }
             })
             .catch(function (err) {
+                if (reqId !== state.requestSeq || state.isStopped) return;
                 clearInterval(state.timerInterval);
                 clearInterval(state.progressInterval);
 
@@ -770,8 +817,8 @@ var FcmVotiLiveManager = (function () {
             btnRefresh.style.display = 'inline-flex';
         }
 
-        // Ripristina banner discrepanza giornata ed eventuale auto-refresh per Fantapazz / FantaMaster
-        if (config.source === 'fantapazz' || config.source === 'fantamaster') {
+        // Ripristina banner discrepanza giornata ed eventuale auto-refresh per Fantapazz / FantaMaster / Fantacalcio
+        if (config.source === 'fantapazz' || config.source === 'fantamaster' || config.source === 'fantacalcio') {
             var gKey = 'pn_giornata_' + config.source;
             var savedGiornata = sessionStorage.getItem(gKey) || (config.source === 'fantapazz' ? sessionStorage.getItem('pn_giornata_fp') : null);
             if (savedGiornata) {
@@ -783,12 +830,17 @@ var FcmVotiLiveManager = (function () {
                 setupLiveAutoRefresh(true);
             } else {
                 // Controllo asincrono leggero da metadati per rilevare se ci sono partite in corso
-                var metaFile = (config.source === 'fantamaster') ? 'js/fcmVotiDatiFMMeta.json' : 'js/fcmVotiDatiFPMeta.json';
+                var metaFile = 'js/fcmVotiDatiFPMeta.json';
+                if (config.source === 'fantamaster') {
+                    metaFile = 'js/fcmVotiDatiFMMeta.json';
+                } else if (config.source === 'fantacalcio') {
+                    metaFile = 'js/fcmVotiDatiFCMeta.json';
+                }
                 fetch(metaFile + '?v=' + Date.now(), { cache: 'no-store' })
                     .then(function (res) { return res.ok ? res.json() : null; })
                     .then(function (meta) {
                         if (meta) {
-                            var gMeta = meta.giornataFM || meta.giornataFP;
+                            var gMeta = meta.giornataFM || meta.giornataFP || meta.giornataFC;
                             if (gMeta) {
                                 sessionStorage.setItem(gKey, gMeta);
                                 checkAndShowGiornataLiveNotice(gMeta);
@@ -806,6 +858,8 @@ var FcmVotiLiveManager = (function () {
     function stopAutoRefresh() {
         state.isStopped = true;
         state.isExtracting = false;
+        state.requestSeq++;
+        clearDismissTimers();
         if (state.silentRefreshTimer) {
             clearInterval(state.silentRefreshTimer);
             state.silentRefreshTimer = null;

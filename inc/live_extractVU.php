@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/admin_security.inc.php';
 // Popola $_GET se lanciato da CLI o server.js con QUERY_STRING
 if (empty($_GET) && getenv('QUERY_STRING')) {
     parse_str(getenv('QUERY_STRING'), $_GET);
@@ -6,12 +7,10 @@ if (empty($_GET) && getenv('QUERY_STRING')) {
 $isAjax = !empty($_GET['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');
 
 $baseDir = dirname(__DIR__);
-if (file_exists(__DIR__ . "/liveVU_associazioni.php")) {
-    include_once(__DIR__ . "/liveVU_associazioni.php");
-} elseif (file_exists($baseDir . "/inc/liveVU_associazioni.php")) {
-    include_once($baseDir . "/inc/liveVU_associazioni.php");
-} elseif (file_exists($baseDir . "/liveVU_associazioni.php")) {
-    include_once($baseDir . "/liveVU_associazioni.php");
+if (file_exists(__DIR__ . "/data/liveVU_associazioni.php")) {
+    include_once(__DIR__ . "/data/liveVU_associazioni.php");
+} elseif (file_exists($baseDir . "/inc/data/liveVU_associazioni.php")) {
+    include_once($baseDir . "/inc/data/liveVU_associazioni.php");
 }
 
 $Gio = !empty($_GET["Gio"]) ? $_GET["Gio"] : (!empty($_GET["cGio"]) ? $_GET["cGio"] : (!empty($_GET["GIO"]) ? $_GET["GIO"] : null));
@@ -31,6 +30,15 @@ if (empty($Gio)) {
         }
     }
     $Gio = 1;
+    if (!defined('LIVE_EXTRACT_VU_HELPERS_ONLY') && file_exists(__DIR__ . '/aggiorna_dataA.php')) {
+        if (!defined('FCM_AGGIORNA_DATAA_HELPERS_ONLY')) {
+            define('FCM_AGGIORNA_DATAA_HELPERS_ONLY', true);
+        }
+        require_once __DIR__ . '/aggiorna_dataA.php';
+        if (function_exists('fcm_sync_dataA')) {
+            fcm_sync_dataA($baseDir, ['remote' => false]);
+        }
+    }
     $dataAFile = $baseDir . "/js/DataA.js";
     if (!file_exists($dataAFile)) { $dataAFile = "js/DataA.js"; }
     if (file_exists($dataAFile)) {
@@ -51,21 +59,128 @@ if (empty($Gio)) {
 $votiTarget = $baseDir . "/js/fcmVotiDatiVU.js";
 $metaTarget = $baseDir . "/js/fcmVotiDatiVUMeta.json";
 
-// Gestione sessione per identificare amministratori autenticati
-if (session_status() === PHP_SESSION_NONE) {
-    @session_start();
+function pianeta_valore($valore) {
+    return ($valore === null || $valore === "") ? "" : (string)$valore;
 }
+
+function pianeta_parse_num($val) {
+    if ($val === null || $val === "") return null;
+    if (is_numeric($val)) {
+        $n = (float)$val;
+        return ($n > 0) ? $n : null;
+    }
+    if (is_string($val)) {
+        $clean = trim(str_replace(',', '.', $val));
+        if (is_numeric($clean)) {
+            $n = (float)$clean;
+            return ($n > 0) ? $n : null;
+        }
+    }
+    return null;
+}
+
+function pianeta_is_sv($val) {
+    if ($val === null || $val === "") return false;
+    if (is_string($val)) {
+        $s = strtolower(trim($val));
+        if ($s === "s.v." || $s === "s.v" || $s === "sv" || $s === "s/v") {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Classifica il voto grezzo dell'API PianetaFanta:
+ * - 'NUM': voto numerico valido (> 0)
+ * - 'SV': effettivo s.v. da quotidiano ("s.v.", "sv", "s/v")
+ * - 'NONE': voto non ancora inserito / nullo (0, "0", null, "")
+ */
+function pianeta_voto_tipo($val) {
+    if ($val === null || $val === "") return 'NONE';
+    if (is_numeric($val)) {
+        $n = (float)$val;
+        return ($n > 0) ? 'NUM' : 'NONE';
+    }
+    if (is_string($val)) {
+        $s = strtolower(trim($val));
+        if ($s === "s.v." || $s === "s.v" || $s === "sv" || $s === "s/v") {
+            return 'SV';
+        }
+        if ($s === "0" || $s === "0.0" || $s === "null" || $s === "") {
+            return 'NONE';
+        }
+        $clean = trim(str_replace(',', '.', $val));
+        if (is_numeric($clean)) {
+            $n = (float)$clean;
+            return ($n > 0) ? 'NUM' : 'NONE';
+        }
+    }
+    return 'NONE';
+}
+
+/**
+ * Normalizza un voto singolo o media da PianetaFanta preservando la distinzione 'NUM' vs 'SV' vs '' ('NONE')
+ */
+function pianeta_valore_voto($val) {
+    $tipo = pianeta_voto_tipo($val);
+    if ($tipo === 'NUM') {
+        return (string)pianeta_parse_num($val);
+    }
+    if ($tipo === 'SV') {
+        return "SV";
+    }
+    return "";
+}
+
+function pianeta_build_vu_record($giocatore, $nome, $squadraFCM, $titolareStr, $sostituzioneStr, $minutoStr, $finaleSquadra) {
+    return array(
+        "nome" => $nome,
+        "votoGaz" => isset($giocatore["VotoGazzetta"]) ? pianeta_valore_voto($giocatore["VotoGazzetta"]) : "",
+        "votoCor" => isset($giocatore["VotoCorriere"]) ? pianeta_valore_voto($giocatore["VotoCorriere"]) : "",
+        "votoTut" => isset($giocatore["VotoTuttoSport"]) ? pianeta_valore_voto($giocatore["VotoTuttoSport"]) : "",
+        "mediaVoto2" => isset($giocatore["MediaVoto2"]) ? pianeta_valore_voto($giocatore["MediaVoto2"]) : "",
+        "mediaVoto3" => isset($giocatore["MediaVoto3"]) ? pianeta_valore_voto($giocatore["MediaVoto3"]) : "",
+        "golFattoGaz" => isset($giocatore["GoalReal"]) ? pianeta_valore($giocatore["GoalReal"]) : "",
+        "golFattoCor" => isset($giocatore["GoalRealCor"]) ? pianeta_valore($giocatore["GoalRealCor"]) : "",
+        "golFattoTut" => isset($giocatore["GoalRealTut"]) ? pianeta_valore($giocatore["GoalRealTut"]) : "",
+        "golSubitoGaz" => isset($giocatore["GoalSub"]) ? pianeta_valore($giocatore["GoalSub"]) : "",
+        "golSubitoCor" => isset($giocatore["GoalSubCor"]) ? pianeta_valore($giocatore["GoalSubCor"]) : "",
+        "golSubitoTut" => isset($giocatore["GoalSubTut"]) ? pianeta_valore($giocatore["GoalSubTut"]) : "",
+        "autoGolGaz" => isset($giocatore["Autorete"]) ? pianeta_valore($giocatore["Autorete"]) : "",
+        "autoGolCor" => isset($giocatore["AutoreteCor"]) ? pianeta_valore($giocatore["AutoreteCor"]) : "",
+        "autoGolTut" => isset($giocatore["AutoreteTut"]) ? pianeta_valore($giocatore["AutoreteTut"]) : "",
+        "assistGaz" => isset($giocatore["Assist"]) ? pianeta_valore($giocatore["Assist"]) : "",
+        "assistCor" => isset($giocatore["AssistCor"]) ? pianeta_valore($giocatore["AssistCor"]) : "",
+        "assistTut" => isset($giocatore["AssistTut"]) ? pianeta_valore($giocatore["AssistTut"]) : "",
+        "ammonizione" => isset($giocatore["Amm"]) ? pianeta_valore($giocatore["Amm"]) : "",
+        "espulsione" => isset($giocatore["Esp"]) ? pianeta_valore($giocatore["Esp"]) : "",
+        "rigore" => isset($giocatore["RigoreTra"]) ? pianeta_valore($giocatore["RigoreTra"]) : "",
+        "rigoreparato" => isset($giocatore["RigorePar"]) ? pianeta_valore($giocatore["RigorePar"]) : "",
+        "rigoresbagliato" => isset($giocatore["RigoreSba"]) ? pianeta_valore($giocatore["RigoreSba"]) : "",
+        "golvittoria" => isset($giocatore["GoalDecisivoV"]) ? pianeta_valore($giocatore["GoalDecisivoV"]) : "",
+        "golpareggio" => isset($giocatore["GoalDecisivoP"]) ? pianeta_valore($giocatore["GoalDecisivoP"]) : "",
+        "squadra" => $squadraFCM,
+        "titolare" => $titolareStr,
+        "sostituzione" => $sostituzioneStr,
+        "minuto" => $minutoStr,
+        "finale" => $finaleSquadra
+    );
+}
+
+if (defined('LIVE_EXTRACT_VU_HELPERS_ONLY')) {
+    return;
+}
+
+// Gestione sessione per identificare amministratori autenticati
+require_once __DIR__ . '/admin_security.inc.php';
+fcm_ensure_session();
 $isAdmin = !empty($_SESSION['pn_admin_logged']);
 $isCli = (php_sapi_name() === 'cli');
 
-// Controllo forzatura manuale e TTL cache (cooldown rate-limit 60s per utenti non-admin)
+// Controllo forzatura manuale e TTL cache (intervallo rigoroso di 15 minuti / 900s per utenti web)
 $force = !empty($_GET['force']) && ($_GET['force'] == '1' || $_GET['force'] === 'true' || $_GET['force'] === 'force');
-$cacheTtl = isset($_GET['ttl']) ? (int)$_GET['ttl'] : (15 * 60); // Limite di default di 15 minuti (900s)
-
-$minCooldown = 60; // Cooldown minimo di 60 secondi per evitare ban IP da PianetaFanta
-if (!$isAdmin && !$isCli) {
-    $cacheTtl = max($minCooldown, $cacheTtl);
-}
+$cacheTtl = 15 * 60; // Scadenza tassativa di 15 minuti (900 secondi)
 
 $metaData = null;
 if (file_exists($metaTarget)) {
@@ -81,15 +196,25 @@ if (file_exists($votiTarget)) {
     $cacheTime = isset($metaData["timestamp"]) ? (int)$metaData["timestamp"] : filemtime($votiTarget);
 }
 
-// Se non è admin né CLI, impedisci di bypassare la cache se è stata aggiornata meno di 60s fa
-if (!$isAdmin && !$isCli && $force && (time() - $cacheTime < $minCooldown)) {
-    $force = false;
+// Se non è admin né CLI, è vietato ricaricare prima del TTL normale (15 min),
+// a meno di forzatura esplicita (force=1) con cooldown di sicurezza anti-flood di 30 secondi
+if (!$isAdmin && !$isCli) {
+    if ($force) {
+        if (time() - $cacheTime < 30) {
+            $force = false;
+        }
+    } else {
+        if (time() - $cacheTime < $cacheTtl) {
+            $force = false;
+        }
+    }
 }
 
 $isCacheValid = false;
 if (!$force && file_exists($votiTarget) && filesize($votiTarget) > 100 && is_array($metaData)) {
     $sameGiornata = isset($metaData["giornata"]) && (string)$metaData["giornata"] === (string)$Gio;
-    if ($sameGiornata && (time() - $cacheTime < $cacheTtl)) {
+    $sameSchema = isset($metaData["schema"]) && (int)$metaData["schema"] === 2;
+    if ($sameGiornata && $sameSchema && (time() - $cacheTime < $cacheTtl)) {
         $isCacheValid = true;
     }
 }
@@ -102,10 +227,12 @@ if ($isCacheValid) {
         }
         $lastTime = isset($metaData["lastUpdated"]) ? $metaData["lastUpdated"] : date("d/m/Y H:i:s", filemtime($votiTarget));
         $cacheRemaining = max(0, $cacheTtl - (time() - (isset($metaData["timestamp"]) ? (int)$metaData["timestamp"] : filemtime($votiTarget))));
+        $minutiRimanenti = ceil($cacheRemaining / 60);
         echo json_encode(array(
             'success' => true,
             'cached' => true,
             'changed' => false,
+            'schema' => 2,
             'count' => isset($metaData["count"]) ? (int)$metaData["count"] : 0,
             'source' => 'pianetafanta',
             'giornata' => (int)$Gio,
@@ -115,7 +242,7 @@ if ($isCacheValid) {
             'lastUpdated' => $lastTime,
             'cacheTtl' => $cacheTtl,
             'cacheRemaining' => $cacheRemaining,
-            'message' => "Voti caricati dalla cache locale (aggiornati alle " . $lastTime . ").",
+            'message' => "I voti ufficiosi sono aggiornati (scadenza ogni 15 minuti, ultimo: " . $lastTime . "). Prossimo aggiornamento tra " . $minutiRimanenti . " min.",
             'error' => null
         ));
         exit;
@@ -149,8 +276,7 @@ function pianeta_api_json($url, $timeout = 20) {
         curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+        fcm_apply_curl_ssl($ch);
         $contenuto = curl_exec($ch);
         if (PHP_VERSION_ID < 80500) {
             curl_close($ch);
@@ -187,9 +313,10 @@ if (empty($Stagione)) {
     $settings = pianeta_api_json("https://pianetafanta.it/api/voti/settings", 10);
     if (is_array($settings) && !empty($settings["Stagione"])) {
         $Stagione = $settings["Stagione"];
-    } elseif (file_exists(__DIR__ . "/js/fcmLegaDati.js")) {
+    } elseif (file_exists($baseDir . "/js/fcmLegaDati.js") || file_exists(__DIR__ . "/../js/fcmLegaDati.js")) {
         // 2. Ricava dinamicamente dalla variabile anno di fcmLegaDati.js (es: "2025/2026" -> "2025_2026")
-        $legaContent = @file_get_contents(__DIR__ . "/js/fcmLegaDati.js");
+        $legaPath = file_exists($baseDir . "/js/fcmLegaDati.js") ? ($baseDir . "/js/fcmLegaDati.js") : (__DIR__ . "/../js/fcmLegaDati.js");
+        $legaContent = @file_get_contents($legaPath);
         if ($legaContent && preg_match('/anno\s*=\s*["\'](\d{4})\/(\d{4})["\']/', $legaContent, $m)) {
             $Stagione = $m[1] . "_" . $m[2];
         }
@@ -199,56 +326,6 @@ if (empty($Stagione)) {
         $curYear = (int)date('Y');
         $Stagione = (date('n') >= 7) ? ($curYear . '_' . ($curYear + 1)) : (($curYear - 1) . '_' . $curYear);
     }
-}
-
-// Lettura fonti voti, gol e assist da fcmVariabili.js (con default 6, 1, 1)
-$votosource = 6;
-$golsource = 1;
-$assistsource = 1;
-
-if (file_exists(__DIR__ . "/js/fcmVariabili.js")) {
-    $varContent = @file_get_contents(__DIR__ . "/js/fcmVariabili.js");
-    if ($varContent) {
-        if (preg_match('/var\s+VotoSource\s*=\s*["\']?(\d+)["\']?/i', $varContent, $m)) {
-            $votosource = (int)$m[1];
-        }
-        if (preg_match('/var\s+GolSource\s*=\s*["\']?(\d+)["\']?/i', $varContent, $m)) {
-            $golsource = (int)$m[1];
-        }
-        if (preg_match('/var\s+AssistSource\s*=\s*["\']?(\d+)["\']?/i', $varContent, $m)) {
-            $assistsource = (int)$m[1];
-        }
-    }
-}
-if (!empty($_GET["votosource"])) $votosource = (int)$_GET["votosource"];
-if (!empty($_GET["golsource"])) $golsource = (int)$_GET["golsource"];
-if (!empty($_GET["assistsource"])) $assistsource = (int)$_GET["assistsource"];
-
-function pianeta_valore($valore) {
-    return ($valore === null || $valore === "") ? "" : (string)$valore;
-}
-
-function pianeta_voto($giocatore, $fonte) {
-    $gazzetta = isset($giocatore["VotoGazzetta"]) ? pianeta_valore($giocatore["VotoGazzetta"]) : "";
-    $corriere = isset($giocatore["VotoCorriere"]) ? pianeta_valore($giocatore["VotoCorriere"]) : "";
-    if ($fonte == 1) { return $gazzetta; }
-    if ($fonte == 2) { return $corriere; }
-    if ($fonte == 3) { return isset($giocatore["VotoTuttoSport"]) ? pianeta_valore($giocatore["VotoTuttoSport"]) : ""; }
-    if ($fonte == 4) { return isset($giocatore["MediaVoto2"]) ? pianeta_valore($giocatore["MediaVoto2"]) : ""; }
-    if ($fonte == 5) { return isset($giocatore["MediaVoto3"]) ? pianeta_valore($giocatore["MediaVoto3"]) : ""; }
-    if ($gazzetta === "s.v." || $corriere === "s.v.") { return "SV"; }
-    return isset($giocatore["MediaVoto2"]) ? pianeta_valore($giocatore["MediaVoto2"]) : "";
-}
-
-function pianeta_fonte($giocatore, $campo, $fonte) {
-    $campi = array(
-        "GoalReal" => array("GoalReal", "GoalRealCor", "GoalRealTut"),
-        "GoalSub" => array("GoalSub", "GoalSubCor", "GoalSubTut"),
-        "Autorete" => array("Autorete", "AutoreteCor", "AutoreteTut"),
-        "Assist" => array("Assist", "AssistCor", "AssistTut")
-    );
-    $key = $campi[$campo][$fonte - 1];
-    return isset($giocatore[$key]) ? pianeta_valore($giocatore[$key]) : "";
 }
 
 $partiteUrl = "https://pianetafanta.it/api/voti/partite?giornata=" . rawurlencode($Gio) . "&stagione=" . rawurlencode($Stagione);
@@ -324,7 +401,7 @@ if (!function_exists('cleanAssocName')) {
     }
 }
 
-// Mappe associative dinamiche da liveVU_associazioni.php
+// Mappe associative dinamiche da inc/data/liveVU_associazioni.php
 $mapAssocByCode = array();
 $mapAssocByName = array();
 $mapAssocByClean = array();
@@ -371,8 +448,7 @@ if (function_exists('curl_multi_init') && count($squadreKeys) > 0) {
         curl_setopt($ch, CURLOPT_HTTPHEADER, $pianetaHeaders);
         curl_setopt($ch, CURLOPT_TIMEOUT, 20);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        fcm_apply_curl_ssl($ch);
         curl_multi_add_handle($mh, $ch);
         $curlHandles[$squadra] = $ch;
     }
@@ -462,27 +538,7 @@ foreach ($squadreData as $squadra => $datiSquadra) {
             $minutoStr = $minNum . "'";
         }
 
-        $datiPianeta[$keyUnique] = array(
-            "nome" => $nome,
-            "voto" => pianeta_voto($giocatore, $votosource),
-            "fantavoto" => "SV",
-            "golfatto" => pianeta_fonte($giocatore, "GoalReal", $golsource),
-            "golsubito" => pianeta_fonte($giocatore, "GoalSub", $golsource),
-            "autogol" => pianeta_fonte($giocatore, "Autorete", $golsource),
-            "ammonizione" => isset($giocatore["Amm"]) ? pianeta_valore($giocatore["Amm"]) : "",
-            "espulsione" => isset($giocatore["Esp"]) ? pianeta_valore($giocatore["Esp"]) : "",
-            "rigore" => isset($giocatore["RigoreTra"]) ? pianeta_valore($giocatore["RigoreTra"]) : "",
-            "rigoreparato" => isset($giocatore["RigorePar"]) ? pianeta_valore($giocatore["RigorePar"]) : "",
-            "rigoresbagliato" => isset($giocatore["RigoreSba"]) ? pianeta_valore($giocatore["RigoreSba"]) : "",
-            "assist" => pianeta_fonte($giocatore, "Assist", $assistsource),
-            "golvittoria" => isset($giocatore["GoalDecisivoV"]) ? pianeta_valore($giocatore["GoalDecisivoV"]) : "",
-            "golpareggio" => isset($giocatore["GoalDecisivoP"]) ? pianeta_valore($giocatore["GoalDecisivoP"]) : "",
-            "squadra" => $squadraFCM,
-            "titolare" => $titolareStr,
-            "sostituzione" => $sostituzioneStr,
-            "minuto" => $minutoStr,
-            "finale" => $finaleSquadra
-        );
+        $datiPianeta[$keyUnique] = pianeta_build_vu_record($giocatore, $nome, $squadraFCM, $titolareStr, $sostituzioneStr, $minutoStr, $finaleSquadra);
     }
 }
 
@@ -495,17 +551,21 @@ $contentJs .= "arrVoti = new Array();\r\n";
 $z = 0;
 foreach ($datiPianeta as $voto) {
     $campi = array(
-        $voto["nome"], $voto["voto"], $voto["fantavoto"],
-        $voto["golfatto"], $voto["golsubito"], $voto["autogol"],
+        $voto["nome"],
+        $voto["votoGaz"], $voto["votoCor"], $voto["votoTut"],
+        $voto["mediaVoto2"], $voto["mediaVoto3"],
+        $voto["golFattoGaz"], $voto["golFattoCor"], $voto["golFattoTut"],
+        $voto["golSubitoGaz"], $voto["golSubitoCor"], $voto["golSubitoTut"],
+        $voto["autoGolGaz"], $voto["autoGolCor"], $voto["autoGolTut"],
+        $voto["assistGaz"], $voto["assistCor"], $voto["assistTut"],
         $voto["ammonizione"], $voto["espulsione"], $voto["rigore"],
-        $voto["rigoreparato"], $voto["rigoresbagliato"], $voto["assist"],
-        $voto["golvittoria"], $voto["golpareggio"], $voto["squadra"],
-        $voto["titolare"], $voto["sostituzione"], $voto["minuto"],
-        $voto["finale"]
+        $voto["rigoreparato"], $voto["rigoresbagliato"],
+        $voto["golvittoria"], $voto["golpareggio"],
+        $voto["squadra"], $voto["titolare"], $voto["sostituzione"], $voto["minuto"], $voto["finale"]
     );
     $campiJson = array();
     foreach ($campi as $campo) { $campiJson[] = json_encode($campo, JSON_UNESCAPED_UNICODE); }
-    $contentJs .= "arrVoti[" . $z . "] = new VotoGiocatore(" . implode(",", $campiJson) . ");\r\n";
+    $contentJs .= "arrVoti[" . $z . "] = new VotoGiocatoreVU(" . implode(",", $campiJson) . ");\r\n";
     $z++;
 }
 
@@ -520,6 +580,7 @@ if ($countVoti > 0) {
 
     $metaData = array(
         "source" => "pianetafanta",
+        "schema" => 2,
         "giornata" => (int)$Gio,
         "stagione" => $Stagione,
         "hasMatchLive" => $hasMatchLive,
@@ -548,6 +609,7 @@ if ($isAjax) {
     echo json_encode(array(
         'success' => $success && ($countVoti > 0 || count($squadreKeys) == 0),
         'cached' => false,
+        'schema' => 2,
         'count' => $countVoti,
         'source' => 'pianetafanta',
         'giornata' => (int)$Gio,

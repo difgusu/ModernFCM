@@ -9,6 +9,59 @@ const albumView = {
   currentRoleFilter: 'ALL', // 'ALL', '1', '2', '3', '4', 'SVINCOLATI'
   searchQuery: '',
 
+  _escAttr(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  },
+
+  handleTeamLogoError(img) {
+    if (!img || !img.dataset) return;
+    const stage = parseInt(img.dataset.stage || '0', 10);
+    const candidates = [img.dataset.gif, img.dataset.altPng, img.dataset.altGif];
+    for (let i = stage; i < candidates.length; i++) {
+      const nextSrc = candidates[i];
+      if (nextSrc && nextSrc !== img.getAttribute('src')) {
+        img.dataset.stage = String(i + 1);
+        img.src = nextSrc;
+        return;
+      }
+    }
+    img.onerror = null;
+    img.src = 'img/sq/undefined.svg';
+  },
+
+  renderTeamShirtMarkup(teamName, teamId = 0, historicalTeamId = 0, extraClass = '') {
+    const cleanName = String(teamName || '').trim();
+    const resolve = (p) => (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader._resolvePath === 'function')
+      ? fcmDataLoader._resolvePath(p)
+      : p;
+    const encoded = cleanName ? encodeURIComponent(cleanName).replace(/'/g, '%27') : '';
+    const primarySrc = encoded ? resolve(`img/sq/${encoded}.png`) : resolve('img/sq/undefined.svg');
+    const gifSrc = encoded ? resolve(`img/sq/${encoded}.gif`) : '';
+    const franchiseLogo = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getTeamLogo === 'function')
+      ? fcmDataLoader.getTeamLogo(historicalTeamId || teamId || cleanName)
+      : '';
+    const altPng = (franchiseLogo && !franchiseLogo.endsWith('undefined.svg') && franchiseLogo !== primarySrc) ? franchiseLogo : '';
+    const altGif = altPng ? altPng.replace(/\.png$/, '.gif') : '';
+    const cls = extraClass ? `album-team-shirt ${extraClass}` : 'album-team-shirt';
+
+    return `<img src="${this._escAttr(primarySrc)}" class="${cls}" alt="" loading="lazy" data-gif="${this._escAttr(gifSrc)}" data-alt-png="${this._escAttr(altPng)}" data-alt-gif="${this._escAttr(altGif)}" onerror="albumView.handleTeamLogoError(this)" />`;
+  },
+
+  renderCareerTeamLink(c, favStar) {
+    const link = c.rosterLink || (typeof fcmDataLoader !== 'undefined' ? fcmDataLoader.getSeasonRosterLink(c.seasonNum, c.teamId) : null);
+    const shirtHtml = this.renderTeamShirtMarkup(c.teamName, c.teamId, c.historicalTeamId);
+    const teamLabel = this._escAttr(c.teamName || '-');
+    const innerHtml = `${shirtHtml}${favStar}<span class="album-team-name-text">${teamLabel}</span>`;
+    if (link && link.url) {
+      return `<a href="${this._escAttr(link.url)}" ${link.isSpa ? '' : 'target="_blank" rel="noopener noreferrer"'} class="album-team-link" title="Apri rosa di ${teamLabel}">${innerHtml}</a>`;
+    }
+    return `<span class="album-team-link is-static">${innerHtml}</span>`;
+  },
+
   async render(container) {
     const hash = window.location.hash || '';
     if (hash.includes('?')) {
@@ -40,9 +93,11 @@ const albumView = {
         </div>
 
         <div id="albumContent">
-          <div class="text-center" style="padding:30px;color:var(--text-muted);">
-            Caricamento Album Storico...
-          </div>
+          ${(typeof fcmSkeleton !== 'undefined') ? fcmSkeleton.album() : `
+            <div class="text-center" style="padding:30px;color:var(--text-muted);">
+              Caricamento Album Storico...
+            </div>
+          `}
         </div>
       </div>
     `;
@@ -82,12 +137,19 @@ const albumView = {
             Fantasquadra:
           </label>
           <select id="albumTeamSelect" class="form-select" style="min-width:220px;font-weight:700;">
-            ${albumData.teams.map(t => `
-              <option value="${t.id}" ${t.id === this.currentTeamId ? 'selected' : ''}>
-                ${t.name}
-              </option>
-            `).join('')}
+            ${albumData.teams.map(t => {
+              const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
+              return `
+                <option value="${t.id}" ${t.id === this.currentTeamId ? 'selected' : ''}>
+                  ${isFav ? '⭐ ' : ''}${t.name}
+                </option>
+              `;
+            }).join('')}
           </select>
+          <a href="#rose?team=${currentTeam.currentId || currentTeam.id}" class="album-team-link album-toolbar-team-link" title="Apri rosa di ${this._escAttr(currentTeam.name)}">
+            ${this.renderTeamShirtMarkup(currentTeam.name, currentTeam.currentId || currentTeam.id, currentTeam.id, 'album-toolbar-team-shirt')}
+            <span class="album-team-name-text">${this._escAttr(currentTeam.name)}</span>
+          </a>
         </div>
 
         <!-- Search Input with Search Icon & Clear Button -->
@@ -213,21 +275,29 @@ const albumView = {
 
     container.innerHTML = filtered.map(player => {
       const roleBadgeClass = `role-${player.roleShort.toLowerCase()}`;
+      const pCode = (player.photoCode && String(player.photoCode) !== '0') ? String(player.photoCode) : null;
+      const profileLink = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getPlayerProfileLink === 'function')
+        ? fcmDataLoader.getPlayerProfileLink({ name: player.name, code: pCode })
+        : `#schede_giocatori?name=${encodeURIComponent(player.name)}`;
+      const photoSrc = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getPlayerPhoto === 'function')
+        ? fcmDataLoader.getPlayerPhoto(player.name, pCode)
+        : `img/foto/${player.photoCode}.jpg`;
+      const safeName = this._escAttr(player.name);
 
       return `
         <div class="album-player-card">
           <!-- Top info row -->
           <div class="album-player-header">
-            <div class="album-player-avatar">
-              <img src="img/foto/${player.photoCode}.jpg" onerror="this.onerror=null;this.src='img/foto/misterx.gif';" alt="${player.name}" />
-            </div>
+            <a href="${this._escAttr(profileLink)}" class="album-player-avatar album-player-avatar-link" aria-label="Apri scheda di ${safeName}" title="Apri scheda di ${safeName}">
+              <img src="${this._escAttr(photoSrc)}" onerror="this.onerror=null;this.src='img/foto/misterx.gif';" alt="" />
+            </a>
 
             <div class="album-player-details">
               <div class="album-player-title-row">
                 <span class="role-badge ${roleBadgeClass}">${player.roleShort}</span>
-                <span class="album-player-name">${player.name}</span>
+                <a href="${this._escAttr(profileLink)}" class="album-player-name album-player-name-link" title="Apri scheda di ${safeName}">${safeName}</a>
                 <span style="display:inline-flex;align-items:center;gap:5px;font-size:0.8rem;color:var(--text-primary);background:var(--bg-surface);padding:2px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">
-                  <img src="img/live/sq/${player.serieATeam}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/live/sq/${player.serieATeam}.jpg';}else{this.style.display='none';}" style="height:18px;width:auto;vertical-align:middle;" alt="" />
+                  <img src="img/sq/${player.serieATeam}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${player.serieATeam}.jpg';}else{this.style.display='none';}" style="height:18px;width:auto;vertical-align:middle;" alt="" />
                   ${player.serieATeam}
                 </span>
                 ${player.status === 1 ? `<span class="badge" style="background:rgba(239,68,68,0.15);color:#ef4444;font-size:0.72rem;font-weight:700;padding:2px 6px;border-radius:4px;">SVINCOLATO</span>` : ''}
@@ -260,20 +330,21 @@ const albumView = {
                   </tr>
                 </thead>
                 <tbody>
-                  ${player.career.map(c => `
-                    <tr>
+                  ${player.career.map(c => {
+                    const isFav = typeof fcmHomeConfigManager !== 'undefined' && (
+                      fcmHomeConfigManager.isFavoriteTeam(c.historicalTeamId) ||
+                      fcmHomeConfigManager.isFavoriteTeam(c.teamName) ||
+                      (c.isCurrent && fcmHomeConfigManager.isFavoriteTeam(c.teamId))
+                    );
+                    const favStar = isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : '';
+                    return `
+                    <tr class="${isFav ? 'table-row-favorite' : ''}">
                       <td class="font-bold">${c.seasonNum} (${c.season})</td>
                       <td>
-                        ${(() => {
-          const link = c.rosterLink || (typeof fcmDataLoader !== 'undefined' ? fcmDataLoader.getSeasonRosterLink(c.seasonNum, c.teamId) : null);
-          if (link && link.url) {
-            return `<a href="${link.url}" ${link.isSpa ? '' : 'target="_blank" rel="noopener noreferrer"'} style="color:var(--accent-primary);text-decoration:none;font-weight:700;" title="Apri rosa">${c.teamName}</a>`;
-          }
-          return c.teamName;
-        })()}
+                        ${this.renderCareerTeamLink(c, favStar)}
                       </td>
                       <td style="white-space:nowrap;">
-                        <img src="img/live/sq/${c.serieATeamPrimary}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/live/sq/${c.serieATeamPrimary}.jpg';}else{this.style.display='none';}" style="height:16px;width:auto;vertical-align:middle;margin-right:4px;" alt="" />
+                        <img src="img/sq/${c.serieATeamPrimary}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${c.serieATeamPrimary}.jpg';}else{this.style.display='none';}" style="height:16px;width:auto;vertical-align:middle;margin-right:4px;" alt="" />
                         ${c.serieA}
                       </td>
                       <td class="text-center font-bold">${c.appearances}</td>
@@ -283,29 +354,31 @@ const albumView = {
                       <td class="text-center">${c.cautions}/${c.expulsions}</td>
                       <td class="text-center font-bold" style="color:var(--accent-gold);">${c.cost}</td>
                     </tr>
-                  `).join('')}
+                  `;
+                  }).join('')}
                 </tbody>
               </table>
             </div>
 
             <!-- Mobile View: Zero-scroll Responsive Season Cards -->
             <div class="album-career-mobile">
-              ${player.career.map(c => `
-                <div class="album-season-card">
+              ${player.career.map(c => {
+                const isFav = typeof fcmHomeConfigManager !== 'undefined' && (
+                  fcmHomeConfigManager.isFavoriteTeam(c.historicalTeamId) ||
+                  fcmHomeConfigManager.isFavoriteTeam(c.teamName) ||
+                  (c.isCurrent && fcmHomeConfigManager.isFavoriteTeam(c.teamId))
+                );
+                const favStar = isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : '';
+                return `
+                <div class="album-season-card ${isFav ? 'match-card-favorite' : ''}">
                   <div class="album-season-header">
                     <div class="album-season-team">
                       <span style="color:var(--text-primary);">${c.seasonNum}ª (${c.season})</span>
                       <span style="color:var(--text-muted);">&bull;</span>
-                      ${(() => {
-            const link = c.rosterLink || (typeof fcmDataLoader !== 'undefined' ? fcmDataLoader.getSeasonRosterLink(c.seasonNum, c.teamId) : null);
-            if (link && link.url) {
-              return `<a href="${link.url}" ${link.isSpa ? '' : 'target="_blank" rel="noopener noreferrer"'} style="color:var(--accent-primary);text-decoration:none;font-weight:700;" title="Apri rosa">${c.teamName}</a>`;
-            }
-            return `<span style="font-weight:700;color:var(--text-primary);">${c.teamName}</span>`;
-          })()}
+                      ${this.renderCareerTeamLink(c, favStar)}
                     </div>
                     <div class="album-season-seriea">
-                      <img src="img/live/sq/${c.serieATeamPrimary}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/live/sq/${c.serieATeamPrimary}.jpg';}else{this.style.display='none';}" style="height:14px;width:auto;vertical-align:middle;" alt="" />
+                      <img src="img/sq/${c.serieATeamPrimary}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${c.serieATeamPrimary}.jpg';}else{this.style.display='none';}" style="height:14px;width:auto;vertical-align:middle;" alt="" />
                       <span>${c.serieA}</span>
                     </div>
                   </div>
@@ -337,7 +410,8 @@ const albumView = {
                     </div>
                   </div>
                 </div>
-              `).join('')}
+              `;
+              }).join('')}
             </div>
           ` : `
             <div style="font-size:0.78rem;color:var(--text-muted);font-style:italic;padding:6px 0;">

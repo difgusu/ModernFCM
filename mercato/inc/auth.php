@@ -12,7 +12,7 @@ function mercato_get_team_credentials() {
 }
 
 function mercato_get_admin_password() {
-    $adminConfig = dirname(dirname(__DIR__)) . '/invform/admin_config.inc.php';
+    $adminConfig = dirname(dirname(__DIR__)) . '/inc/admin_config.inc.php';
     $adminPassword = '';
     if (file_exists($adminConfig)) {
         include $adminConfig;
@@ -39,6 +39,9 @@ function mercato_login_team($idSquadra, $password) {
     }
 
     if ($isValid) {
+        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+            @session_regenerate_id(true);
+        }
         $data = fcm_parse_all_data();
         $sqInfo = $data['fantasquadre'][$idSquadra] ?? null;
         
@@ -54,10 +57,13 @@ function mercato_login_team($idSquadra, $password) {
 function mercato_login_admin($password) {
     $adminPwd = mercato_get_admin_password();
     if (empty($adminPwd) || $adminPwd === '[PASSWORD]') {
-        return ['success' => false, 'error' => 'Password amministratore non ancora impostata in invform/admin_config.inc.php.'];
+        return ['success' => false, 'error' => 'Password amministratore non ancora impostata in inc/admin_config.inc.php.'];
     }
 
     if (hash_equals((string)$adminPwd, (string)$password)) {
+        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+            @session_regenerate_id(true);
+        }
         $_SESSION['mercato_admin_logged'] = true;
         return ['success' => true];
     }

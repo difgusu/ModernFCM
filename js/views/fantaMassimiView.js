@@ -50,6 +50,11 @@ const fantaMassimiView = {
   },
 
   async render(container) {
+    // 0. Immediate skeleton shimmer
+    if (typeof fcmSkeleton !== 'undefined') {
+      container.innerHTML = fcmSkeleton.table({ cols: 6, rows: 8, withToolbar: true, toolbarPills: 3 });
+    }
+
     // 1. Ensure core data scripts are loaded
     if (typeof arrCompetizioni === 'undefined') {
       await fcmDataLoader.loadScript('js/fcmCompetizioniDati.js');
@@ -117,6 +122,20 @@ const fantaMassimiView = {
         this.Max = Max;
         this.ModMax = ModMax;
       };
+    }
+
+    // Check if fcmFantamisterMotore is available for native calculation
+    if (typeof fcmFantamisterMotore !== 'undefined') {
+      try {
+        const engineData = await fcmFantamisterMotore.getMatchdayData(day);
+        if (engineData && engineData.teamsList && engineData.teamsList.length > 0) {
+          // Formato array indicizzato 1..N compatibile con arrFantamister
+          this.cachedFmData[day] = [null, ...engineData.teamsList];
+          return;
+        }
+      } catch (err) {
+        console.warn('Errore calcolo nativo fcmFantamisterMotore per giornata', day, err);
+      }
     }
 
     // Save existing arrFantamister reference
@@ -384,7 +403,7 @@ const fantaMassimiView = {
                 <div style="font-size:0.72rem;font-weight:800;color:var(--accent-emerald);text-transform:uppercase;">Miglior FantaMister</div>
                 <div style="font-weight:800;font-size:1rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px;">
                   <img src="img/sq/${encodeURI(bestFm.Nome)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(bestFm.Nome)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="width:18px;height:18px;object-fit:contain;" alt="" />
-                  <span>${bestFm.Nome}</span>
+                  <span>${(typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.isFavoriteTeam(bestFm.Nome)) ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${bestFm.Nome}</span>
                 </div>
                 <div style="font-size:0.76rem;color:var(--text-secondary);margin-top:2px;">
                   Scarto: <b style="color:var(--accent-emerald);">${bestFm.Scarto} pt</b> • Reale: <b>${bestFm.Parz}</b> (${bestFm.ModParz}) • Max: <b>${bestFm.Max}</b> (${bestFm.ModMax})
@@ -398,7 +417,7 @@ const fantaMassimiView = {
                 <div style="font-size:0.72rem;font-weight:800;color:var(--accent-crimson);text-transform:uppercase;">Peggior FantaMister</div>
                 <div style="font-weight:800;font-size:1rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px;">
                   <img src="img/sq/${encodeURI(worstFm.Nome)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(worstFm.Nome)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="width:18px;height:18px;object-fit:contain;" alt="" />
-                  <span>${worstFm.Nome}</span>
+                  <span>${(typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.isFavoriteTeam(worstFm.Nome)) ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${worstFm.Nome}</span>
                 </div>
                 <div style="font-size:0.76rem;color:var(--text-secondary);margin-top:2px;">
                   Scarto: <b style="color:var(--accent-crimson);">${worstFm.Scarto} pt</b> • Reale: <b>${worstFm.Parz}</b> (${worstFm.ModParz}) • Max: <b>${worstFm.Max}</b> (${worstFm.ModMax})
@@ -652,18 +671,23 @@ const fantaMassimiView = {
       : this.renderBallIcons(golRealiFuori, autogolFuori, golMancatiFuori, false);
 
     // Scarto bar widths (proportional to scarto points)
+    // Scarto bar widths (proportional to scarto points)
     const scartoBarW_Casa = Math.min(120, Math.max(6, Math.round(scartoCasa * 6)));
     const scartoBarW_Fuori = Math.min(120, Math.max(6, Math.round(scartoFuori * 6)));
 
+    const isFavCasa = typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.isFavoriteTeam(nomiCasa);
+    const isFavFuori = typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.isFavoriteTeam(nomiFuori);
+    const isFavMatch = isFavCasa || isFavFuori;
+
     return `
-      <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.05);margin-bottom:8px;">
+      <div class="fantamassimi-match-card ${isFavMatch ? 'match-card-favorite' : ''}" style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.05);margin-bottom:8px;">
         <!-- ================= DESKTOP LAYOUT (Widescreen >= 768px) ================= -->
         <div class="fm-desktop-view">
           <!-- Home Team -->
           <div style="min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:3px;">
             <div style="display:flex;align-items:center;gap:8px;max-width:100%;">
               <img src="img/sq/${encodeURI(nomiCasa)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(nomiCasa)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="width:22px;height:22px;object-fit:contain;flex-shrink:0;" alt="" />
-              <span style="font-weight:800;font-size:1rem;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${nomiCasa}</span>
+              <span style="font-weight:800;font-size:1rem;color:${isFavCasa ? 'var(--accent-gold)' : 'var(--text-primary)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${isFavCasa ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${nomiCasa}</span>
             </div>
 
             <!-- Scores details (show max only in 'both' and 'home' tabs) -->
@@ -732,7 +756,7 @@ const fantaMassimiView = {
           <div style="min-width:0;display:flex;flex-direction:column;align-items:flex-end;gap:3px;text-align:right;">
             <div style="display:flex;align-items:center;gap:8px;flex-direction:row-reverse;max-width:100%;">
               <img src="img/sq/${encodeURI(nomiFuori)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(nomiFuori)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="width:22px;height:22px;object-fit:contain;flex-shrink:0;" alt="" />
-              <span style="font-weight:800;font-size:1rem;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${nomiFuori}</span>
+              <span style="font-weight:800;font-size:1rem;color:${isFavFuori ? 'var(--accent-gold)' : 'var(--text-primary)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${isFavFuori ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${nomiFuori}</span>
             </div>
 
             <!-- Scores details (show max only in 'both' and 'away' tabs) -->
@@ -803,7 +827,7 @@ const fantaMassimiView = {
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <div style="display:flex;align-items:center;gap:6px;">
                 <img src="img/sq/${encodeURI(nomiCasa)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(nomiCasa)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="width:20px;height:20px;object-fit:contain;" alt="" />
-                <span style="font-weight:800;font-size:0.88rem;color:var(--text-primary);">${nomiCasa}</span>
+                <span style="font-weight:800;font-size:0.88rem;color:${isFavCasa ? 'var(--accent-gold)' : 'var(--text-primary)'};">${isFavCasa ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${nomiCasa}</span>
                 <span style="font-size:0.65rem;color:var(--text-muted);font-weight:700;">(Casa)</span>
               </div>
               ${ballIconsCasa}
@@ -836,7 +860,7 @@ const fantaMassimiView = {
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <div style="display:flex;align-items:center;gap:6px;">
                 <img src="img/sq/${encodeURI(nomiFuori)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(nomiFuori)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="width:20px;height:20px;object-fit:contain;" alt="" />
-                <span style="font-weight:800;font-size:0.88rem;color:var(--text-primary);">${nomiFuori}</span>
+                <span style="font-weight:800;font-size:0.88rem;color:${isFavFuori ? 'var(--accent-gold)' : 'var(--text-primary)'};">${isFavFuori ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${nomiFuori}</span>
                 <span style="font-size:0.65rem;color:var(--text-muted);font-weight:700;">(Fuori)</span>
               </div>
               ${ballIconsFuori}

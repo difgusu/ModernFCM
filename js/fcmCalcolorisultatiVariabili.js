@@ -36,6 +36,14 @@ pRisU = 4; // Punti Riserva d'ufficio Altro giocatore
 pModDRisU = 5; // Punti Riserva d'ufficio per il calcolo del modificatore difesa
 pModCRisU = 5; // Punti Riserva d'ufficio per il calcolo del modificatore centrocampo
 pModAArr = 0; // Arrotondamento per difetto al mezzo voto nel calcolo del modificatore attacco: 1 - attivo; 0 - non attivo
+CalcoloPreciso = 0; // Usa metodo di calcolo preciso senza troncamenti intermedi per giocatore: 1 - attivo; 0 - classico per calciatore
+
+// Fonti Voti Ufficiosi (liveVU & Calcolo)
+VotoSource = 6; // Fonte Voti Ufficiosi: 1 - Gazzetta dello Sport; 2 - Corriere dello Sport; 3 - TuttoSport; 4 - Media Gaz-Cor; 5 - Media 3 quotidiani; 6 - Media Gaz-Cor prevale s.v.
+Media3_2Voti = 1; // Media 3 Quotidiani (2 voti e 1 s.v.): 1 - Media a 2 (voto1+voto2); 2 - Media a 3 (voto1+voto2+6); 3 - Senza voto (SV)
+Media3_1Voto = 3; // Media 3 Quotidiani (1 voto e 2 s.v.): 1 - Valore voto1; 2 - Media a 3 (voto1+6+6); 3 - Senza voto (SV)
+GolSource = 1; // Fonte Gol/Autogol Ufficiosi: 1 - Gazzetta dello Sport; 2 - Corriere dello Sport; 3 - TuttoSport
+AssistSource = 1; // Fonte Assist Ufficiosi: 1 - Gazzetta dello Sport; 2 - Corriere dello Sport; 3 - TuttoSport
 
 // Variabili delle fasce gol
 fgol1 = 66;

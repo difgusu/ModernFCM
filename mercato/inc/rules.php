@@ -78,7 +78,7 @@ function mercato_calcola_recupero_taglio($clubCalciatore, $costoAcq, $settings =
     ];
 }
 
-function mercato_get_team_financials($idSquadra, $idSessione = null) {
+function mercato_get_team_financials($idSquadra, $idSessione = null, $excludeCodiceG = null, $bidsOverride = null) {
     $data = fcm_parse_all_data();
     $sq = $data['fantasquadre'][$idSquadra] ?? null;
     $creditiBase = $sq ? (int)$sq['crediti_fcm'] : 0;
@@ -90,8 +90,18 @@ function mercato_get_team_financials($idSquadra, $idSessione = null) {
     $creditiImpegnati = 0;
     $buste = [];
     if ($idSessione) {
-        $rows = mercato_db_get_bids($idSessione, $idSquadra);
+        if (is_array($bidsOverride)) {
+            $rows = array_values(array_filter($bidsOverride, function($b) use ($idSessione, $idSquadra) {
+                return (int)($b['id_sessione'] ?? 0) === (int)$idSessione
+                    && (int)($b['id_squadra'] ?? 0) === (int)$idSquadra;
+            }));
+        } else {
+            $rows = mercato_db_get_bids($idSessione, $idSquadra);
+        }
         foreach ($rows as $r) {
+            if ($excludeCodiceG !== null && (int)($r['codice_giocatore'] ?? 0) === (int)$excludeCodiceG) {
+                continue;
+            }
             $offertaChiaro = mercato_decrypt($r['crediti_cifrati'], $r['vettore_iv']);
             $creditiImpegnati += $offertaChiaro;
             $r['crediti_in_chiaro'] = $offertaChiaro;
@@ -137,3 +147,74 @@ function mercato_get_team_financials($idSquadra, $idSessione = null) {
         'settings'            => $settings
     ];
 }
+
+/**
+ * Restituisce l'elenco delle chiamate e dei tagli effettuati per una determinata sessione,
+ * OMETTENDO rigorosamente qualsiasi importo economico o informazione di decifratura.
+ *
+ * @param int $idSessione ID della sessione di mercato
+ * @param int|null $excludeTeamId Se specificato, omette le offerte della squadra indicata
+ * @param int|null $divisione Se specificato, filtra le offerte per divisione
+ * @return array Lista di offerte pubbliche senza importi
+ */
+function mercato_get_session_public_bids($idSessione, $excludeTeamId = null, $divisione = null) {
+    if (!$idSessione) return [];
+
+    $settings = get_mercato_settings();
+    if (empty($settings['mostra_chiamate_altri'])) {
+        return [];
+    }
+
+    $fcmData = fcm_parse_all_data();
+    $fantasquadre = $fcmData['fantasquadre'] ?? [];
+    $giocatori = $fcmData['giocatori'] ?? [];
+    $ruoliNomi = [1 => 'P', 2 => 'D', 3 => 'C', 4 => 'A'];
+
+    $allBids = mercato_db_get_bids($idSessione);
+    $publicBids = [];
+
+    foreach ($allBids as $b) {
+        $teamId = (int)$b['id_squadra'];
+        if ($excludeTeamId !== null && $teamId === (int)$excludeTeamId) {
+            continue;
+        }
+        if ($divisione !== null && isset($b['id_divisione']) && (int)$b['id_divisione'] !== (int)$divisione) {
+            continue;
+        }
+
+        $codG = (int)$b['codice_giocatore'];
+        $gInfo = $giocatori[$codG] ?? null;
+        $rNum = (int)($b['ruolo'] ?? ($gInfo['ruolo'] ?? 0));
+        $ruoloLabel = $ruoliNomi[$rNum] ?? '?';
+        $club = $b['squadra_serie_a'] ?? ($gInfo['club'] ?? '');
+
+        $taglioClub = '';
+        if (!empty($b['id_giocatore_taglio'])) {
+            $taglioClub = $giocatori[(int)$b['id_giocatore_taglio']]['club'] ?? '';
+        }
+
+        $publicBids[] = [
+            'id'                    => (int)$b['id'],
+            'id_squadra'            => $teamId,
+            'nome_squadra'          => $fantasquadre[$teamId]['nome'] ?? "Squadra #{$teamId}",
+            'id_divisione'          => (int)($b['id_divisione'] ?? 0),
+            'codice_giocatore'      => $codG,
+            'nome_giocatore'        => $b['nome_giocatore'] ?? ($gInfo['nome'] ?? ''),
+            'ruolo'                 => $rNum,
+            'ruolo_label'           => $ruoloLabel,
+            'club'                  => $club,
+            'id_giocatore_taglio'   => !empty($b['id_giocatore_taglio']) ? (int)$b['id_giocatore_taglio'] : null,
+            'nome_giocatore_taglio' => $b['nome_giocatore_taglio'] ?? null,
+            'club_taglio'           => $taglioClub,
+            'timest'                => $b['timest'] ?? ''
+        ];
+    }
+
+    // Ordina per data decrescente (le più recenti in alto)
+    usort($publicBids, function($a, $b) {
+        return strcmp($b['timest'], $a['timest']);
+    });
+
+    return $publicBids;
+}
+

@@ -3,16 +3,57 @@
 // Aumenta il tempo massimo di esecuzione dello script per prevenire timeout
 set_time_limit(300);
 
+require_once __DIR__ . '/admin_security.inc.php';
+
 // Popola $_GET se lanciato da CLI o server.js con QUERY_STRING
 if (empty($_GET) && getenv('QUERY_STRING')) {
     parse_str(getenv('QUERY_STRING'), $_GET);
 }
-$isAjax = !empty($_GET['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');
+$isAjax = !empty($_GET['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || (php_sapi_name() === 'cli');
 
 // Definisci le costanti
 define('API_URL', "https://api.fantapazz.com/live.php");
 define('VOTI_OUTPUT_FILE', dirname(__DIR__) . "/js/fcmVotiDatiFP.js");
 define('VOTI_META_FILE', dirname(__DIR__) . "/js/fcmVotiDatiFPMeta.json");
+
+// Caricamento associazioni per mapping automatico verso nome canonico FCM
+$fpToFcmMap = array();
+$baseDir = dirname(__DIR__);
+$assocFile = __DIR__ . '/data/liveVU_associazioni.php';
+if (!file_exists($assocFile)) {
+    $assocFile = $baseDir . '/inc/data/liveVU_associazioni.php';
+}
+if (file_exists($assocFile)) {
+    include_once($assocFile);
+    if (isset($arrAssociazioni) && is_array($arrAssociazioni)) {
+        foreach ($arrAssociazioni as $assoc) {
+            $nomeFCM = !empty($assoc[5]) ? trim($assoc[5]) : '';
+            if ($nomeFCM === '') continue;
+
+            $nomeFP = '';
+            if (count($assoc) >= 11) {
+                $nomeFP = !empty($assoc[8]) ? trim($assoc[8]) : '';
+            } elseif (count($assoc) >= 10) {
+                $nomeFP = !empty($assoc[7]) ? trim($assoc[7]) : '';
+            }
+
+            if (!empty($nomeFP)) {
+                $fpToFcmMap[$nomeFP] = $nomeFCM;
+                $fpToFcmMap[mb_strtoupper($nomeFP, 'UTF-8')] = $nomeFCM;
+            }
+            if (!empty($assoc[3])) {
+                $fpToFcmMap[trim($assoc[3])] = $nomeFCM;
+                $fpToFcmMap[mb_strtoupper(trim($assoc[3]), 'UTF-8')] = $nomeFCM;
+            }
+            if (!empty($assoc[1])) {
+                $fpToFcmMap[trim($assoc[1])] = $nomeFCM;
+                $fpToFcmMap[mb_strtoupper(trim($assoc[1]), 'UTF-8')] = $nomeFCM;
+            }
+            $fpToFcmMap[$nomeFCM] = $nomeFCM;
+            $fpToFcmMap[mb_strtoupper($nomeFCM, 'UTF-8')] = $nomeFCM;
+        }
+    }
+}
 
 // Funzioni helper
 function returnvoto($voto) {
@@ -50,12 +91,12 @@ function getParametri($bonus) {
         }
     }
 
-    return implode("_", array(
-        $counts["golfatto"], $counts["golsubito"], $counts["autogol"],
-        $counts["ammonito"], $counts["espulso"], $counts["rigoresegnato"],
-        $counts["rigoreparato"], $counts["rigoresbagliato"], $counts["assist"],
-        $counts["golvittoria"], $counts["golpareggio"]
-    ));
+    return array(
+        (string)$counts["golfatto"], (string)$counts["golsubito"], (string)$counts["autogol"],
+        (string)$counts["ammonito"], (string)$counts["espulso"], (string)$counts["rigoresegnato"],
+        (string)$counts["rigoreparato"], (string)$counts["rigoresbagliato"], (string)$counts["assist"],
+        (string)$counts["golvittoria"], (string)$counts["golpareggio"]
+    );
 }
 
 // --------------------------------------------------------------------------------
@@ -69,11 +110,10 @@ if (function_exists('curl_init')) {
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, API_URL);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
-    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    fcm_apply_curl_ssl($ch);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ModernFCM/3.0');
     $json = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $curlError = curl_error($ch);
@@ -89,8 +129,8 @@ if ($json === false || empty($json)) {
             "verify_peer_name" => true
         ),
         "http" => array(
-            "timeout" => 20,
-            "user_agent" => "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            "timeout" => 10,
+            "user_agent" => "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ModernFCM/3.0"
         )
     ));
     $json = @file_get_contents(API_URL, false, $context);
@@ -164,6 +204,14 @@ if ($json !== false && !empty($json)) {
         $votiGiocatori = array();
         $n = 0; // Contatore per l'array finale
 
+        $resolveFpPlayerName = function($rawName) use ($fpToFcmMap) {
+            $trimmed = trim($rawName);
+            if (isset($fpToFcmMap[$trimmed])) return $fpToFcmMap[$trimmed];
+            $upper = mb_strtoupper($trimmed, 'UTF-8');
+            if (isset($fpToFcmMap[$upper])) return $fpToFcmMap[$upper];
+            return $trimmed;
+        };
+
         if (isset($data["data"]["clubs"])) {
             foreach ($data["data"]["clubs"] as $clubId => $clubData) {
                 $nomeSquadra = isset($mappaturaInversaSquadre[$clubId]) ? $mappaturaInversaSquadre[$clubId] : null;
@@ -178,17 +226,11 @@ if ($json !== false && !empty($json)) {
                                 $bonus = isset($giocatore['bonus']) ? $giocatore['bonus'] : null;
                                 $min = isset($giocatore['min']) ? $giocatore['min'] : null;
 
-                                $votiGiocatori[$n] = implode("_", array(
-                                    strtoupper($giocatore["calciatore"]),
-                                    returnvoto($voto),
-                                    "SV",
+                                $votiGiocatori[$n] = array_merge(
+                                    array($resolveFpPlayerName($giocatore["calciatore"]), (string)returnvoto($voto), "SV"),
                                     getParametri($bonus),
-                                    $nomeSquadra,
-                                    1, // Ruolo: 1 per i titolari
-                                    checkmin($min),
-                                    returnmin($min),
-                                    isset($partiteStato[$nomeSquadra]) ? $partiteStato[$nomeSquadra] : ""
-                                ));
+                                    array($nomeSquadra, "1", (string)checkmin($min), (string)returnmin($min), isset($partiteStato[$nomeSquadra]) ? (string)$partiteStato[$nomeSquadra] : "")
+                                );
                                 $n++;
                             }
                         }
@@ -202,17 +244,11 @@ if ($json !== false && !empty($json)) {
                                 $bonus = isset($giocatore['bonus']) ? $giocatore['bonus'] : null;
                                 $min = isset($giocatore['min']) ? $giocatore['min'] : null;
 
-                                $votiGiocatori[$n] = implode("_", array(
-                                    strtoupper($giocatore["calciatore"]),
-                                    returnvoto($voto),
-                                    "SV",
+                                $votiGiocatori[$n] = array_merge(
+                                    array($resolveFpPlayerName($giocatore["calciatore"]), (string)returnvoto($voto), "SV"),
                                     getParametri($bonus),
-                                    $nomeSquadra,
-                                    0, // Ruolo: 0 per i panchinari
-                                    checkmin($min),
-                                    returnmin($min),
-                                    isset($partiteStato[$nomeSquadra]) ? $partiteStato[$nomeSquadra] : ""
-                                ));
+                                    array($nomeSquadra, "0", (string)checkmin($min), (string)returnmin($min), isset($partiteStato[$nomeSquadra]) ? (string)$partiteStato[$nomeSquadra] : "")
+                                );
                                 $n++;
                             }
                         }
@@ -225,9 +261,8 @@ if ($json !== false && !empty($json)) {
         $output = "arrPartite = " . json_encode($partiteStato, JSON_UNESCAPED_UNICODE) . ";\r\n";
         $output .= "arrStatoPartite = arrPartite;\r\n";
         $output .= "arrVoti = new Array();\r\n";
-        foreach ($votiGiocatori as $index => $linea) {
-            $campi = explode("_", $linea);
-            $campiJson = array_map(function($c) { return json_encode($c, JSON_UNESCAPED_UNICODE); }, $campi);
+        foreach ($votiGiocatori as $index => $campi) {
+            $campiJson = array_map(function($c) { return json_encode((string)$c, JSON_UNESCAPED_UNICODE); }, $campi);
             $output .= "arrVoti[".$index."] = new VotoGiocatore(".implode(",", $campiJson).");\r\n";
         }
 

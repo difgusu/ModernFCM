@@ -8,26 +8,26 @@ if (!defined('IN_SCRIPT')) {
 $pnCookieTheme = isset($_COOKIE['pn_theme']) && in_array($_COOKIE['pn_theme'], ['light', 'dark']) ? $_COOKIE['pn_theme'] : 'dark';
 ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" data-theme="<?php echo $pnCookieTheme; ?>" style="background-color: <?php echo ($pnCookieTheme === 'light') ? '#f1f5f9' : '#0b1120'; ?> !important; color-scheme: <?php echo ($pnCookieTheme === 'light') ? 'light' : 'dark'; ?>;">
+<html xmlns="http://www.w3.org/1999/xhtml" data-theme="<?php echo $pnCookieTheme; ?>" style="background-color: var(--bg-main, <?php echo ($pnCookieTheme === 'light') ? '#f1f5f9' : '#0b1120'; ?>) !important; color-scheme: <?php echo ($pnCookieTheme === 'light') ? 'light' : 'dark'; ?>;">
 <head>
 <title><?php echo $settings['gbook_title']; ?></title>
 <meta http-equiv="Content-Type" content="text/html;charset=<?php echo $lang['enc']; ?>" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
 <style>
   html, body {
-    background-color: <?php echo ($pnCookieTheme === 'light') ? '#f1f5f9' : '#0b1120'; ?> !important;
-    background: <?php echo ($pnCookieTheme === 'light') ? '#f1f5f9' : '#0b1120'; ?> !important;
-    color: <?php echo ($pnCookieTheme === 'light') ? '#1e293b' : '#f8fafc'; ?>;
+    background-color: var(--bg-main, <?php echo ($pnCookieTheme === 'light') ? '#f1f5f9' : '#0b1120'; ?>) !important;
+    background: var(--bg-main, <?php echo ($pnCookieTheme === 'light') ? '#f1f5f9' : '#0b1120'; ?>) !important;
+    color: var(--text-primary, <?php echo ($pnCookieTheme === 'light') ? '#1e293b' : '#f8fafc'; ?>);
   }
   html[data-theme="dark"], html[data-theme="dark"] body {
-    background-color: #0b1120 !important;
-    background: #0b1120 !important;
-    color: #f8fafc;
+    background-color: var(--bg-main, #0b1120) !important;
+    background: var(--bg-main, #0b1120) !important;
+    color: var(--text-primary, #f8fafc);
   }
   html[data-theme="light"], html[data-theme="light"] body {
-    background-color: #f1f5f9 !important;
-    background: #f1f5f9 !important;
-    color: #1e293b;
+    background-color: var(--bg-main, #f1f5f9) !important;
+    background: var(--bg-main, #f1f5f9) !important;
+    color: var(--text-primary, #1e293b);
   }
 </style>
 <script type="text/javascript"><!--
@@ -74,7 +74,7 @@ function openSmiley()
 (function() {
 	function applyThemeToDoc(theme) {
 		var resolved = (theme === 'light') ? 'light' : 'dark';
-		var bg = (resolved === 'light') ? '#f1f5f9' : '#0b1120';
+		var bg = (resolved === 'light') ? 'var(--bg-main, #f1f5f9)' : 'var(--bg-main, #0b1120)';
 		document.documentElement.setAttribute('data-theme', resolved);
 		document.documentElement.style.setProperty('background-color', bg, 'important');
 		document.documentElement.style.setProperty('background', bg, 'important');
@@ -135,9 +135,15 @@ function openSmiley()
 })();
 </script>
 <link href="<?php echo $settings['tpl_path']; ?>style.css?v=<?php echo @filemtime(__DIR__ . '/style.css'); ?>" rel="stylesheet" type="text/css" />
+<?php
+if (file_exists(__DIR__ . '/../../../inc/theme_loader.php')) {
+	require_once __DIR__ . '/../../../inc/theme_loader.php';
+	echo fcm_render_custom_theme_css();
+}
+?>
 </head>
 
-<body style="background-color: <?php echo ($pnCookieTheme === 'light') ? '#f1f5f9' : '#0b1120'; ?> !important;">
+<body style="background-color: var(--bg-main, <?php echo ($pnCookieTheme === 'light') ? '#f1f5f9' : '#0b1120'; ?>) !important;">
 
 <!--CUSTOM HEADER -->
 <?php

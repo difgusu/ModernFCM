@@ -8,6 +8,121 @@ const statisticheView = {
   currentQueryId: null,
   searchFilter: '',
 
+  _escAttr(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  },
+
+  handleTeamLogoError(img) {
+    if (!img || !img.dataset) return;
+    const stage = parseInt(img.dataset.stage || '0', 10);
+    const candidates = [img.dataset.gif, img.dataset.altPng, img.dataset.altGif];
+    for (let i = stage; i < candidates.length; i++) {
+      const nextSrc = candidates[i];
+      if (nextSrc && nextSrc !== img.getAttribute('src')) {
+        img.dataset.stage = String(i + 1);
+        img.src = nextSrc;
+        return;
+      }
+    }
+    img.onerror = null;
+    img.src = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader._resolvePath === 'function')
+      ? fcmDataLoader._resolvePath('img/sq/undefined.svg')
+      : 'img/sq/undefined.svg';
+  },
+
+  renderTeamShirtMarkup(teamName, teamId = 0) {
+    const cleanName = String(teamName || '').trim();
+    const resolve = (p) => (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader._resolvePath === 'function')
+      ? fcmDataLoader._resolvePath(p)
+      : p;
+    const encodeTeam = (n) => n ? encodeURIComponent(n).replace(/'/g, '%27') : '';
+    const encoded = encodeTeam(cleanName);
+    const primarySrc = encoded ? resolve(`img/sq/${encoded}.png`) : resolve('img/sq/undefined.svg');
+    const gifSrc = encoded ? resolve(`img/sq/${encoded}.gif`) : '';
+
+    let altPng = '';
+    if (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getTeamLogo === 'function') {
+      const fallbackLogo = fcmDataLoader.getTeamLogo(teamId || cleanName);
+      if (fallbackLogo && !fallbackLogo.endsWith('undefined.svg') && fallbackLogo !== primarySrc) {
+        altPng = fallbackLogo;
+      }
+    }
+    const altGif = altPng ? altPng.replace(/\.png$/i, '.gif') : '';
+
+    return `<img src="${this._escAttr(primarySrc)}" class="hist-team-shirt" alt="" loading="lazy" data-gif="${this._escAttr(gifSrc)}" data-alt-png="${this._escAttr(altPng)}" data-alt-gif="${this._escAttr(altGif)}" onerror="statisticheView.handleTeamLogoError(this)" />`;
+  },
+
+  renderTeamCell(teamName, teamId = 0, isFavByFsq = false) {
+    const cleanName = String(teamName || '').trim();
+    const safeName = this._escAttr(cleanName);
+    const shirtHtml = this.renderTeamShirtMarkup(cleanName, teamId);
+    const favStar = isFavByFsq ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : '';
+    const rosterUrl = teamId > 0
+      ? `#rose?team=${teamId}`
+      : (cleanName ? `#rose?teamName=${encodeURIComponent(cleanName)}` : '');
+
+    if (!rosterUrl) {
+      return `<span class="hist-team-link stats-team-link is-static">${shirtHtml}${favStar}<span class="hist-team-name-text">${safeName}</span></span>`;
+    }
+
+    return `<a href="${this._escAttr(rosterUrl)}" class="hist-team-link stats-team-link" title="Apri rosa di ${safeName}">${shirtHtml}${favStar}<span class="hist-team-name-text">${safeName}</span></a>`;
+  },
+
+  renderPlayerCell(cleanName, mobileName, rowCode = null, serieATeamName = '') {
+    const safeName = this._escAttr(cleanName);
+    const safeMobile = this._escAttr(mobileName || cleanName);
+    const resolve = (p) => (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader._resolvePath === 'function')
+      ? fcmDataLoader._resolvePath(p)
+      : p;
+
+    const explicitCode = Number(rowCode) > 0 ? Number(rowCode) : null;
+    const revCode = (!explicitCode && typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getPlayerCode === 'function')
+      ? fcmDataLoader.getPlayerCode(cleanName)
+      : null;
+    const pCode = explicitCode || revCode || null;
+
+    const profileLink = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getPlayerProfileLink === 'function')
+      ? fcmDataLoader.getPlayerProfileLink({ name: cleanName, code: pCode })
+      : `#schede_giocatori?name=${encodeURIComponent(cleanName)}`;
+
+    const photoSrc = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getPlayerPhoto === 'function')
+      ? fcmDataLoader.getPlayerPhoto(cleanName, pCode)
+      : (pCode ? resolve(`img/foto/${pCode}.jpg`) : resolve('img/foto/misterx.gif'));
+    const misterxSrc = resolve('img/foto/misterx.gif');
+
+    const cleanClub = String(serieATeamName || '').trim();
+    const serieALogo = (cleanClub && typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getSerieALogo === 'function')
+      ? fcmDataLoader.getSerieALogo(cleanClub)
+      : (cleanClub ? resolve(`img/sq/logo/${encodeURIComponent(cleanClub)}.png`) : '');
+    const showClubLogo = Boolean(serieALogo && !serieALogo.endsWith('undefined.svg'));
+    const safeClub = this._escAttr(cleanClub);
+
+    return `
+      <div class="hist-player-cell stats-player-cell">
+        <a href="${this._escAttr(profileLink)}" class="hist-player-avatar-link" aria-label="Apri scheda di ${safeName}" title="Apri scheda di ${safeName}">
+          <img src="${this._escAttr(photoSrc)}" class="hist-player-thumb" alt="" loading="lazy" data-fallback="${this._escAttr(misterxSrc)}" onerror="this.onerror=null;this.src=this.dataset.fallback||'img/foto/misterx.gif';" />
+        </a>
+        <div class="stats-player-info">
+          <a href="${this._escAttr(profileLink)}" class="hist-player-name-link stats-player-name-link" title="Apri scheda di ${safeName}">
+            <span class="desktop-only">${safeName}</span>
+            <span class="mobile-only">${safeMobile}</span>
+          </a>
+          ${cleanClub ? `
+            <div class="stats-seriea-subtext">
+              ${showClubLogo ? `<img src="${this._escAttr(serieALogo)}" class="stats-seriea-logo" alt="" loading="lazy" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/i,'.jpg');}else{this.style.display='none';}" />` : ''}
+              <span>${safeClub}</span>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  },
+
   tabDefinitions: [
     {
       matchNames: ['classifica cannonieri', 'cannonieri', 'marcatori'],
@@ -136,28 +251,41 @@ const statisticheView = {
       }
     }
 
-    container.innerHTML = `
-      <div class="card text-center" style="padding:40px;">
-        <div style="font-size:1.1rem;font-weight:700;color:var(--accent-cyan);margin-bottom:8px;">Caricamento Statistiche...</div>
-        <div style="color:var(--text-muted);font-size:0.85rem;">${currentQuery ? currentQuery.name : ''}</div>
-      </div>
-    `;
+    container.innerHTML = (typeof fcmSkeleton !== 'undefined')
+      ? fcmSkeleton.table({ cols: 5, rows: 8, withToolbar: true, toolbarPills: 5, title: currentQuery ? currentQuery.name : '' })
+      : `
+        <div class="card text-center" style="padding:40px;">
+          <div style="font-size:1.1rem;font-weight:700;color:var(--accent-cyan);margin-bottom:8px;">Caricamento Statistiche...</div>
+          <div style="color:var(--text-muted);font-size:0.85rem;">${currentQuery ? this._escAttr(currentQuery.name) : ''}</div>
+        </div>
+      `;
+
+    // Ensure Serie A & Fantasquadre metadata are available for reverse photo/team lookups
+    if (typeof arrGiocatoriA === 'undefined' && typeof fcmDataLoader.loadScript === 'function') {
+      try { await fcmDataLoader.loadScript('js/fcmSerieADatiDettaglio.js'); } catch (e) { }
+    }
+    if (typeof arrFantasquadre === 'undefined' && typeof fcmDataLoader.loadScript === 'function') {
+      try { await fcmDataLoader.loadScript('js/fcmFantasquadreDati.js'); } catch (e) { }
+    }
 
     // Load query data
     const queryData = await fcmDataLoader.loadQueryStat(this.currentQueryId);
 
     // Apply search filter
+    const normalizedFilter = this.searchFilter.replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
     let filteredRows = queryData.rows;
-    if (this.searchFilter.trim().length > 0) {
-      const q = this.searchFilter.trim().toLowerCase();
-      filteredRows = filteredRows.filter(row => row.some(cell => String(cell).toLowerCase().includes(q)));
+    if (normalizedFilter.length > 0) {
+      filteredRows = filteredRows.filter(row =>
+        row.map(c => String(c).replace(/&nbsp;/gi, ' ')).join(' ').replace(/\s+/g, ' ').toLowerCase().includes(normalizedFilter)
+      );
     }
 
     // Detect special columns
     const cleanHeaders = queryData.headers.map(h => String(h).replace(/&nbsp;/g, ' ').trim());
 
     // 1. Serie A Team Column (e.g., "Squadra", "Sq.", "Sq", "Squadra di A")
-    const serieAColIdx = cleanHeaders.findIndex(h => {
+    const serieAColIdx = cleanHeaders.findIndex((h, idx) => {
+      if (idx === 0) return false;
       const lower = h.toLowerCase();
       return (lower === 'squadra' || lower === 'sq.' || lower === 'sq' || lower === 'squadra di a') && !lower.includes('tesserato');
     });
@@ -173,6 +301,22 @@ const statisticheView = {
       const lower = h.toLowerCase();
       return lower === 'ruolo' || lower === 'r';
     });
+
+    // 4. Optional Player Code Column ("Cod", "Codice")
+    const codColIdx = cleanHeaders.findIndex(h => {
+      const lower = h.toLowerCase();
+      return lower === 'cod' || lower === 'codice';
+    });
+
+    // Build lookup map from Fantasquadra name -> ID
+    const teamIdByName = new Map();
+    if (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getTeams === 'function') {
+      fcmDataLoader.getTeams().forEach(t => {
+        if (t && t.Nome && t.ID) {
+          teamIdByName.set(String(t.Nome).trim().toLowerCase(), Number(t.ID));
+        }
+      });
+    }
 
     // Determine visible column indices (Serie A team column is merged into player column)
     const visibleHeaderIndices = cleanHeaders
@@ -191,7 +335,7 @@ const statisticheView = {
               </svg>
               Statistiche di Lega
             </div>
-            <div class="card-subtitle">${currentQuery ? currentQuery.name : ''}</div>
+            <div class="card-subtitle">${currentQuery ? this._escAttr(currentQuery.name) : ''}</div>
           </div>
         </div>
 
@@ -227,7 +371,7 @@ const statisticheView = {
             <select id="selectQueryId" class="form-select" style="width:100%;">
               ${queryList.map(q => `
                 <option value="${q.id}" ${q.id === this.currentQueryId ? 'selected' : ''}>
-                  ${q.id}. ${q.name}
+                  ${q.id}. ${this._escAttr(q.name)}
                 </option>
               `).join('')}
             </select>
@@ -244,7 +388,7 @@ const statisticheView = {
                 class="form-input search-input" 
                 style="width:100%;padding-right:32px;" 
                 placeholder="Cerca nome calciatore o squadra..." 
-                value="${this.searchFilter}"
+                value="${this._escAttr(this.searchFilter)}"
               />
               <button 
                 type="button" 
@@ -264,7 +408,7 @@ const statisticheView = {
         </div>
 
         <!-- Statistics Table -->
-        <div class="table-responsive">
+        <div class="table-responsive stats-table-wrap" tabindex="0" role="region" aria-label="Tabella Statistiche: ${this._escAttr(currentQuery ? currentQuery.name : 'Statistiche di Lega')}">
           <table class="modern-table stats-table">
             <thead>
               <tr>
@@ -272,69 +416,87 @@ const statisticheView = {
                 ${visibleHeaderIndices.map(i => {
       const hText = cleanHeaders[i];
       const isRole = i === roleColIdx;
-      return `<th class="${isRole ? 'text-center col-role-header' : ''}">${hText}</th>`;
+      return `<th class="${isRole ? 'text-center col-role-header' : ''}">${this._escAttr(hText)}</th>`;
     }).join('')}
               </tr>
             </thead>
             <tbody id="statsTableBody">
-              ${queryData.rows.length > 0 ? queryData.rows.map((row, idx) => {
-      const searchStr = row.map(c => String(c).replace(/&nbsp;/g, ' ')).join(' ').toLowerCase();
-      const isMatch = !this.searchFilter.trim() || searchStr.includes(this.searchFilter.trim().toLowerCase());
+              ${(() => {
+        const favPlayerNames = new Set();
+        if (typeof fcmHomeConfigManager !== 'undefined' && typeof fcmHomeConfigManager.hasFavoriteTeam === 'function' && fcmHomeConfigManager.hasFavoriteTeam()) {
+          const favId = fcmHomeConfigManager.getFavoriteTeamId();
+          if (typeof arrRose !== 'undefined' && Array.isArray(arrRose)) {
+            // 1. Traccia tutti i giocatori svincolati (Stato === 1) dalla squadra del cuore
+            const svincolati = new Set();
+            arrRose.forEach(r => {
+              if (r && r.IDSquadra === favId && r.Stato === 1) {
+                const clean = String(r.Nome || '').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').toLowerCase().trim();
+                if (clean) svincolati.add(clean);
+              }
+            });
 
-      const serieATeamName = (serieAColIdx !== -1 && row[serieAColIdx]) ? String(row[serieAColIdx]).replace(/&nbsp;/g, ' ').trim() : '';
-
-      return `
-                  <tr class="stats-data-row" data-searchable="${searchStr.replace(/"/g, '&quot;')}" style="${isMatch ? '' : 'display:none;'}">
-                    <td class="text-center font-bold row-index col-index-cell" style="color:var(--text-muted);">${idx + 1}</td>
-                    ${visibleHeaderIndices.map(cellIdx => {
-        const val = row[cellIdx] !== undefined ? row[cellIdx] : '';
-        const cleanVal = String(val).replace(/&nbsp;/g, ' ').trim();
-
-        // Column 0: Player Name (or primary entity)
-        if (cellIdx === 0) {
-          const mobileName = this.formatPlayerNameMobile(cleanVal);
-          return `
-                          <td class="col-player-cell">
-                            <div>
-                              <span class="font-bold desktop-only" style="color:var(--text-primary);">${cleanVal}</span>
-                              <span class="font-bold mobile-only" style="color:var(--text-primary);">${mobileName}</span>
-                              ${serieATeamName ? `
-                                <div class="stats-seriea-subtext" style="font-size:0.73rem;color:var(--text-muted);margin-top:2px;display:flex;align-items:center;gap:4px;">
-                                  <img src="img/live/sq/${encodeURIComponent(serieATeamName)}.png" style="height:14px;width:auto;vertical-align:middle;" onerror="this.style.display='none'" />
-                                  <span>${serieATeamName}</span>
-                                </div>
-                              ` : ''}
-                            </div>
-                          </td>
-                        `;
-        }
-
-        // Fantasquadra Column ("Tesserato in")
-        if (cellIdx === fsqColIdx && cleanVal) {
-          const fsqLogo = fcmDataLoader.getTeamLogo(cleanVal);
-          return `
-                          <td class="col-fsq-cell">
-                            <div style="display:inline-flex;align-items:center;gap:6px;">
-                              <img src="${fsqLogo}" style="height:18px;width:auto;object-fit:contain;vertical-align:middle;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
-                              <span class="font-semibold" style="color:var(--text-primary);">${cleanVal}</span>
-                            </div>
-                          </td>
-                        `;
-        }
-
-        // Role Column Badge ("P", "D", "C", "A")
-        if (cellIdx === roleColIdx || cleanVal === 'P' || cleanVal === 'D' || cleanVal === 'C' || cleanVal === 'A') {
-          if (cleanVal === 'P' || cleanVal === 'D' || cleanVal === 'C' || cleanVal === 'A') {
-            const rNum = cleanVal === 'P' ? 1 : cleanVal === 'D' ? 2 : cleanVal === 'C' ? 3 : 4;
-            return `<td class="text-center col-role-cell"><span class="role-badge ${fcmDataLoader.getRoleClass(rNum)}">${cleanVal}</span></td>`;
+            // 2. Includi solo i giocatori attualmente in rosa (Stato === 0) o in lista infortunati (Stato === 2),
+            // escludendo chiunque sia svincolato
+            arrRose.forEach(r => {
+              if (r && r.IDSquadra === favId && (r.Stato === 0 || r.Stato === 2)) {
+                const clean = String(r.Nome || '').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').toLowerCase().trim();
+                if (clean && !svincolati.has(clean)) {
+                  favPlayerNames.add(clean);
+                }
+              }
+            });
           }
         }
 
-        return `<td>${cleanVal}</td>`;
-      }).join('')}
-                  </tr>
-                `;
-    }).join('') : ''}
+        let visibleRowIdx = 0;
+        return queryData.rows.length > 0 ? queryData.rows.map((row, idx) => {
+          const searchStr = row.map(c => String(c).replace(/&nbsp;/gi, ' ')).join(' ').replace(/\s+/g, ' ').toLowerCase();
+          const isMatch = !normalizedFilter || searchStr.includes(normalizedFilter);
+          const displayIdx = isMatch ? (++visibleRowIdx) : (idx + 1);
+
+          const serieATeamName = (serieAColIdx !== -1 && row[serieAColIdx]) ? String(row[serieAColIdx]).replace(/&nbsp;/gi, ' ').trim() : '';
+          const playerName = row[0] ? String(row[0]).replace(/&nbsp;/gi, ' ').trim() : '';
+          const playerNameLower = playerName.replace(/\s+/g, ' ').toLowerCase();
+          const rowCode = (codColIdx !== -1 && row[codColIdx]) ? String(row[codColIdx]).replace(/&nbsp;/gi, ' ').trim() : '';
+          const fsqVal = (fsqColIdx !== -1 && row[fsqColIdx]) ? String(row[fsqColIdx]).replace(/&nbsp;/gi, ' ').trim() : '';
+
+          // Solo i calciatori attualmente in rosa o infortunati della squadra del cuore vengono evidenziati
+          const isFavPlayer = favPlayerNames.has(playerNameLower);
+          const isFavByFsq = isFavPlayer && fsqVal && (typeof fcmHomeConfigManager !== 'undefined') && typeof fcmHomeConfigManager.isFavoriteTeam === 'function' && fcmHomeConfigManager.isFavoriteTeam(fsqVal);
+
+          return `
+                    <tr class="stats-data-row ${isFavPlayer ? 'table-row-favorite' : ''}" data-searchable="${this._escAttr(searchStr)}" style="${isMatch ? '' : 'display:none;'}">
+                      <td class="text-center font-bold row-index col-index-cell" style="color:var(--text-muted);">${displayIdx}</td>
+                      ${visibleHeaderIndices.map(cellIdx => {
+            const val = row[cellIdx] !== undefined ? row[cellIdx] : '';
+            const cleanVal = String(val).replace(/&nbsp;/g, ' ').trim();
+
+            // Column 0: Player Name + Minifoto + Link (#schede_giocatori) + Serie A Logo
+            if (cellIdx === 0) {
+              const mobileName = this.formatPlayerNameMobile(cleanVal);
+              return `<td class="col-player-cell">${this.renderPlayerCell(cleanVal, mobileName, rowCode, serieATeamName)}</td>`;
+            }
+
+            // Fantasquadra Column ("Tesserato in") -> Jersey + Hover Zoom + Link (#rose)
+            if (cellIdx === fsqColIdx && cleanVal && cleanVal !== '-') {
+              const resolvedTeamId = teamIdByName.get(cleanVal.toLowerCase()) || 0;
+              return `<td class="col-fsq-cell">${this.renderTeamCell(cleanVal, resolvedTeamId, isFavByFsq)}</td>`;
+            }
+
+            // Role Column Badge ("P", "D", "C", "A")
+            if (cellIdx === roleColIdx || cleanVal === 'P' || cleanVal === 'D' || cleanVal === 'C' || cleanVal === 'A') {
+              if (cleanVal === 'P' || cleanVal === 'D' || cleanVal === 'C' || cleanVal === 'A') {
+                const rNum = cleanVal === 'P' ? 1 : cleanVal === 'D' ? 2 : cleanVal === 'C' ? 3 : 4;
+                return `<td class="text-center col-role-cell"><span class="role-badge ${fcmDataLoader.getRoleClass(rNum)}">${cleanVal}</span></td>`;
+              }
+            }
+
+            return `<td>${this._escAttr(cleanVal)}</td>`;
+          }).join('')}
+                    </tr>
+                  `;
+        }).join('') : '';
+      })()}
               <tr id="statsNoResultsRow" style="${filteredRows.length === 0 ? '' : 'display:none;'}">
                 <td colspan="${visibleHeaderIndices.length + 1}" class="text-center" style="padding:24px;color:var(--text-muted);">
                   Nessun dato trovato per il filtro o la statistica selezionata.
@@ -378,7 +540,7 @@ const statisticheView = {
 
     if (filterInput) {
       filterInput.addEventListener('input', (e) => {
-        const query = e.target.value.trim().toLowerCase();
+        const query = e.target.value.replace(/\s+/g, ' ').trim().toLowerCase();
         this.searchFilter = e.target.value;
 
         if (clearBtn) {
@@ -420,3 +582,7 @@ const statisticheView = {
     }
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.statisticheView = statisticheView;
+}

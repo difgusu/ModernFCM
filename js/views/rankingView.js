@@ -34,9 +34,9 @@ const rankingView = {
 
     if (typeof arrPalmares === 'undefined') {
       try {
-        await fcmDataLoader.loadScript('persjs/fcmConfrontiDati.js');
+        await fcmDataLoader.loadConfronti();
       } catch (e) {
-        console.warn('Could not load persjs/fcmConfrontiDati.js', e);
+        console.warn('Could not load confronti historical data', e);
       }
     }
 
@@ -55,8 +55,15 @@ const rankingView = {
             <div class="card-subtitle">Classifica perpetua per coefficienti storici, trofei e rendimento</div>
           </div>
 
-          <!-- Pulsante Legenda in stile pill-tab (stesso stile usato per la legenda nella pagina registri) -->
-          <div class="pill-tabs" style="margin-bottom:0;display:inline-flex;">
+          <!-- Pulsanti Header: Impostazioni Storico & Legenda -->
+          <div class="pill-tabs" style="margin-bottom:0;display:inline-flex;align-items:center;">
+            <a href="inc/impostazioni.php#ranking" class="pill-btn" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;" title="Impostazioni Ranking &amp; Storico">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+              <span>Impostazioni</span>
+            </a>
             <button type="button" id="btnToggleLegend" class="pill-btn ${this.showLegend ? 'active' : ''}" style="display:inline-flex;align-items:center;gap:6px;">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="10"></circle>
@@ -69,9 +76,11 @@ const rankingView = {
         </div>
 
         <div id="rankingContent">
-          <div class="text-center" style="padding:30px;color:var(--text-muted);">
-            Caricamento dati ranking...
-          </div>
+          ${(typeof fcmSkeleton !== 'undefined') ? fcmSkeleton.table({ cols: 6, rows: 8, withToolbar: false }) : `
+            <div class="text-center" style="padding:30px;color:var(--text-muted);">
+              Caricamento dati ranking...
+            </div>
+          `}
         </div>
       </div>
     `;
@@ -106,11 +115,148 @@ const rankingView = {
   async renderRankingTable(container) {
     if (typeof arrPalmares === 'undefined') {
       try {
-        await fcmDataLoader.loadScript('persjs/fcmConfrontiDati.js');
+        await fcmDataLoader.loadConfronti();
       } catch (e) { }
     }
 
     const rankingData = await fcmDataLoader.loadRanking();
+
+    // Generazione dinamica leggenda criteri ranking
+    const cachedRaw = fcmDataLoader._cachedRankingData || {};
+    const palmaresList = (cachedRaw.palmares && cachedRaw.palmares.length) ? cachedRaw.palmares : (window.arrPalmares ? window.arrPalmares.filter(Boolean) : []);
+    const rankCfg = cachedRaw.config || {};
+
+    let placementLegendHtml = '';
+    let matchesLegendHtml = '';
+
+    const formatGoal = (g) => {
+      const num = parseFloat(g) || 0;
+      return num > 0 ? `+${num}` : `${num}`;
+    };
+
+    if (palmaresList && palmaresList.length > 0) {
+      palmaresList.forEach(pal => {
+        const cId = pal.id || pal.Competizione || pal.compId;
+        const cName = pal.Label || pal.label || pal.Nome || pal.name || `Competizione ${cId}`;
+        const pConf = (rankCfg.placement && rankCfg.placement[cId]) || {};
+        const pParts = [];
+        if (pConf[1]) pParts.push(`1°: <b>${pConf[1]} pt</b>`);
+        if (pConf[2]) pParts.push(`2°: <b>${pConf[2]} pt</b>`);
+        if (pConf[3]) pParts.push(`3°: <b>${pConf[3]} pt</b>`);
+        if (pConf[4]) pParts.push(`4°: <b>${pConf[4]} pt</b>`);
+
+        if (pParts.length > 0) {
+          placementLegendHtml += `
+            <div style="background:var(--bg-main);padding:6px 8px;border-radius:var(--radius-sm);">
+              <b style="color:var(--text-primary);">${cName}:</b>
+              <div style="color:var(--text-secondary);margin-top:2px;">${pParts.join(' • ')}</div>
+            </div>
+          `;
+        }
+
+        const mConf = (rankCfg.matches && rankCfg.matches[cId]);
+        if (mConf) {
+          const getVenue = (vKey) => {
+            const vObj = mConf[vKey] || mConf;
+            return {
+              win: vObj.win !== undefined ? parseFloat(vObj.win) : 2.0,
+              draw: vObj.draw !== undefined ? parseFloat(vObj.draw) : 1.2,
+              loss: vObj.loss !== undefined ? parseFloat(vObj.loss) : 0.0,
+              gf: vObj.gf !== undefined ? parseFloat(vObj.gf) : parseFloat(rankCfg.goals?.gf ?? 1.3),
+              gs: vObj.gs !== undefined ? parseFloat(vObj.gs) : parseFloat(rankCfg.goals?.gs ?? -1.3)
+            };
+          };
+
+          const vH = getVenue('home');
+          const vA = getVenue('away');
+          const vN = getVenue('neutral');
+
+          if (vH.win > 0 || vH.draw > 0 || vA.win > 0 || vA.draw > 0 || vN.win > 0 || vN.draw > 0) {
+            const areEqual = (
+              vH.win === vA.win && vH.win === vN.win &&
+              vH.draw === vA.draw && vH.draw === vN.draw &&
+              vH.loss === vA.loss && vH.loss === vN.loss &&
+              vH.gf === vA.gf && vH.gf === vN.gf &&
+              vH.gs === vA.gs && vH.gs === vN.gs
+            );
+
+            if (areEqual) {
+              matchesLegendHtml += `
+                <div style="background:var(--bg-main);padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;">
+                    <b style="color:var(--text-primary);font-size:0.8rem;">${cName}:</b>
+                    <span style="font-size:0.68rem;color:var(--text-muted);font-style:italic;">Casa / Trasf / Neutro identici</span>
+                  </div>
+                  <div style="color:var(--text-secondary);margin-top:4px;font-size:0.75rem;">
+                    V <b>${vH.win}</b> • P <b>${vH.draw}</b> • S <b>${vH.loss}</b> pt | Reti: <span style="color:var(--accent-emerald);font-weight:600;">${formatGoal(vH.gf)}</span> / <span style="color:var(--accent-crimson);font-weight:600;">${formatGoal(vH.gs)}</span> pt
+                  </div>
+                </div>
+              `;
+            } else {
+              matchesLegendHtml += `
+                <div style="background:var(--bg-main);padding:8px 10px;border-radius:var(--radius-sm);border-left:3px solid var(--accent-emerald);border-top:1px solid var(--border-subtle);border-right:1px solid var(--border-subtle);border-bottom:1px solid var(--border-subtle);">
+                  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px;">
+                    <b style="color:var(--text-primary);font-size:0.8rem;">${cName}:</b>
+                    <span style="font-size:0.68rem;color:var(--accent-emerald);background:rgba(16,185,129,0.12);padding:2px 8px;border-radius:var(--radius-full);font-weight:700;display:inline-flex;align-items:center;gap:4px;">
+                      ⚡ Punteggi differenziati per sede
+                    </span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:6px;font-size:0.75rem;">
+                    <div style="background:var(--bg-surface);padding:6px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">
+                      <div style="font-weight:700;color:var(--text-primary);margin-bottom:2px;display:flex;align-items:center;gap:4px;">
+                        <span>🏠 In Casa</span>
+                      </div>
+                      <div style="color:var(--text-secondary);">
+                        V <b>${vH.win}</b> • P <b>${vH.draw}</b> • S <b>${vH.loss}</b> pt
+                      </div>
+                      <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;">
+                        Reti: <span style="color:var(--accent-emerald);font-weight:600;">${formatGoal(vH.gf)}</span> / <span style="color:var(--accent-crimson);font-weight:600;">${formatGoal(vH.gs)}</span> pt
+                      </div>
+                    </div>
+                    <div style="background:var(--bg-surface);padding:6px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">
+                      <div style="font-weight:700;color:var(--text-primary);margin-bottom:2px;display:flex;align-items:center;gap:4px;">
+                        <span>✈️ In Trasferta</span>
+                      </div>
+                      <div style="color:var(--text-secondary);">
+                        V <b>${vA.win}</b> • P <b>${vA.draw}</b> • S <b>${vA.loss}</b> pt
+                      </div>
+                      <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;">
+                        Reti: <span style="color:var(--accent-emerald);font-weight:600;">${formatGoal(vA.gf)}</span> / <span style="color:var(--accent-crimson);font-weight:600;">${formatGoal(vA.gs)}</span> pt
+                      </div>
+                    </div>
+                    <div style="background:var(--bg-surface);padding:6px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">
+                      <div style="font-weight:700;color:var(--text-primary);margin-bottom:2px;display:flex;align-items:center;gap:4px;">
+                        <span>⚖️ Campo Neutro</span>
+                      </div>
+                      <div style="color:var(--text-secondary);">
+                        V <b>${vN.win}</b> • P <b>${vN.draw}</b> • S <b>${vN.loss}</b> pt
+                      </div>
+                      <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;">
+                        Reti: <span style="color:var(--accent-emerald);font-weight:600;">${formatGoal(vN.gf)}</span> / <span style="color:var(--accent-crimson);font-weight:600;">${formatGoal(vN.gs)}</span> pt
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }
+          }
+        }
+      });
+    }
+
+    if (!placementLegendHtml) {
+      placementLegendHtml = `
+        <div style="background:var(--bg-main);padding:6px 8px;border-radius:var(--radius-sm);">
+          <div style="color:var(--text-secondary);">Punti assegnati in base ai trofei e podi ottenuti nell'Albo d'Oro.</div>
+        </div>
+      `;
+    }
+
+    const decay0 = rankCfg.decay?.[0] !== undefined ? Math.round(rankCfg.decay[0] * 100) : 100;
+    const decay2 = rankCfg.decay?.[2] !== undefined ? Math.round(rankCfg.decay[2] * 100) : 75;
+    const decay3 = rankCfg.decay?.[3] !== undefined ? Math.round(rankCfg.decay[3] * 100) : 50;
+    const decay4 = rankCfg.decay?.[4] !== undefined ? Math.round(rankCfg.decay[4] * 100) : 25;
+    const decayOld = rankCfg.older_decay !== undefined ? Math.round(rankCfg.older_decay * 100) : 0;
 
     let filtered = rankingData;
     if (this.filterCurrentOnly) {
@@ -159,69 +305,36 @@ const rankingView = {
               🏆 1) Punti per Piazzamento
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;font-size:0.75rem;">
-              <div style="background:var(--bg-main);padding:6px 8px;border-radius:var(--radius-sm);">
-                <b style="color:var(--text-primary);">Campionato:</b>
-                <div style="color:var(--text-secondary);margin-top:2px;">1°: <b>100 pt</b> • 2°: <b>70 pt</b> • 3°: <b>50 pt</b> • 4°: <b>30 pt</b></div>
-              </div>
-              <div style="background:var(--bg-main);padding:6px 8px;border-radius:var(--radius-sm);">
-                <b style="color:var(--text-primary);">Coppa di Lega:</b>
-                <div style="color:var(--text-secondary);margin-top:2px;">1°: <b>50 pt</b> • 2°: <b>30 pt</b> • 3°: <b>15 pt</b></div>
-              </div>
-              <div style="background:var(--bg-main);padding:6px 8px;border-radius:var(--radius-sm);">
-                <b style="color:var(--text-primary);">Classifica GP:</b>
-                <div style="color:var(--text-secondary);margin-top:2px;">1°: <b>30 pt</b> • 2°: <b>15 pt</b> • 3°: <b>5 pt</b></div>
-              </div>
-              <div style="background:var(--bg-main);padding:6px 8px;border-radius:var(--radius-sm);">
-                <b style="color:var(--text-primary);">Supercoppa:</b>
-                <div style="color:var(--text-secondary);margin-top:2px;">1°: <b>10 pt</b></div>
-              </div>
+              ${placementLegendHtml}
             </div>
           </div>
 
-          <!-- 2) Punti Partita -->
+          <!-- 2) Punti Partita & Differenza Reti -->
           <div style="background:var(--bg-surface-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:12px;">
-            <div style="font-size:0.82rem;font-weight:800;color:var(--accent-emerald);margin-bottom:8px;display:flex;align-items:center;gap:6px;">
-              ⚽ 2) Punti Partita
+            <div style="font-size:0.82rem;font-weight:800;color:var(--accent-emerald);margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+              ⚽ 2) Partite &amp; Differenza Reti
+            </div>
+            <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:8px;line-height:1.35;">
+              Valori assegnati per vittoria, pareggio, sconfitta e reti, differenziabili per sede (Casa, Trasferta, Neutro):
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;font-size:0.75rem;">
-              <div style="background:var(--bg-main);padding:6px 8px;border-radius:var(--radius-sm);">
-                <b style="color:var(--accent-emerald);">Vittorie:</b>
-                <div style="color:var(--text-secondary);margin-top:2px;">
-                  • Campionato: <b>2 punti</b><br>
-                  • Coppe: <b>1.8 punti</b><br>
-                  • Supercoppa/Spareggi: <b>1.3 punti</b>
-                </div>
-              </div>
-              <div style="background:var(--bg-main);padding:6px 8px;border-radius:var(--radius-sm);">
-                <b style="color:var(--accent-gold);">Pareggi:</b>
-                <div style="color:var(--text-secondary);margin-top:2px;">
-                  • Campionato: <b>1.2 punti</b><br>
-                  • Coppe: <b>1.1 punti</b><br>
-                  • Supercoppa/Spareggi: <b>1 punto</b>
-                </div>
-              </div>
+              ${matchesLegendHtml || '<div style="color:var(--text-secondary);">Nessuna regola partite configurata.</div>'}
             </div>
           </div>
 
           <!-- 3) Bonus / Malus e Storico -->
           <div style="background:var(--bg-surface-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:12px;">
             <div style="font-size:0.82rem;font-weight:800;color:var(--accent-gold);margin-bottom:8px;display:flex;align-items:center;gap:6px;">
-              ⚖️ 3) Reti e Validità Storica
+              ⚖️ 3) Validità Storica
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;font-size:0.75rem;">
-              <div style="background:var(--bg-main);padding:6px 8px;border-radius:var(--radius-sm);">
-                <b style="color:var(--text-primary);">Reti (Gol):</b>
+              <div style="background:var(--bg-main);padding:6px 8px;border-radius:var(--radius-sm);line-height:1.4;">
+                <b style="color:var(--text-primary);">Decadimento Temporale:</b>
                 <div style="color:var(--text-secondary);margin-top:2px;">
-                  • <b style="color:var(--accent-emerald);">+1.3 pt</b> per ogni gol fatto<br>
-                  • <b style="color:var(--accent-crimson);">-1.3 pt</b> per ogni gol subito
-                </div>
-              </div>
-              <div style="background:var(--bg-main);padding:6px 8px;border-radius:var(--radius-sm);">
-                <b style="color:var(--text-primary);">Validità Storica (Ultime 4 stagioni):</b>
-                <div style="color:var(--text-secondary);margin-top:2px;line-height:1.4;">
-                  • Stagione Corrente / Passata: <b>100%</b><br>
-                  • 2 Stagioni fa: <b>75%</b> • 3 Stagioni fa: <b>50%</b><br>
-                  • 4 Stagioni fa: <b>25%</b> • <i>Oltre 5: 0%</i>
+                  I punti accumulati mantengono un peso decrescente nel tempo:<br>
+                  • Stagione Corrente / Passata: <b>${decay0}%</b><br>
+                  • 2 Stagioni fa: <b>${decay2}%</b> • 3 Stagioni fa: <b>${decay3}%</b><br>
+                  • 4 Stagioni fa: <b>${decay4}%</b> • <i>Oltre 5: ${decayOld}%</i>
                 </div>
               </div>
             </div>
@@ -231,10 +344,10 @@ const rankingView = {
         <!-- Indicatori Tabella & Card -->
         <div style="background:var(--bg-surface-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:10px 12px;font-size:0.75rem;color:var(--text-secondary);display:flex;flex-wrap:wrap;gap:14px;align-items:center;">
           <div style="display:inline-flex;align-items:center;gap:6px;">
-            <span class="rank-delta rank-up">▲ +N</span> <span style="color:var(--text-primary);">Posizioni guadagnate</span>
+            <span class="rank-delta rank-up">▲ +N</span> <span style="color:var(--text-primary);">Posizioni guadagnate rispetto alla giornata precedente</span>
           </div>
           <div style="display:inline-flex;align-items:center;gap:6px;">
-            <span class="rank-delta rank-down">▼ -N</span> <span style="color:var(--text-primary);">Posizioni perse</span>
+            <span class="rank-delta rank-down">▼ -N</span> <span style="color:var(--text-primary);">Posizioni perse rispetto alla giornata precedente</span>
           </div>
           <div style="display:inline-flex;align-items:center;gap:6px;">
             <span class="rank-delta rank-same">=</span> <span style="color:var(--text-primary);">Posizione invariata</span>
@@ -253,15 +366,16 @@ const rankingView = {
               <th class="text-center" style="width:50px;">Pos</th>
               <th style="min-width:180px;">Squadra &amp; Palmares</th>
               <th class="text-center">Punti</th>
-              <th class="text-center" style="width:70px;">Variaz.</th>
-              <th class="text-center">Pos Prec</th>
-              <th class="text-center">Punti Prec</th>
+              <th class="text-center" style="width:70px;" title="Variazione di posizione rispetto alla giornata precedente">Variaz.</th>
+              <th class="text-center" title="Posizione nella giornata precedente">Pos Prec</th>
+              <th class="text-center" title="Punti accumulati fino alla giornata precedente">Punti Prec</th>
               <th class="text-center">Stagioni</th>
             </tr>
           </thead>
           <tbody>
             ${filtered.map((item, idx) => {
       const trophies = this.buildTrophies(item);
+      const isFavTeam = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(item.idAttuale) || fcmHomeConfigManager.isFavoriteTeam(item.teamName));
 
       let deltaHtml = `<span class="rank-delta rank-same">=</span>`;
       if (item.delta > 0) {
@@ -271,7 +385,7 @@ const rankingView = {
       }
 
       return `
-                <tr>
+                <tr class="${isFavTeam ? 'table-row-favorite' : ''}">
                   <td class="text-center font-bold">
                     <span class="table-pos ${idx === 0 ? 'table-pos-1' : idx === 1 ? 'table-pos-2' : idx === 2 ? 'table-pos-3' : ''}">
                       ${idx + 1}°
@@ -282,7 +396,7 @@ const rankingView = {
                       <img src="${fcmDataLoader.getTeamLogo(item.idAttuale || item.idAlbo || item.teamName)}" style="width:28px;height:28px;border-radius:4px;object-fit:contain;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" alt="${item.teamName}" />
                       <div>
                         <div style="font-weight:700;color:${item.isCurrent ? 'var(--text-primary)' : 'var(--text-muted)'};font-style:${item.isCurrent ? 'normal' : 'italic'};">
-                          ${item.teamName} ${item.isCurrent ? fcmDataLoader.getTeamTrophiesHtml(item.teamName, item.idAttuale) : ''} ${!item.isCurrent ? '<span style="font-size:0.65rem;color:var(--text-muted);">(storica)</span>' : ''}
+                          ${isFavTeam ? '<span class="fav-team-star">⭐</span> ' : ''}${item.teamName} ${item.isCurrent ? fcmDataLoader.getTeamTrophiesHtml(item.teamName, item.idAttuale) : ''} ${!item.isCurrent ? '<span style="font-size:0.65rem;color:var(--text-muted);">(storica)</span>' : ''}
                         </div>
                         ${trophies.length > 0 ? `<div class="team-trophies">${trophies.join('')}</div>` : ''}
                       </div>
@@ -315,6 +429,7 @@ const rankingView = {
         <div class="ranking-mobile-list">
           ${filtered.map((item, idx) => {
       const trophies = this.buildTrophies(item);
+      const isFavTeam = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(item.idAttuale) || fcmHomeConfigManager.isFavoriteTeam(item.teamName));
 
       let deltaHtml = `<span class="rank-delta rank-same">=</span>`;
       if (item.delta > 0) {
@@ -324,7 +439,7 @@ const rankingView = {
       }
 
       return `
-              <div class="ranking-mobile-card ${idx < 3 ? 'top-podium top-' + (idx + 1) : ''}">
+              <div class="ranking-mobile-card ${idx < 3 ? 'top-podium top-' + (idx + 1) : ''} ${isFavTeam ? 'match-card-favorite' : ''}">
                 <div class="ranking-mobile-card-main">
                   <div class="ranking-mobile-team-info">
                     <span class="table-pos ${idx === 0 ? 'table-pos-1' : idx === 1 ? 'table-pos-2' : idx === 2 ? 'table-pos-3' : ''} ranking-mobile-pos">
@@ -333,7 +448,7 @@ const rankingView = {
                     <img src="${fcmDataLoader.getTeamLogo(item.idAttuale || item.idAlbo || item.teamName)}" class="ranking-mobile-logo" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" alt="${item.teamName}" />
                     <div class="ranking-mobile-name-wrap">
                       <div class="ranking-mobile-team-name" style="color:${item.isCurrent ? 'var(--text-primary)' : 'var(--text-muted)'};font-style:${item.isCurrent ? 'normal' : 'italic'};">
-                        ${item.teamName} ${item.isCurrent ? fcmDataLoader.getTeamTrophiesHtml(item.teamName, item.idAttuale) : ''}
+                        ${isFavTeam ? '<span class="fav-team-star">⭐</span> ' : ''}${item.teamName} ${item.isCurrent ? fcmDataLoader.getTeamTrophiesHtml(item.teamName, item.idAttuale) : ''}
                         ${!item.isCurrent ? '<span class="ranking-historical-badge">(storica)</span>' : ''}
                       </div>
                       <div class="ranking-mobile-sub">

@@ -5,6 +5,30 @@ require_once __DIR__ . '/inc/auth.php';
 require_once __DIR__ . '/inc/rules.php';
 require_once __DIR__ . '/inc/resolver.php';
 
+if (!fcm_module_enabled('ModMercatoLibero')) {
+?>
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestione Mercato Disabilitata - ModernFCM</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="mercato.css">
+</head>
+<body style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg-body, #0b1120); color: var(--text-primary, #f8fafc); font-family: system-ui, -apple-system, sans-serif; padding: 20px; margin: 0; box-sizing: border-box;">
+  <div style="max-width: 500px; text-align: center; background: var(--bg-surface, #131d35); padding: 40px 24px; border-radius: var(--radius-lg, 16px); box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));">
+    <div style="font-size: 3rem; margin-bottom: 16px;">🔒</div>
+    <h2 style="margin: 0 0 12px 0; font-size: 1.5rem; font-weight: 700; color: var(--text-primary, #f8fafc);">Modulo Mercato Libero Non Attivo</h2>
+    <p style="color: var(--text-muted, #94a3b8); font-size: 0.95rem; line-height: 1.5; margin-bottom: 24px;">Il pannello di Gestione Mercato non è accessibile perché il modulo è disabilitato dall'amministratore di lega nelle impostazioni del sito.</p>
+    <a href="../index.php#home" style="display: inline-flex; align-items: center; gap: 8px; background: var(--accent-primary, #2563eb); color: #fff; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600;">Torna al Sito</a>
+  </div>
+</body>
+</html>
+<?php
+    exit;
+}
+
 $isAdmin = mercato_is_admin();
 $msg = $_GET['msg'] ?? '';
 $error = $_GET['error'] ?? '';
@@ -13,16 +37,24 @@ $settings = get_mercato_settings();
 // Esecuzione simulazione o assegnazione finale se richiesta
 $risultatiAsta = null;
 if ($isAdmin && isset($_POST['esegui_risoluzione'])) {
-    $idSess = (int)$_POST['id_sessione'];
-    $tipo = $_POST['tipo_risoluzione'] ?? 'simulazione';
-    $isFinal = ($tipo === 'finale');
-    try {
-        $risultatiAsta = mercato_resolve_session($idSess, $isFinal);
-        if ($isFinal) {
-            $msg = "Assegnazione finale completata con successo! Saldi aggiornati e report archiviato.";
+    if (!fcm_verify_csrf()) {
+        $error = "Token CSRF non valido o sessione scaduta. Ricarica la pagina.";
+    } else {
+        $idSess = (int)$_POST['id_sessione'];
+        $tipo = $_POST['tipo_risoluzione'] ?? 'simulazione';
+        $isFinal = ($tipo === 'finale');
+        if (!$isFinal && empty($settings['abilita_simulazione'])) {
+            $error = "La simulazione dell'asta è disabilitata nelle impostazioni di lega per garantire la segretezza delle offerte fino alla fine dell'asta.";
+        } else {
+            try {
+                $risultatiAsta = mercato_resolve_session($idSess, $isFinal);
+                if ($isFinal) {
+                    $msg = "Assegnazione finale completata con successo! Saldi aggiornati e report archiviato.";
+                }
+            } catch (Exception $e) {
+                $error = $e->getMessage();
+            }
         }
-    } catch (Exception $e) {
-        $error = $e->getMessage();
     }
 }
 
@@ -34,8 +66,42 @@ $sessioni = mercato_db_get_sessions();
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="<?= htmlspecialchars(fcm_csrf_token()) ?>">
   <title>Pannello Admin Mercato - ModernFCM</title>
+  <link rel="stylesheet" href="../css/style.css">
   <link rel="stylesheet" href="mercato.css?v=<?= time() ?>">
+  <?php
+  if (file_exists(__DIR__ . '/../inc/theme_loader.php')) {
+      require_once __DIR__ . '/../inc/theme_loader.php';
+      echo fcm_render_custom_theme_css();
+  }
+  $fcmDefaultThemePref = isset($GLOBALS['fcmThemeConfig']['default_mode']) ? $GLOBALS['fcmThemeConfig']['default_mode'] : 'system';
+  ?>
+  <script>
+  (function() {
+      var defaultPref = <?= json_encode($fcmDefaultThemePref) ?>;
+      var saved = null;
+      try { saved = localStorage.getItem('pn_theme'); } catch(e) {}
+      var pref = saved || defaultPref || 'system';
+      var resolved = pref;
+      if (window.self !== window.top) {
+          document.documentElement.classList.add('in-iframe');
+          try {
+              var topTheme = window.top.document.documentElement.getAttribute('data-theme');
+              if (topTheme === 'light' || topTheme === 'dark') resolved = topTheme;
+          } catch(e) {}
+      }
+      if (resolved !== 'light' && resolved !== 'dark') {
+          resolved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', resolved);
+      window.addEventListener('message', function(e) {
+          if (e.data && e.data.type === 'pn_theme_change' && (e.data.theme === 'light' || e.data.theme === 'dark')) {
+              document.documentElement.setAttribute('data-theme', e.data.theme);
+          }
+      });
+  })();
+  </script>
 </head>
 <body>
 
@@ -55,17 +121,17 @@ $sessioni = mercato_db_get_sessions();
   </div>
 
   <?php if ($msg): ?>
-  <div style="background:#dcfce7; color:#15803d; padding:12px 16px; border-radius:8px; margin-bottom:16px; font-weight:600;"><?= htmlspecialchars($msg) ?></div>
+  <div class="alert-mercato alert-success"><?= htmlspecialchars($msg) ?></div>
   <?php endif; ?>
   <?php if ($error): ?>
-  <div style="background:#fee2e2; color:#b91c1c; padding:12px 16px; border-radius:8px; margin-bottom:16px; font-weight:600;"><?= htmlspecialchars($error) ?></div>
+  <div class="alert-mercato alert-danger"><?= htmlspecialchars($error) ?></div>
   <?php endif; ?>
 
   <?php if (!$isAdmin): ?>
   <!-- Form Login Admin -->
   <div style="max-width: 400px; margin: 40px auto; background: var(--m-card-bg); padding: 30px; border-radius: var(--m-radius); border: 1px solid var(--m-border); box-shadow: var(--m-shadow);">
     <h2 style="margin-top:0; text-align:center;">Accesso Amministratore</h2>
-    <p style="color:var(--m-text-muted); font-size:0.85rem; text-align:center;">Inserisci la password amministratore (la stessa di invform_prec)</p>
+    <p style="color:var(--m-text-muted); font-size:0.85rem; text-align:center;">Inserisci la password amministratore</p>
     
     <form id="adminLoginForm">
       <label style="display:block; font-weight:600; font-size:0.85rem; margin-bottom:6px;">Password Admin</label>
@@ -215,11 +281,30 @@ $sessioni = mercato_db_get_sessions();
           <input type="checkbox" id="mostra_estera_minore_eliminata" name="mostra_estera_minore_eliminata" value="1" <?= !isset($settings['mostra_estera_minore_eliminata']) || !empty($settings['mostra_estera_minore_eliminata']) ? 'checked' : '' ?>>
           <label for="mostra_estera_minore_eliminata" class="checkbox-text" style="cursor:pointer;">
             <strong>Mostra tra i giocatori disponibili anche {ESTERA}, {MINORE}, {ELIMINATA}</strong>
+            <small>Consente l'acquisto di calciatori non militanti in Serie A.</small>
+          </label>
+        </div>
+
+        <!-- Spunta Mostra Chiamate e Tagli degli altri utenti -->
+        <div class="setting-checkbox-row">
+          <input type="checkbox" id="mostra_chiamate_altri" name="mostra_chiamate_altri" value="1" <?= !empty($settings['mostra_chiamate_altri']) ? 'checked' : '' ?>>
+          <label for="mostra_chiamate_altri" class="checkbox-text" style="cursor:pointer;">
+            <strong>Consenti agli utenti di vedere le chiamate e i tagli altrui</strong>
+            <small>Mostra a tutte le fantasquadre quali calciatori sono stati chiamati e tagliati dagli avversari in questa sessione (l'importo offerto rimane rigorosamente segreto).</small>
+          </label>
+        </div>
+
+        <!-- Spunta Consenti Simulazione Asta all'Admin -->
+        <div class="setting-checkbox-row">
+          <input type="checkbox" id="abilita_simulazione" name="abilita_simulazione" value="1" <?= !isset($settings['abilita_simulazione']) || !empty($settings['abilita_simulazione']) ? 'checked' : '' ?>>
+          <label for="abilita_simulazione" class="checkbox-text" style="cursor:pointer;">
+            <strong>Consenti la simulazione dell'asta all'amministratore</strong>
+            <small>Se disattivato, il pulsante "Simula" viene rimosso e anche l'admin non potrà sbirciare gli importi offerti nelle buste fino alla risoluzione definitiva dell'asta.</small>
           </label>
         </div>
       </div>
 
-      <div id="settingsAlert" style="display:none; margin-top:14px; padding:10px 14px; border-radius:8px; font-weight:600; font-size:0.85rem;"></div>
+      <div id="settingsAlert" class="alert-mercato" style="display:none; margin-top:14px;"></div>
 
       <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
         <button type="button" onclick="closeSettingsModal()" class="btn btn-secondary" style="padding:10px 18px;">Chiudi</button>
@@ -273,21 +358,27 @@ $sessioni = mercato_db_get_sessions();
                 <button onclick="toggleSession(<?= $s['id'] ?>, 1)" class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem;">Apri</button>
                 <?php endif; ?>
 
+                <?php if (!empty($settings['abilita_simulazione'])): ?>
                 <form method="POST" style="display:inline;">
+                  <input type="hidden" name="_csrf" value="<?= htmlspecialchars(fcm_csrf_token()) ?>">
                   <input type="hidden" name="id_sessione" value="<?= $s['id'] ?>">
                   <input type="hidden" name="tipo_risoluzione" value="simulazione">
-                  <button type="submit" name="esegui_risoluzione" class="btn btn-secondary" style="padding:4px 8px; font-size:0.75rem; background:#fef3c7; color:#92400e;">Simula</button>
+                  <button type="submit" name="esegui_risoluzione" class="btn btn-secondary btn-simula" style="padding:4px 8px; font-size:0.75rem;">Simula</button>
                 </form>
+                <?php else: ?>
+                <span style="font-size:0.75rem; color:var(--m-text-muted); padding:3px 6px; border:1px dashed var(--m-border); border-radius:6px; user-select:none;" title="Simulazione disabilitata nelle impostazioni per garantire la segretezza delle offerte">🔒 Segrete</span>
+                <?php endif; ?>
 
                 <form method="POST" style="display:inline;" onsubmit="return confirm('Sei sicuro? L\'assegnazione finale applicherà definitivamente i crediti e chiuderà la sessione!');">
+                  <input type="hidden" name="_csrf" value="<?= htmlspecialchars(fcm_csrf_token()) ?>">
                   <input type="hidden" name="id_sessione" value="<?= $s['id'] ?>">
                   <input type="hidden" name="tipo_risoluzione" value="finale">
-                  <button type="submit" name="esegui_risoluzione" class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem; background:#16a34a;">Assegna Finale</button>
+                  <button type="submit" name="esegui_risoluzione" class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem;">Assegna Finale</button>
                 </form>
 
                 <button type="button" onclick="handleDeleteSession(<?= $s['id'] ?>, 0)" class="btn btn-secondary" style="padding:4px 8px; font-size:0.75rem; color:var(--m-danger);" title="Elimina sessione">🗑️ Elimina</button>
               <?php else: ?>
-                <button type="button" onclick="viewSessionReport(<?= $s['id'] ?>, '<?= htmlspecialchars(addslashes($s['nome'])) ?>')" class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem; background:#0284c7;">📄 Vedi Report</button>
+                <button type="button" onclick="viewSessionReport(<?= (int)$s['id'] ?>, <?= htmlspecialchars(json_encode((string)$s['nome']), ENT_QUOTES, 'UTF-8') ?>)" class="btn btn-primary" style="padding:4px 8px; font-size:0.75rem;">📄 Vedi Report</button>
                 <button type="button" onclick="handleDeleteSession(<?= $s['id'] ?>, 1)" class="btn btn-danger" style="padding:4px 8px; font-size:0.75rem;" title="Elimina sessione elaborata">🗑️ Elimina</button>
               <?php endif; ?>
             </div>
@@ -307,8 +398,8 @@ $sessioni = mercato_db_get_sessions();
         <?= $risultatiAsta['is_finale'] ? '🏆 Report Assegnazione Finale' : '🔍 Risultati Simulazione Asta' ?>
       </h2>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button type="button" onclick="copyReportText()" id="btnCopyReport" class="btn btn-secondary" style="background:#e0e7ff; color:#3730a3; padding:8px 14px; font-size:0.85rem;">📋 Copia Intero Report</button>
-        <button type="button" onclick="copyFcmSchedule()" id="btnCopyFcm" class="btn btn-primary" style="background:#0284c7; padding:8px 14px; font-size:0.85rem;">📋 Copia Operazioni per FCM</button>
+        <button type="button" onclick="copyReportText()" id="btnCopyReport" class="btn btn-secondary btn-report-copy" style="padding:8px 14px; font-size:0.85rem;">📋 Copia Intero Report</button>
+        <button type="button" onclick="copyFcmSchedule()" id="btnCopyFcm" class="btn btn-primary" style="padding:8px 14px; font-size:0.85rem;">📋 Copia Operazioni per FCM</button>
       </div>
     </div>
     <textarea id="currentReportText" style="display:none;"><?= htmlspecialchars($risultatiAsta['report_txt'] ?? '') ?></textarea>
@@ -356,9 +447,9 @@ $sessioni = mercato_db_get_sessions();
           <td><span style="font-weight:700;"><?= $e['crediti'] ?> cr</span></td>
           <td>
             <?php if ($e['stato'] === 'ASSEGNATO'): ?>
-              <span style="background:#dcfce7; color:#15803d; padding:2px 8px; border-radius:6px; font-weight:700; font-size:0.8rem;">ASSEGNATO</span>
+              <span class="status-badge-assigned">ASSEGNATO</span>
             <?php elseif ($e['stato'] === 'CONFLITTO'): ?>
-              <span style="background:#fee2e2; color:#b91c1c; padding:2px 8px; border-radius:6px; font-weight:700; font-size:0.8rem;">⚠️ BUSTA PARI (CONFLITTO)</span>
+              <span class="status-badge-conflict">⚠️ BUSTA PARI (CONFLITTO)</span>
             <?php else: ?>
               <span style="color:var(--m-text-muted); font-size:0.8rem;">PERSA</span>
             <?php endif; ?>
@@ -405,6 +496,11 @@ $sessioni = mercato_db_get_sessions();
 </div>
 
 <script>
+function getAdminCsrfHeaders() {
+  const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+  return token ? { 'X-CSRF-Token': token } : {};
+}
+
 // Login Admin
 const adminForm = document.getElementById('adminLoginForm');
 if (adminForm) {
@@ -415,7 +511,7 @@ if (adminForm) {
     fd.append('action', 'login_admin');
     fd.append('password', pwd);
 
-    fetch('api.php', { method: 'POST', body: fd })
+    fetch('api.php', { method: 'POST', headers: getAdminCsrfHeaders(), body: fd })
       .then(r => r.json())
       .then(res => {
         if (res.success) location.reload();
@@ -425,7 +521,9 @@ if (adminForm) {
 }
 
 function handleAdminLogout() {
-  fetch('api.php?action=logout').then(() => location.reload());
+  const fd = new FormData();
+  fd.append('action', 'logout');
+  fetch('api.php', { method: 'POST', headers: getAdminCsrfHeaders(), body: fd }).then(() => location.reload());
 }
 
 function handleSaveSession(e) {
@@ -442,7 +540,7 @@ function handleSaveSession(e) {
   fd.append('data_apertura', apertura);
   fd.append('data_chiusura', chiusura);
 
-  fetch('api.php', { method: 'POST', body: fd })
+  fetch('api.php', { method: 'POST', headers: getAdminCsrfHeaders(), body: fd })
     .then(r => r.json())
     .then(res => {
       if (res.success) location.reload();
@@ -456,7 +554,7 @@ function toggleSession(id, attiva) {
   fd.append('id', id);
   fd.append('attiva', attiva);
 
-  fetch('api.php', { method: 'POST', body: fd })
+  fetch('api.php', { method: 'POST', headers: getAdminCsrfHeaders(), body: fd })
     .then(r => r.json())
     .then(res => {
       if (res.success) location.reload();
@@ -475,7 +573,7 @@ function handleDeleteSession(id, isElaborata) {
   fd.append('action', 'admin_delete_session');
   fd.append('id_sessione', id);
 
-  fetch('api.php', { method: 'POST', body: fd })
+  fetch('api.php', { method: 'POST', headers: getAdminCsrfHeaders(), body: fd })
     .then(r => r.json())
     .then(res => {
       if (res.success) {
@@ -524,8 +622,8 @@ function viewSessionReport(id, nome) {
     } else {
       modal.setAttribute('open', '');
     }
-    notifyParentResize(900);
-    setTimeout(() => notifyParentResize(900), 60);
+    centerModalInView(modal);
+    requestAnimationFrame(() => centerModalInView(modal));
   }
 
   fetch(`api.php?action=admin_get_report&id_sessione=${id}`)
@@ -536,8 +634,7 @@ function viewSessionReport(id, nome) {
       } else {
         if (contentEl) contentEl.innerText = 'Errore nel recupero del report: ' + (res.error || 'Sconosciuto');
       }
-      notifyParentResize(900);
-      setTimeout(notifyParentResize, 60);
+      centerModalInView(modal);
     })
     .catch(() => {
       if (contentEl) contentEl.innerText = 'Errore di rete durante il caricamento del report.';
@@ -553,6 +650,12 @@ function closeReportModal() {
     } else {
       modal.removeAttribute('open');
     }
+    modal.style.position = '';
+    modal.style.top = '';
+    modal.style.left = '';
+    modal.style.transform = '';
+    modal.style.margin = '';
+    modal.style.maxHeight = '';
     notifyParentResize();
     setTimeout(notifyParentResize, 60);
   }
@@ -645,6 +748,60 @@ function syncNum(numId, rangeId) {
   }
 }
 
+// Centratura dinamica del Modal sia in viewport standalone sia dentro l'iframe seamless di ModernFCM
+function centerModalInView(modal) {
+  if (!modal) return;
+
+  const isIframe = (window.self !== window.top);
+  if (isIframe) {
+    let screenCenterInIframe = 0;
+    let vh = 800;
+
+    try {
+      if (window.top && window.top.document) {
+        const iframe = window.frameElement || window.top.document.getElementById('spaEmbeddedFrame');
+        if (iframe) {
+          const iframeRect = iframe.getBoundingClientRect();
+          vh = window.top.innerHeight || 800;
+          screenCenterInIframe = -iframeRect.top + (vh / 2);
+        }
+      }
+    } catch (e) {}
+
+    if (!screenCenterInIframe) {
+      const activeEl = document.activeElement;
+      const elRect = (activeEl && typeof activeEl.getBoundingClientRect === 'function') ? activeEl.getBoundingClientRect() : null;
+      if (elRect) {
+        screenCenterInIframe = (window.pageYOffset || document.documentElement.scrollTop || 0) + elRect.top;
+      } else {
+        screenCenterInIframe = 250;
+      }
+    }
+
+    const modalH = modal.offsetHeight || 420;
+    const halfH = modalH / 2;
+    const safeTop = Math.max(halfH + 20, screenCenterInIframe);
+
+    modal.style.position = 'absolute';
+    modal.style.top = safeTop + 'px';
+    modal.style.left = '50%';
+    modal.style.transform = 'translate(-50%, -50%)';
+    modal.style.margin = '0';
+    modal.style.maxHeight = Math.max(300, vh - 40) + 'px';
+    modal.style.overflowY = 'auto';
+
+    notifyParentResize(Math.ceil(safeTop + halfH + 60));
+  } else {
+    modal.style.position = 'fixed';
+    modal.style.top = '50%';
+    modal.style.left = '50%';
+    modal.style.transform = 'translate(-50%, -50%)';
+    modal.style.margin = '0';
+    modal.style.maxHeight = '88vh';
+    modal.style.overflowY = 'auto';
+  }
+}
+
 // Controllo apertura e chiusura Modal Impostazioni
 function openSettingsModal() {
   const modal = document.getElementById('settingsModal');
@@ -655,13 +812,8 @@ function openSettingsModal() {
     } else {
       modal.setAttribute('open', '');
     }
-    notifyParentResize(1050);
-    setTimeout(() => notifyParentResize(1050), 60);
-    try {
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: 'pn_scroll_to_modal', offset: 0 }, '*');
-      }
-    } catch (e) { }
+    centerModalInView(modal);
+    requestAnimationFrame(() => centerModalInView(modal));
   }
 }
 
@@ -674,6 +826,12 @@ function closeSettingsModal() {
     } else {
       modal.removeAttribute('open');
     }
+    modal.style.position = '';
+    modal.style.top = '';
+    modal.style.left = '';
+    modal.style.transform = '';
+    modal.style.margin = '';
+    modal.style.maxHeight = '';
     notifyParentResize();
     setTimeout(notifyParentResize, 60);
   }
@@ -701,30 +859,29 @@ function handleSaveSettings(e) {
   fd.append('action', 'admin_save_settings');
   fd.set('arrotonda_eccesso', document.getElementById('arrotonda_eccesso').checked ? '1' : '0');
   fd.set('mostra_estera_minore_eliminata', document.getElementById('mostra_estera_minore_eliminata').checked ? '1' : '0');
+  fd.set('mostra_chiamate_altri', document.getElementById('mostra_chiamate_altri').checked ? '1' : '0');
+  fd.set('abilita_simulazione', document.getElementById('abilita_simulazione').checked ? '1' : '0');
 
-  fetch('api.php', { method: 'POST', body: fd })
+  fetch('api.php', { method: 'POST', headers: getAdminCsrfHeaders(), body: fd })
     .then(r => r.json())
     .then(res => {
       alertEl.style.display = 'block';
       if (res.success) {
-        alertEl.style.background = '#dcfce7';
-        alertEl.style.color = '#15803d';
+        alertEl.className = 'alert-mercato alert-success';
         alertEl.innerText = res.msg || 'Impostazioni salvate con successo!';
         setTimeout(() => {
           closeSettingsModal();
-          alertEl.style.display = 'none';
+          location.reload();
         }, 1200);
       } else {
-        alertEl.style.background = '#fee2e2';
-        alertEl.style.color = '#b91c1c';
+        alertEl.className = 'alert-mercato alert-danger';
         alertEl.innerText = res.error || 'Errore nel salvataggio.';
       }
       notifyParentResize(1050);
     })
     .catch(() => {
       alertEl.style.display = 'block';
-      alertEl.style.background = '#fee2e2';
-      alertEl.style.color = '#b91c1c';
+      alertEl.className = 'alert-mercato alert-danger';
       alertEl.innerText = 'Errore di connessione.';
     });
 }

@@ -9,55 +9,39 @@
     box-sizing: border-box;
 }
 
-:root {
-    --gbook-bg: #0b1120;
-    --gbook-text: #f8fafc;
-    --gbook-text-muted: #94a3b8;
-    --gbook-text-heading: #f8fafc;
-    --gbook-card-bg: #131d35;
-    --gbook-card-border: rgba(255, 255, 255, 0.08);
-    --gbook-card-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-    --gbook-left-bg: #1a2747;
-    --gbook-link: #38bdf8;
-    --gbook-link-hover: #7dd3fc;
-    --gbook-pill-bg: rgba(56, 189, 248, 0.1);
-    --gbook-pill-border: rgba(56, 189, 248, 0.25);
-    --gbook-input-bg: #1a2747;
-    --gbook-input-border: rgba(255, 255, 255, 0.12);
-}
-
+:root,
 [data-theme="dark"] {
-    --gbook-bg: #0b1120;
-    --gbook-text: #f8fafc;
-    --gbook-text-muted: #94a3b8;
-    --gbook-text-heading: #f8fafc;
-    --gbook-card-bg: #131d35;
-    --gbook-card-border: rgba(255, 255, 255, 0.08);
+    --gbook-bg: var(--bg-main, #0b1120);
+    --gbook-text: var(--text-primary, #f8fafc);
+    --gbook-text-muted: var(--text-secondary, #94a3b8);
+    --gbook-text-heading: var(--text-primary, #f8fafc);
+    --gbook-card-bg: var(--bg-surface, #131d35);
+    --gbook-card-border: var(--border-subtle, rgba(255, 255, 255, 0.08));
     --gbook-card-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-    --gbook-left-bg: #1a2747;
-    --gbook-link: #38bdf8;
-    --gbook-link-hover: #7dd3fc;
+    --gbook-left-bg: var(--bg-surface-elevated, #1a2747);
+    --gbook-link: var(--accent-primary, #38bdf8);
+    --gbook-link-hover: var(--accent-primary-hover, #7dd3fc);
     --gbook-pill-bg: rgba(56, 189, 248, 0.1);
     --gbook-pill-border: rgba(56, 189, 248, 0.25);
-    --gbook-input-bg: #1a2747;
-    --gbook-input-border: rgba(255, 255, 255, 0.12);
+    --gbook-input-bg: var(--bg-surface-elevated, #1a2747);
+    --gbook-input-border: var(--border-subtle, rgba(255, 255, 255, 0.12));
 }
 
 [data-theme="light"] {
-    --gbook-bg: #f1f5f9;
-    --gbook-text: #1e293b;
-    --gbook-text-muted: #64748b;
-    --gbook-text-heading: #0f172a;
-    --gbook-card-bg: #ffffff;
-    --gbook-card-border: #e2e8f0;
+    --gbook-bg: var(--bg-main, #f1f5f9);
+    --gbook-text: var(--text-primary, #1e293b);
+    --gbook-text-muted: var(--text-secondary, #64748b);
+    --gbook-text-heading: var(--text-primary, #0f172a);
+    --gbook-card-bg: var(--bg-surface, #ffffff);
+    --gbook-card-border: var(--border-subtle, #e2e8f0);
     --gbook-card-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-    --gbook-left-bg: #f8fafc;
-    --gbook-link: #2563eb;
-    --gbook-link-hover: #1d4ed8;
+    --gbook-left-bg: var(--bg-surface-elevated, #f8fafc);
+    --gbook-link: var(--accent-primary, #2563eb);
+    --gbook-link-hover: var(--accent-primary-hover, #1d4ed8);
     --gbook-pill-bg: rgba(37, 99, 235, 0.08);
     --gbook-pill-border: rgba(37, 99, 235, 0.2);
-    --gbook-input-bg: #ffffff;
-    --gbook-input-border: #cbd5e1;
+    --gbook-input-bg: var(--bg-surface, #ffffff);
+    --gbook-input-border: var(--border-subtle, #cbd5e1);
 }
 
 html, body {

@@ -8,15 +8,63 @@
 // Aumenta il tempo massimo di esecuzione dello script per prevenire timeout
 set_time_limit(300);
 
+require_once __DIR__ . '/admin_security.inc.php';
+
 // Popola $_GET se lanciato da CLI o server con QUERY_STRING
 if (empty($_GET) && getenv('QUERY_STRING')) {
     parse_str(getenv('QUERY_STRING'), $_GET);
 }
-$isAjax = !empty($_GET['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest');
+if (empty($_GET) && !empty($argv)) {
+    foreach ($argv as $arg) {
+        if (strpos($arg, '=') !== false) {
+            parse_str($arg, $cliParams);
+            $_GET = array_merge($_GET, $cliParams);
+        }
+    }
+}
+$isAjax = !empty($_GET['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || (php_sapi_name() === 'cli');
 
 define('FM_BASE_URL', "https://publicapi.fantamaster.it/livescores/");
 define('VOTI_OUTPUT_FILE', dirname(__DIR__) . "/js/fcmVotiDatiFM.js");
 define('VOTI_META_FILE', dirname(__DIR__) . "/js/fcmVotiDatiFMMeta.json");
+
+// Caricamento associazioni giocatori unificate
+$baseDir = dirname(__DIR__);
+if (file_exists(__DIR__ . "/data/liveVU_associazioni.php")) {
+    include_once(__DIR__ . "/data/liveVU_associazioni.php");
+} elseif (file_exists($baseDir . "/inc/data/liveVU_associazioni.php")) {
+    include_once($baseDir . "/inc/data/liveVU_associazioni.php");
+}
+
+$fmToFcmMap = array();
+if (isset($arrAssociazioni) && is_array($arrAssociazioni)) {
+    foreach ($arrAssociazioni as $assoc) {
+        $nomeFCM = !empty($assoc[5]) ? trim($assoc[5]) : "";
+        if ($nomeFCM === "") continue;
+
+        $nomeFM = '';
+        if (count($assoc) >= 11) {
+            $nomeFM = !empty($assoc[10]) ? trim($assoc[10]) : '';
+        } elseif (count($assoc) >= 10) {
+            $nomeFM = !empty($assoc[9]) ? trim($assoc[9]) : '';
+        }
+
+        if (!empty($nomeFM)) {
+            $fmToFcmMap[$nomeFM] = $nomeFCM;
+            $fmToFcmMap[mb_strtoupper($nomeFM, 'UTF-8')] = $nomeFCM;
+        }
+        if (!empty($assoc[3])) {
+            $fmToFcmMap[trim($assoc[3])] = $nomeFCM;
+            $fmToFcmMap[mb_strtoupper(trim($assoc[3]), 'UTF-8')] = $nomeFCM;
+        }
+        if (!empty($assoc[1])) {
+            $fmToFcmMap[trim($assoc[1])] = $nomeFCM;
+            $fmToFcmMap[mb_strtoupper(trim($assoc[1]), 'UTF-8')] = $nomeFCM;
+        }
+        $fmToFcmMap[$nomeFCM] = $nomeFCM;
+        $fmToFcmMap[mb_strtoupper($nomeFCM, 'UTF-8')] = $nomeFCM;
+    }
+}
 
 // Helper per voti
 function fm_returnvoto($voto) {
@@ -45,10 +93,9 @@ if (function_exists('curl_init')) {
     curl_setopt($ch, CURLOPT_URL, $apiUrl);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_ENCODING, ''); // Supporto decompressione automatica gzip / deflate
-    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    fcm_apply_curl_ssl($ch);
     curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ModernFCM/3.0');
     $json = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -65,7 +112,7 @@ if ($json === false || empty($json)) {
             "verify_peer_name" => true
         ),
         "http" => array(
-            "timeout" => 20,
+            "timeout" => 10,
             "header" => "Accept-Encoding: gzip, deflate\r\n",
             "user_agent" => "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ModernFCM/3.0"
         )
@@ -237,41 +284,41 @@ if ($json !== false && !empty($json)) {
             }
 
             // Funzione interna per registrare un giocatore
-            $processPlayer = function($pName, $squadra, $titolare) use (&$votiGiocatori, &$n, $marks, &$eventsByPlayer, $finaleVal) {
+            $processPlayer = function($pName, $squadra, $titolare) use (&$votiGiocatori, &$n, $marks, &$eventsByPlayer, $finaleVal, $fmToFcmMap) {
                 if (empty($pName)) return;
-                $voto = isset($marks[$pName]) ? $marks[$pName] : null;
-                $ev = isset($eventsByPlayer[$pName]) ? $eventsByPlayer[$pName] : array(
+                $pTrim = trim($pName);
+                $pUpper = mb_strtoupper($pTrim, 'UTF-8');
+                $pResolved = isset($fmToFcmMap[$pTrim]) ? $fmToFcmMap[$pTrim] : (isset($fmToFcmMap[$pUpper]) ? $fmToFcmMap[$pUpper] : $pTrim);
+
+                $voto = isset($marks[$pName]) ? $marks[$pName] : (isset($marks[$pTrim]) ? $marks[$pTrim] : null);
+                $ev = isset($eventsByPlayer[$pName]) ? $eventsByPlayer[$pName] : (isset($eventsByPlayer[$pTrim]) ? $eventsByPlayer[$pTrim] : array(
                     'golfatto' => 0, 'golsubito' => 0, 'autogol' => 0,
                     'ammonito' => 0, 'espulso' => 0, 'rigoresegnato' => 0,
                     'rigoreparato' => 0, 'rigoresbagliato' => 0, 'assist' => 0,
                     'sostituzione' => 0, 'minuto' => 0
-                );
+                ));
 
-                $parametri = array(
-                    $ev['golfatto'],
-                    $ev['golsubito'],
-                    $ev['autogol'],
-                    $ev['ammonito'],
-                    $ev['espulso'],
-                    $ev['rigoresegnato'],
-                    $ev['rigoreparato'],
-                    $ev['rigoresbagliato'],
-                    $ev['assist'],
-                    0, // golvittoria
-                    0  // golpareggio
-                );
-
-                $votiGiocatori[$n] = implode("_", array(
-                    strtoupper($pName),
+                $votiGiocatori[$n] = array(
+                    $pResolved,
                     fm_returnvoto($voto),
                     "SV",
-                    implode("_", $parametri),
+                    (string)$ev['golfatto'],
+                    (string)$ev['golsubito'],
+                    (string)$ev['autogol'],
+                    (string)$ev['ammonito'],
+                    (string)$ev['espulso'],
+                    (string)$ev['rigoresegnato'],
+                    (string)$ev['rigoreparato'],
+                    (string)$ev['rigoresbagliato'],
+                    (string)$ev['assist'],
+                    "0", // golvittoria
+                    "0", // golpareggio
                     $squadra,
-                    $titolare ? 1 : 0,
-                    $ev['sostituzione'],
-                    $ev['minuto'],
-                    $finaleVal
-                ));
+                    $titolare ? "1" : "0",
+                    (string)$ev['sostituzione'],
+                    (string)$ev['minuto'],
+                    (string)$finaleVal
+                );
                 $n++;
             };
 
@@ -314,9 +361,8 @@ if ($json !== false && !empty($json)) {
         $output = "arrPartite = " . json_encode($partiteStato, JSON_UNESCAPED_UNICODE) . ";\r\n";
         $output .= "arrStatoPartite = arrPartite;\r\n";
         $output .= "arrVoti = new Array();\r\n";
-        foreach ($votiGiocatori as $index => $linea) {
-            $campi = explode("_", $linea);
-            $campiJson = array_map(function($c) { return json_encode($c, JSON_UNESCAPED_UNICODE); }, $campi);
+        foreach ($votiGiocatori as $index => $campi) {
+            $campiJson = array_map(function($c) { return json_encode((string)$c, JSON_UNESCAPED_UNICODE); }, $campi);
             $output .= "arrVoti[".$index."] = new VotoGiocatore(".implode(",", $campiJson).");\r\n";
         }
 

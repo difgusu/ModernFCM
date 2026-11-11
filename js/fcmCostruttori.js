@@ -533,6 +533,211 @@ function VotoGiocatore(Nome, Voto, Fantavoto, GolFatto, GolSubito, AutoGol, Ammo
 	this.Finale = Finale;
 }
 
+// Helper risoluzione fonti Voti Ufficiosi (PianetaFanta) lato JS
+function _vuReadSetting(name, fallbackVal) {
+	var raw = (typeof globalThis !== 'undefined' && globalThis[name] !== undefined) ? globalThis[name] : undefined;
+	if (raw === undefined || raw === null || raw === '') return fallbackVal;
+	var n = Number(raw);
+	return !isNaN(n) ? n : fallbackVal;
+}
+
+function _vuParseNum(val) {
+	if (val === null || val === undefined || val === '') return null;
+	var n = typeof val === 'number' ? val : Number(String(val).trim().replace(',', '.'));
+	return (!isNaN(n) && n > 0) ? n : null;
+}
+
+function _vuVotoTipo(val) {
+	if (val === null || val === undefined || val === '') return 'NONE';
+	if (typeof val === 'number') return val > 0 ? 'NUM' : 'NONE';
+	var s = String(val).trim().toLowerCase();
+	if (s === 's.v.' || s === 's.v' || s === 'sv' || s === 's/v') return 'SV';
+	if (s === '0' || s === '0.0' || s === 'null' || s === '') return 'NONE';
+	return _vuParseNum(s) !== null ? 'NUM' : 'NONE';
+}
+
+function _vuPickBySource(src, gaz, cor, tut) {
+	if (src === 2) return cor !== undefined && cor !== null ? cor : '';
+	if (src === 3) return tut !== undefined && tut !== null ? tut : '';
+	return gaz !== undefined && gaz !== null ? gaz : '';
+}
+
+function _vuFormatAvg(val, calcPreciso) {
+	if (calcPreciso === 1) return String(val);
+	return String(Math.round(val * 100) / 100);
+}
+
+function _vuResolveVote(v) {
+	var fonte = _vuReadSetting('VotoSource', 6);
+	var calcPreciso = _vuReadSetting('CalcoloPreciso', 0) === 1 ? 1 : 0;
+	var m3_2 = _vuReadSetting('Media3_2Voti', 1);
+	var m3_1 = _vuReadSetting('Media3_1Voto', 3);
+
+	var tipoGaz = _vuVotoTipo(v.VotoGaz);
+	var tipoCor = _vuVotoTipo(v.VotoCor);
+	var tipoTut = _vuVotoTipo(v.VotoTut);
+
+	var numGaz = tipoGaz === 'NUM' ? _vuParseNum(v.VotoGaz) : null;
+	var numCor = tipoCor === 'NUM' ? _vuParseNum(v.VotoCor) : null;
+	var numTut = tipoTut === 'NUM' ? _vuParseNum(v.VotoTut) : null;
+	var numMV2 = _vuParseNum(v.MediaVoto2);
+	var numMV3 = _vuParseNum(v.MediaVoto3);
+
+	if (fonte === 1) {
+		if (tipoGaz === 'NUM') return String(numGaz);
+		return tipoGaz === 'SV' ? 'SV' : '';
+	}
+	if (fonte === 2) {
+		if (tipoCor === 'NUM') return String(numCor);
+		return tipoCor === 'SV' ? 'SV' : '';
+	}
+	if (fonte === 3) {
+		if (tipoTut === 'NUM') return String(numTut);
+		return tipoTut === 'SV' ? 'SV' : '';
+	}
+	if (fonte === 4) {
+		if (tipoGaz === 'NUM' || tipoCor === 'NUM') {
+			if (tipoGaz === 'NUM' && tipoCor === 'NUM') {
+				if (calcPreciso === 1) return String((numGaz + numCor) / 2);
+				return numMV2 !== null ? String(numMV2) : _vuFormatAvg((numGaz + numCor) / 2, 0);
+			}
+			var single = tipoGaz === 'NUM' ? numGaz : numCor;
+			return numMV2 !== null ? String(numMV2) : String(single);
+		}
+		if (tipoGaz === 'SV' || tipoCor === 'SV') return 'SV';
+		return '';
+	}
+	if (fonte === 5) {
+		var pairs = [
+			{ t: tipoGaz, n: numGaz },
+			{ t: tipoCor, n: numCor },
+			{ t: tipoTut, n: numTut }
+		];
+		var nums = [];
+		var cntSV = 0;
+		var cntNone = 0;
+		for (var i = 0; i < pairs.length; i++) {
+			if (pairs[i].t === 'NUM') nums.push(pairs[i].n);
+			else if (pairs[i].t === 'SV') cntSV++;
+			else cntNone++;
+		}
+		if (cntNone > 0) return '';
+		if (nums.length === 3) {
+			if (calcPreciso === 1) return String((nums[0] + nums[1] + nums[2]) / 3);
+			return numMV3 !== null ? String(numMV3) : _vuFormatAvg((nums[0] + nums[1] + nums[2]) / 3, 0);
+		}
+		if (nums.length === 2) {
+			if (m3_2 === 3) return 'SV';
+			if (m3_2 === 2) return _vuFormatAvg((nums[0] + nums[1] + 6) / 3, calcPreciso);
+			if (calcPreciso === 1) return String((nums[0] + nums[1]) / 2);
+			return numMV3 !== null ? String(numMV3) : _vuFormatAvg((nums[0] + nums[1]) / 2, 0);
+		}
+		if (nums.length === 1) {
+			if (m3_1 === 1) return String(nums[0]);
+			if (m3_1 === 2) return _vuFormatAvg((nums[0] + 12) / 3, calcPreciso);
+			return 'SV';
+		}
+		return 'SV';
+	}
+
+	// Fonte 6 (e default): Media Gaz-Cor prevale s.v.
+	if (tipoGaz === 'SV' || tipoCor === 'SV') return 'SV';
+	if (tipoGaz === 'NUM' && tipoCor === 'NUM') {
+		if (calcPreciso === 1) return String((numGaz + numCor) / 2);
+		return numMV2 !== null ? String(numMV2) : _vuFormatAvg((numGaz + numCor) / 2, 0);
+	}
+	return '';
+}
+
+// Costruttore VotoGiocatoreVU (Multi-testata PianetaFanta con risoluzione dinamica fonti in JS)
+function VotoGiocatoreVU(
+	Nome,
+	VotoGaz, VotoCor, VotoTut,
+	MediaVoto2, MediaVoto3,
+	GolFattoGaz, GolFattoCor, GolFattoTut,
+	GolSubitoGaz, GolSubitoCor, GolSubitoTut,
+	AutoGolGaz, AutoGolCor, AutoGolTut,
+	AssistGaz, AssistCor, AssistTut,
+	Ammonizione, Espulsione, Rigore, RigoreParato, RigoreSbagliato,
+	GolVittoria, GolPareggio,
+	Squadra, Titolare, Sostituzione, Minuto, Finale
+) {
+	this.Nome = Nome;
+	this.VotoGaz = VotoGaz;
+	this.VotoCor = VotoCor;
+	this.VotoTut = VotoTut;
+	this.MediaVoto2 = MediaVoto2;
+	this.MediaVoto3 = MediaVoto3;
+	this.GolFattoGaz = GolFattoGaz;
+	this.GolFattoCor = GolFattoCor;
+	this.GolFattoTut = GolFattoTut;
+	this.GolSubitoGaz = GolSubitoGaz;
+	this.GolSubitoCor = GolSubitoCor;
+	this.GolSubitoTut = GolSubitoTut;
+	this.AutoGolGaz = AutoGolGaz;
+	this.AutoGolCor = AutoGolCor;
+	this.AutoGolTut = AutoGolTut;
+	this.AssistGaz = AssistGaz;
+	this.AssistCor = AssistCor;
+	this.AssistTut = AssistTut;
+	this.Ammonizione = Ammonizione;
+	this.Espulsione = Espulsione;
+	this.Rigore = Rigore;
+	this.RigoreParato = RigoreParato;
+	this.RigoreSbagliato = RigoreSbagliato;
+	this.GolVittoria = GolVittoria;
+	this.GolPareggio = GolPareggio;
+	this.Squadra = Squadra;
+	this.Titolare = Titolare;
+	this.Sostituzione = Sostituzione;
+	this.Minuto = Minuto;
+	this.Finale = Finale;
+
+	Object.defineProperties(this, {
+		Voto: {
+			enumerable: true,
+			configurable: true,
+			get: function () { return _vuResolveVote(this); }
+		},
+		Fantavoto: {
+			enumerable: true,
+			configurable: true,
+			get: function () {
+				var v = _vuResolveVote(this);
+				if (!v || v === 'SV') return v;
+				if (typeof FCMCalcoloMotore !== 'undefined' && typeof FCMCalcoloMotore.calcolaFantavoto === 'function') {
+					return String(FCMCalcoloMotore.calcolaFantavoto(this, null));
+				}
+				return v;
+			}
+		},
+		GolFatto: {
+			enumerable: true,
+			configurable: true,
+			get: function () { return _vuPickBySource(_vuReadSetting('GolSource', 1), this.GolFattoGaz, this.GolFattoCor, this.GolFattoTut); }
+		},
+		GolSubito: {
+			enumerable: true,
+			configurable: true,
+			get: function () { return _vuPickBySource(_vuReadSetting('GolSource', 1), this.GolSubitoGaz, this.GolSubitoCor, this.GolSubitoTut); }
+		},
+		AutoGol: {
+			enumerable: true,
+			configurable: true,
+			get: function () { return _vuPickBySource(_vuReadSetting('GolSource', 1), this.AutoGolGaz, this.AutoGolCor, this.AutoGolTut); }
+		},
+		Assist: {
+			enumerable: true,
+			configurable: true,
+			get: function () { return _vuPickBySource(_vuReadSetting('AssistSource', 1), this.AssistGaz, this.AssistCor, this.AssistTut); }
+		}
+	});
+}
+
+VotoGiocatoreVU.parseNum = _vuParseNum;
+VotoGiocatoreVU.votoTipo = _vuVotoTipo;
+VotoGiocatoreVU.resolveVote = _vuResolveVote;
+
 // Costruttore TuttiGiocatori (TopCosti)
 function TuttiGiocatori(IDGiocatore, NomeGiocatore, Stagione, AnnoStagione, IDGiocatoreStagione, PrimaGiornataInSquadra, IDSquadra, IDSquadraStorica, NomeSquadra, Ruolo, SquadraA1, SquadraA2, SquadraA3, Presenze, TotVoti, TotFantaVoti, Goal, Espulsioni, Ammonizioni, IDDivisione, NomeDivisione, Costo, AnniContratto) {
 	this.IDGiocatore = IDGiocatore; this.NomeGiocatore = NomeGiocatore; this.Stagione = Stagione; this.AnnoStagione = AnnoStagione;
@@ -619,6 +824,10 @@ function RankDivisioni(NomeDivisione, IdAlbo, IdAttuale, Squadra, Punti, Stagion
 	this.Punti = Punti;
 	this.Stagioni = Stagioni;
 	this.PuntiPrecedenti = PuntiPrecedenti;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+	module.exports = { VotoGiocatore: VotoGiocatore, VotoGiocatoreVU: VotoGiocatoreVU };
 }
 
 

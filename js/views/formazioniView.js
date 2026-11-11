@@ -6,7 +6,7 @@
 
 const formazioniView = {
   currentSerieADay: null,
-  currentMatchId: null,
+  currentMatchId: 0,
   currentCompId: 0,
   lastLoadedHash: null,
 
@@ -30,7 +30,7 @@ const formazioniView = {
         }
         if (params.has('match')) {
           const mId = parseInt(params.get('match'), 10);
-          if (!isNaN(mId) && mId > 0) {
+          if (!isNaN(mId) && mId >= 0) {
             this.currentMatchId = mId;
           }
         }
@@ -45,14 +45,14 @@ const formazioniView = {
 
     if (this.currentSerieADay === null) {
       // Di default dev'essere mostrata la prossima giornata da giocare
-      this.currentSerieADay = calendar.nextMatchday > 0 
-        ? calendar.nextMatchday 
+      this.currentSerieADay = calendar.nextMatchday > 0
+        ? calendar.nextMatchday
         : (calendar.lastPlayed > 0 ? calendar.lastPlayed : (calendar.matchdays[0] ? calendar.matchdays[0].serieADay : 1));
     }
 
     if (calendar.matchdays.length > 0 && !calendar.matchdays.some(m => m.serieADay === this.currentSerieADay)) {
-      this.currentSerieADay = calendar.nextMatchday > 0 
-        ? calendar.nextMatchday 
+      this.currentSerieADay = calendar.nextMatchday > 0
+        ? calendar.nextMatchday
         : calendar.matchdays[0].serieADay;
     }
 
@@ -61,17 +61,34 @@ const formazioniView = {
     if (this.currentCompId > 0) {
       dayMatches = dayMatches.filter(m => m.compId === this.currentCompId);
     }
-    if ((!this.currentMatchId || !dayMatches.some(m => m.id === this.currentMatchId)) && dayMatches.length > 0) {
-      this.currentMatchId = dayMatches[0].id;
+    // Filter out bye/rest matches (arrIncontri[x].IDTipo == INC_RIPOSO)
+    const incRiposoVal = (typeof INC_RIPOSO !== 'undefined' ? INC_RIPOSO : 2);
+    dayMatches = dayMatches.filter(m => !m.isRiposo && m.type !== incRiposoVal);
+
+    const favId = (typeof fcmHomeConfigManager !== 'undefined') ? fcmHomeConfigManager.getFavoriteTeamId() : null;
+
+    if (this.currentMatchId === null) {
+      if (favId) {
+        const favMatch = dayMatches.find(m => m.homeTeamId == favId || m.awayTeamId == favId);
+        if (favMatch) {
+          this.currentMatchId = favMatch.id;
+        } else {
+          this.currentMatchId = 0;
+        }
+      } else {
+        this.currentMatchId = 0; // Default to "Tutti gli incontri"
+      }
+    } else if (this.currentMatchId !== 0 && !dayMatches.some(m => m.id === this.currentMatchId)) {
+      this.currentMatchId = 0;
     }
 
-    const selectedMatch = dayMatches.find(m => m.id === this.currentMatchId) || dayMatches[0];
-    if (selectedMatch && this.currentMatchId !== selectedMatch.id) {
-      this.currentMatchId = selectedMatch.id;
-    }
+    const selectedMatch = this.currentMatchId > 0
+      ? dayMatches.find(m => m.id === this.currentMatchId)
+      : null;
 
-    if (window.location.hash.includes('?') && window.history && window.history.replaceState && selectedMatch) {
-      const synchedHash = `#formazioni?day=${this.currentSerieADay}&match=${this.currentMatchId}${this.currentCompId ? `&comp=${this.currentCompId}` : ''}`;
+    if (window.location.hash.includes('?') && window.history && window.history.replaceState) {
+      const matchParam = this.currentMatchId > 0 ? `&match=${this.currentMatchId}` : '';
+      const synchedHash = `#formazioni?day=${this.currentSerieADay}${matchParam}${this.currentCompId ? `&comp=${this.currentCompId}` : ''}`;
       if (window.location.hash !== synchedHash) {
         window.history.replaceState(null, '', synchedHash);
         this.lastLoadedHash = synchedHash;
@@ -79,7 +96,9 @@ const formazioniView = {
     }
 
     // Show loading state while fetching lineup data
-    container.innerHTML = `
+    container.innerHTML = (typeof fcmSkeleton !== 'undefined')
+      ? fcmSkeleton.formation()
+      : `
       <div class="card text-center" style="padding:40px;">
         <div style="font-size:1.1rem;font-weight:700;color:var(--accent-cyan);margin-bottom:8px;">Caricamento Formazioni...</div>
         <div style="color:var(--text-muted);font-size:0.85rem;">Giornata ${this.currentSerieADay} di Serie A</div>
@@ -89,30 +108,26 @@ const formazioniView = {
     // Load lineups dynamically
     const allLineups = await fcmDataLoader.loadMatchdayLineups(this.currentSerieADay);
 
-    // Filter lineups for the selected match
-    const matchLineups = allLineups.filter(z => z.matchId === selectedMatch?.id);
-
-    // Group by team
-    const homeLineup = matchLineups.filter(z => z.teamId === selectedMatch?.homeTeamId);
-    const awayLineup = matchLineups.filter(z => z.teamId === selectedMatch?.awayTeamId);
-
     const renderTeamLineup = (lineup, teamName, teamId) => {
       const starters = (lineup || []).filter(z => z.position === 0);
       const bench = (lineup || []).filter(z => z.position > 0).sort((a, b) => a.position - b.position);
       const tribuna = (lineup || []).filter(z => z.position === -1);
       const penaltyTakers = (lineup || []).filter(z => z.penaltyTaker > 0).sort((a, b) => a.penaltyTaker - b.penaltyTaker);
+      const isFavTeam = favId && (teamId == favId || (typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.isFavoriteTeam(teamName)));
 
       // Check if lineup is submitted / has starters
       const hasLineup = starters.length > 0;
 
       if (!hasLineup) {
         return `
-          <div class="card" style="flex:1;min-width:280px;display:flex;flex-direction:column;">
+          <div class="card formazioni-pitch-card ${isFavTeam ? 'match-card-favorite' : ''}" style="flex:1;min-width:280px;display:flex;flex-direction:column;">
             <div class="card-header">
               <div style="display:flex;align-items:center;gap:10px;">
                 <img src="${fcmDataLoader.getTeamLogo(teamName || teamId)}" style="width:32px;height:32px;object-fit:contain;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
                 <div>
-                  <div style="font-size:1rem;font-weight:800;color:var(--text-primary);">${teamName}</div>
+                  <div style="font-size:1rem;font-weight:800;color:var(--text-primary);">
+                    ${isFavTeam ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${teamName}
+                  </div>
                   <div style="font-size:0.75rem;color:var(--accent-gold);font-weight:600;display:inline-flex;align-items:center;gap:4px;">
                     <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;"></span>
                     In attesa di inserimento
@@ -154,13 +169,13 @@ const formazioniView = {
         return `
           <div class="pitch-line ${isStaggered ? `pitch-line-staggered pitch-line-${count}` : ''}" ${isLast ? 'style="margin-bottom:0;"' : ''}>
             ${players.map((pl, idx) => {
-              const isWing = isStaggered && (idx === 0 || idx === count - 1);
-              const wingClass = isWing ? (idx === 0 ? 'pitch-player-wing-left' : 'pitch-player-wing-right') : (isStaggered ? 'pitch-player-center' : '');
-              const { surname, firstName } = fcmDataLoader.splitPlayerName(pl.name);
-              const isLongSurname = surname.length >= 10 || surname.includes('-') || (surname.includes(' ') && surname.length >= 8);
-              const pId = pl.playerId || fcmDataLoader.getSerieAPlayerId(pl.name);
-              const playerLink = pId ? `#schede_giocatori?id=${pId}` : `#schede_giocatori?name=${encodeURIComponent(pl.name)}`;
-              return `
+          const isWing = isStaggered && (idx === 0 || idx === count - 1);
+          const wingClass = isWing ? (idx === 0 ? 'pitch-player-wing-left' : 'pitch-player-wing-right') : (isStaggered ? 'pitch-player-center' : '');
+          const { surname, firstName } = fcmDataLoader.splitPlayerName(pl.name);
+          const isLongSurname = surname.length >= 10 || surname.includes('-') || (surname.includes(' ') && surname.length >= 8);
+          const pId = pl.playerId || fcmDataLoader.getSerieAPlayerId(pl.name);
+          const playerLink = fcmDataLoader.getPlayerProfileLink ? fcmDataLoader.getPlayerProfileLink({ name: pl.name, id: pId, code: pl.code }) : (pId ? `#schede_giocatori?id=${pId}` : `#schede_giocatori?name=${encodeURIComponent(pl.name)}`);
+          return `
                 <a href="${playerLink}" class="pitch-player ${wingClass} ${isLongSurname ? 'has-long-surname' : ''}" data-player="${pl.name}" tabindex="0" title="Apri scheda di ${pl.name}">
                   <div class="pitch-player-avatar">
                     <img src="${fcmDataLoader.getPlayerPhoto(pl.name)}" class="pitch-player-photo" alt="${pl.name}" loading="lazy" onerror="this.onerror=null; this.src='img/foto/misterx.gif'" />
@@ -176,18 +191,20 @@ const formazioniView = {
                   </div>
                 </a>
               `;
-            }).join('')}
+        }).join('')}
           </div>
         `;
       };
 
       return `
-        <div class="card" style="flex:1;min-width:280px;display:flex;flex-direction:column;">
+        <div class="card formazioni-pitch-card ${isFavTeam ? 'match-card-favorite' : ''}" style="flex:1;min-width:280px;display:flex;flex-direction:column;">
           <div class="card-header">
             <div style="display:flex;align-items:center;gap:10px;">
               <img src="${fcmDataLoader.getTeamLogo(teamName || teamId)}" style="width:32px;height:32px;object-fit:contain;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
               <div>
-                <div style="font-size:1rem;font-weight:800;color:var(--text-primary);">${teamName}</div>
+                <div style="font-size:1rem;font-weight:800;color:var(--text-primary);">
+                  ${isFavTeam ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${teamName}
+                </div>
                 <div style="font-size:0.75rem;color:var(--text-muted);">Modulo: <b style="color:var(--accent-cyan);">${modulo}</b></div>
               </div>
             </div>
@@ -210,9 +227,9 @@ const formazioniView = {
                 <table class="modern-table bench-table">
                   <tbody>
                     ${bench.map(pl => {
-                      const pId = pl.playerId || fcmDataLoader.getSerieAPlayerId(pl.name);
-                      const playerLink = pId ? `#schede_giocatori?id=${pId}` : `#schede_giocatori?name=${encodeURIComponent(pl.name)}`;
-                      return `
+        const pId = pl.playerId || fcmDataLoader.getSerieAPlayerId(pl.name);
+        const playerLink = fcmDataLoader.getPlayerProfileLink ? fcmDataLoader.getPlayerProfileLink({ name: pl.name, id: pId, code: pl.code }) : (pId ? `#schede_giocatori?id=${pId}` : `#schede_giocatori?name=${encodeURIComponent(pl.name)}`);
+        return `
                       <tr style="opacity:0.9;">
                         <td style="width:24px;color:var(--text-muted);font-weight:bold;text-align:center;">${pl.position}</td>
                         <td style="width:30px;"><span class="role-badge ${fcmDataLoader.getRoleClass(pl.role)}">${fcmDataLoader.getRoleShort(pl.role)}</span></td>
@@ -232,7 +249,7 @@ const formazioniView = {
                         </td>
                       </tr>
                     `;
-                    }).join('')}
+      }).join('')}
                   </tbody>
                 </table>
               </div>
@@ -250,9 +267,59 @@ const formazioniView = {
       `;
     };
 
+    const renderMatchLineupsBlock = (match, isSingleView = false, idx = 0) => {
+      const matchLineups = allLineups.filter(z => z.matchId === match.id);
+      const homeLineup = matchLineups.filter(z => z.teamId === match.homeTeamId);
+      const awayLineup = matchLineups.filter(z => z.teamId === match.awayTeamId);
+      const hasAnyLineup = homeLineup.length > 0 || awayLineup.length > 0;
+      const isHomeFav = favId && (match.homeTeamId == favId || (typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.isFavoriteTeam(match.homeTeamName)));
+      const isAwayFav = favId && (match.awayTeamId == favId || (typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.isFavoriteTeam(match.awayTeamName)));
+      const isFavMatch = isHomeFav || isAwayFav;
+
+      return `
+        ${!isSingleView ? `
+          <div class="formazioni-match-header ${isFavMatch ? 'match-card-favorite' : ''}" style="${idx === 0 ? 'margin-top:10px;' : ''}">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="formazioni-match-title">
+                ${isHomeFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${match.homeTeamName}
+                <span style="color:var(--text-muted);font-weight:400;margin:0 4px;">vs</span>
+                ${isAwayFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${match.awayTeamName}
+              </span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span class="formazioni-match-badge">
+                ${match.compName || 'Campionato'}
+              </span>
+              ${match.fantagiornataNome ? `
+                <span style="font-size:0.75rem;color:var(--text-muted);font-weight:600;">
+                  ${match.fantagiornataNome}
+                </span>
+              ` : ''}
+            </div>
+          </div>
+        ` : ''}
+
+        <div style="display:flex;gap:20px;flex-wrap:wrap;${!isSingleView ? 'margin-bottom:28px;' : ''}">
+          ${hasAnyLineup ? `
+            ${renderTeamLineup(homeLineup, match.homeTeamName, match.homeTeamId)}
+            ${renderTeamLineup(awayLineup, match.awayTeamName, match.awayTeamId)}
+          ` : `
+            <div class="card text-center w-full" style="padding:32px 20px;color:var(--text-muted);width:100%;background:var(--bg-surface-elevated);border-radius:var(--radius-md);border:1px dashed var(--border-subtle);">
+              Nessuna formazione comunicata o disponibile per questo incontro.
+            </div>
+          `}
+        </div>
+      `;
+    };
+
+    const subtitleText = this.currentMatchId === 0
+      ? `Tutti gli incontri • ${this.currentSerieADay}ª di Serie A${dayMatches.length > 0 ? ` (${dayMatches.length} incontri)` : ''}`
+      : (selectedMatch ? `${selectedMatch.homeTeamName} vs ${selectedMatch.awayTeamName} • ${selectedMatch.fantagiornataNome}` : '');
+
     let html = `
-      <div class="card">
-        <div class="card-header">
+      <div class="formazioni-view">
+        <div class="card">
+          <div class="card-header">
           <div>
             <div class="card-title">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-emerald)" stroke-width="2">
@@ -263,7 +330,7 @@ const formazioniView = {
               Formazioni
             </div>
             <div class="card-subtitle">
-              ${selectedMatch ? `${selectedMatch.homeTeamName} vs ${selectedMatch.awayTeamName} • ${selectedMatch.fantagiornataNome}` : ''}
+              ${subtitleText}
             </div>
           </div>
         </div>
@@ -301,28 +368,45 @@ const formazioniView = {
                 Incontro:
               </label>
               <select id="selFormazioniMatch" class="form-select" style="font-weight:700;">
-                ${dayMatches.map(m => `
-                  <option value="${m.id}" ${m.id === this.currentMatchId ? 'selected' : ''}>
-                    ${m.homeTeamName} vs ${m.awayTeamName} (${m.compName})
-                  </option>
-                `).join('')}
+                <option value="0" ${this.currentMatchId === 0 ? 'selected' : ''}>Tutti gli incontri</option>
+                ${dayMatches.map(m => {
+      const isFavTeamHome = favId && (m.homeTeamId == favId || (typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.isFavoriteTeam(m.homeTeamName)));
+      const isFavTeamAway = favId && (m.awayTeamId == favId || (typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.isFavoriteTeam(m.awayTeamName)));
+      return `
+                    <option value="${m.id}" ${m.id === this.currentMatchId ? 'selected' : ''}>
+                      ${isFavTeamHome ? '⭐ ' : ''}${m.homeTeamName} vs ${isFavTeamAway ? '⭐ ' : ''}${m.awayTeamName} (${m.compName})
+                    </option>
+                  `;
+    }).join('')}
               </select>
             </div>
           ` : ''}
         </div>
 
-        <!-- Dual Team Lineups Display -->
-        <div style="display:flex;gap:20px;flex-wrap:wrap;">
-          ${selectedMatch && matchLineups.length > 0 ? `
-            ${renderTeamLineup(homeLineup, selectedMatch.homeTeamName, selectedMatch.homeTeamId)}
-            ${renderTeamLineup(awayLineup, selectedMatch.awayTeamName, selectedMatch.awayTeamId)}
+        <!-- Team Lineups Display (All Matches or Selected Match) -->
+        ${this.currentMatchId === 0 ? `
+          ${dayMatches.length > 0 ? `
+            <div>
+              ${dayMatches.map((m, idx) => renderMatchLineupsBlock(m, false, idx)).join('')}
+            </div>
           ` : `
             <div class="card text-center w-full" style="padding:40px;color:var(--text-muted);width:100%;">
-              Nessuna formazione comunicata o disponibile per questo incontro.
+              Nessun incontro in programma per questa selezione.
             </div>
           `}
-        </div>
+        ` : `
+          ${selectedMatch ? `
+            <div>
+              ${renderMatchLineupsBlock(selectedMatch, true)}
+            </div>
+          ` : `
+            <div class="card text-center w-full" style="padding:40px;color:var(--text-muted);width:100%;">
+              Nessun incontro selezionato o disponibile.
+            </div>
+          `}
+        `}
 
+        </div>
       </div>
     `;
 
@@ -333,7 +417,7 @@ const formazioniView = {
     if (compSelect) {
       compSelect.addEventListener('change', (e) => {
         this.currentCompId = parseInt(e.target.value);
-        this.currentMatchId = null;
+        this.currentMatchId = 0;
         const newHash = `#formazioni?day=${this.currentSerieADay}${this.currentCompId ? `&comp=${this.currentCompId}` : ''}`;
         this.lastLoadedHash = newHash;
         if (window.history && window.history.replaceState) {
@@ -348,7 +432,7 @@ const formazioniView = {
     if (daySelect) {
       daySelect.addEventListener('change', (e) => {
         this.currentSerieADay = parseInt(e.target.value);
-        this.currentMatchId = null;
+        this.currentMatchId = 0;
         const newHash = `#formazioni?day=${this.currentSerieADay}${this.currentCompId ? `&comp=${this.currentCompId}` : ''}`;
         this.lastLoadedHash = newHash;
         if (window.history && window.history.replaceState) {
@@ -362,8 +446,9 @@ const formazioniView = {
     const matchSelect = container.querySelector('#selFormazioniMatch');
     if (matchSelect) {
       matchSelect.addEventListener('change', (e) => {
-        this.currentMatchId = parseInt(e.target.value);
-        const newHash = `#formazioni?day=${this.currentSerieADay}&match=${this.currentMatchId}${this.currentCompId ? `&comp=${this.currentCompId}` : ''}`;
+        this.currentMatchId = parseInt(e.target.value, 10);
+        const matchParam = this.currentMatchId > 0 ? `&match=${this.currentMatchId}` : '';
+        const newHash = `#formazioni?day=${this.currentSerieADay}${matchParam}${this.currentCompId ? `&comp=${this.currentCompId}` : ''}`;
         this.lastLoadedHash = newHash;
         if (window.history && window.history.replaceState) {
           window.history.replaceState(null, '', newHash);

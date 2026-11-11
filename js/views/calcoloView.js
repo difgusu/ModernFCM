@@ -29,7 +29,8 @@ const calcoloView = {
     isOpen: false,
     isAdmin: false,
     isConfigured: true,
-    adminMainTab: 'calc', // 'calc', 'assoc' (liveVU), o 'assoc-fp' (liveFP)
+    csrfToken: '',
+    adminMainTab: 'calc', // 'calc' o 'assoc' (liveVU)
     activeTab: 'base',
     definitions: null,
     currentValues: null,
@@ -37,14 +38,16 @@ const calcoloView = {
     isSaving: false,
     assocItems: [],
     assocFilter: 'all',
-    assocSearch: '',
-    fpAssocItems: [],
-    fpAssocFilter: 'all',
-    fpAssocSearch: ''
+    assocSearch: ''
   },
 
   async render(container) {
     this.container = container;
+
+    // 0. Immediate skeleton shimmer
+    if (typeof fcmSkeleton !== 'undefined') {
+      container.innerHTML = fcmSkeleton.table({ cols: 4, rows: 6, withToolbar: true });
+    }
 
     // Assicura il caricamento delle variabili di calcolo
     await this.ensureCalcoloVars();
@@ -55,8 +58,8 @@ const calcoloView = {
     // Renderizza layout principale
     this.renderMainLayout();
 
-    // Se richiesto esplicitamente nell'hash (#impostazioni_calcolo), apri subito il modale admin
-    if (window.location.hash.startsWith('#impostazioni_calcolo') || window.location.hash.startsWith('#impostazioni-calcolo')) {
+    // Se richiesto esplicitamente nell'hash (#impostazioni o #impostazioni_calcolo), apri subito il modale admin
+    if (window.location.hash.startsWith('#impostazioni') || window.location.hash.startsWith('#impostazioni_calcolo') || window.location.hash.startsWith('#impostazioni-calcolo')) {
       this.openSettingsModal();
     }
   },
@@ -65,14 +68,12 @@ const calcoloView = {
    * Assicura che le variabili di lega siano caricate in memoria
    */
   async ensureCalcoloVars() {
-    if (typeof fattorecampo === 'undefined' || typeof modD === 'undefined' || typeof fgol1 === 'undefined' || typeof autoGol === 'undefined') {
-      try {
-        if (typeof fcmDataLoader !== 'undefined') {
-          await fcmDataLoader.loadScript('js/fcmCalcolorisultatiVariabili.js');
-        }
-      } catch (e) {
-        console.warn('[calcoloView] Errore caricamento fcmCalcolorisultatiVariabili.js:', e);
+    try {
+      if (typeof fcmDataLoader !== 'undefined') {
+        await fcmDataLoader.loadScript('js/fcmCalcolorisultatiVariabili.js', true);
       }
+    } catch (e) {
+      console.warn('[calcoloView] Errore caricamento fcmCalcolorisultatiVariabili.js:', e);
     }
   },
 
@@ -143,20 +144,12 @@ const calcoloView = {
    * Aggiorna i link rapidi dell'header (Live FP e Voti Ufficiosi) con competizione e giornata correnti
    */
   updateHeaderQuickLinks() {
-    const linkFP = this.container.querySelector('#linkQuickLiveFP');
-    const linkFM = this.container.querySelector('#linkQuickLiveFM');
-    const linkVU = this.container.querySelector('#linkQuickLiveVU');
+    const linkLive = this.container.querySelector('#linkQuickLive');
     const divPart = this.currentDiv ? `&Div=${this.currentDiv}` : '';
     const matchPart = this.currentMatchId ? `&Match=${this.currentMatchId}` : '';
 
-    if (linkFP) {
-      linkFP.href = `#liveFP?Comp=${this.currentComp}&Gio=${this.currentDay}${divPart}${matchPart}`;
-    }
-    if (linkFM) {
-      linkFM.href = `#liveFM?Comp=${this.currentComp}&Gio=${this.currentDay}${divPart}${matchPart}`;
-    }
-    if (linkVU) {
-      linkVU.href = `#liveVU?Comp=${this.currentComp}&Gio=${this.currentDay}${divPart}${matchPart}`;
+    if (linkLive) {
+      linkLive.href = `#live?Comp=${this.currentComp}&Gio=${this.currentDay}${divPart}${matchPart}`;
     }
   },
 
@@ -183,27 +176,12 @@ const calcoloView = {
 
           <!-- AZIONI RAPIDE HEADER (Link dinamici con stessa comp e giornata) -->
           <div class="calcolo-quick-actions">
-            <a href="#liveFP" id="linkQuickLiveFP" class="calcolo-quick-btn" title="Vai a Live Fantapazz (stessa giornata e competizione)">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-              </svg>
-              <span>Live Fantapazz</span>
-            </a>
-            <a href="#liveFM" id="linkQuickLiveFM" class="calcolo-quick-btn" title="Vai a Live FantaMaster (stessa giornata e competizione)">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <a href="#live" id="linkQuickLive" class="calcolo-quick-btn" title="Vai a Match Center Live (stessa giornata e competizione)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary, #3b82f6)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"></circle>
-                <polygon points="12 6 15 12 12 18 9 12 12 6"></polygon>
+                <polyline points="12 6 12 12 16 14"></polyline>
               </svg>
-              <span>Live FantaMaster</span>
-            </a>
-            <a href="#liveVU" id="linkQuickLiveVU" class="calcolo-quick-btn" title="Vai a Voti Ufficiosi (stessa giornata e competizione)">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                <polyline points="14 2 14 8 20 8"></polyline>
-                <line x1="16" y1="13" x2="8" y2="13"></line>
-                <line x1="16" y1="17" x2="8" y2="17"></line>
-              </svg>
-              <span>Voti Ufficiosi</span>
+              <span>Match Center Live</span>
             </a>
             <button type="button" class="calcolo-quick-btn" id="btnOpenSettingsModal" title="Configura Regole di Calcolo">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -240,9 +218,11 @@ const calcoloView = {
 
         <!-- AREA CONTENUTO PARTITA (Tabellone interattivo) -->
         <div id="calcoloContentArea" class="calcolo-content-area">
+          ${(typeof fcmSkeleton !== 'undefined') ? fcmSkeleton.formation() : `
           <div style="text-align:center;padding:40px;color:var(--text-muted);">
             Caricamento dati incontro...
           </div>
+          `}
         </div>
       </div>
 
@@ -299,6 +279,21 @@ const calcoloView = {
       if (!found && this.currentMatchId && this.currentMatchId >= 1 && this.currentMatchId <= dayMatches.length) {
         found = dayMatches[this.currentMatchId - 1];
         if (found) this.currentMatchId = found.id;
+      }
+      if (!found) {
+        // Se c'è una squadra del cuore configurata, cerca prima l'incontro che la vede impegnata
+        if (typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.hasFavoriteTeam()) {
+          const favMatch = dayMatches.find(m =>
+            fcmHomeConfigManager.isFavoriteTeam(m.homeTeamId) ||
+            fcmHomeConfigManager.isFavoriteTeam(m.homeTeamName) ||
+            fcmHomeConfigManager.isFavoriteTeam(m.awayTeamId) ||
+            fcmHomeConfigManager.isFavoriteTeam(m.awayTeamName)
+          );
+          if (favMatch) {
+            found = favMatch;
+            this.currentMatchId = favMatch.id;
+          }
+        }
       }
       if (!found) {
         this.currentMatchId = dayMatches[0].id;
@@ -360,11 +355,19 @@ const calcoloView = {
         <select id="selCalcoloMatch" class="form-select" style="font-weight:700;" ${dayMatches.length === 0 ? 'disabled' : ''}>
           ${dayMatches.length === 0 ? `
             <option value="">Nessun incontro in programma</option>
-          ` : dayMatches.map(m => `
-            <option value="${m.id}" ${this.currentMatchId === m.id ? 'selected' : ''}>
-              ${m.homeTeamName} vs ${m.awayTeamName}
-            </option>
-          `).join('')}
+          ` : dayMatches.map(m => {
+      const involvesFavHome = typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.hasFavoriteTeam() && (
+        fcmHomeConfigManager.isFavoriteTeam(m.homeTeamId) ||
+        fcmHomeConfigManager.isFavoriteTeam(m.homeTeamName));
+      const involvesFavAway = typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.hasFavoriteTeam() && (
+        fcmHomeConfigManager.isFavoriteTeam(m.awayTeamId) ||
+        fcmHomeConfigManager.isFavoriteTeam(m.awayTeamName));
+      return `
+              <option value="${m.id}" ${this.currentMatchId === m.id ? 'selected' : ''}>
+                ${involvesFavHome ? '⭐ ' : ''}${m.homeTeamName} vs ${involvesFavAway ? ' ⭐' : ''}${m.awayTeamName}
+              </option>
+            `;
+    }).join('')}
         </select>
       </div>
     `;
@@ -479,7 +482,9 @@ const calcoloView = {
       return;
     }
 
-    contentArea.innerHTML = `
+    contentArea.innerHTML = (typeof fcmSkeleton !== 'undefined')
+      ? fcmSkeleton.formation()
+      : `
       <div style="text-align:center;padding:50px 20px;">
         <div class="calcolo-loading-spinner"></div>
         <div style="color:var(--accent-primary, #3b82f6);font-weight:700;margin-top:12px;">Caricamento Formazioni Incontro...</div>
@@ -808,6 +813,13 @@ const calcoloView = {
     const hasGolVP = typeof golVP !== 'undefined' && (golVP === 1 || golVP === '1');
     const hasModX = typeof modX !== 'undefined' && (modX === 1 || modX === '1');
 
+    const isFavCasa = typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.hasFavoriteTeam() && (
+      fcmHomeConfigManager.isFavoriteTeam(match.homeTeamId) || fcmHomeConfigManager.isFavoriteTeam(match.homeTeamName)
+    );
+    const isFavFuori = typeof fcmHomeConfigManager !== 'undefined' && fcmHomeConfigManager.hasFavoriteTeam() && (
+      fcmHomeConfigManager.isFavoriteTeam(match.awayTeamId) || fcmHomeConfigManager.isFavoriteTeam(match.awayTeamName)
+    );
+
     const html = `
       <!-- PULSANTI AZIONE SUPERIORI -->
       <div class="calcolo-actions-row">
@@ -839,11 +851,11 @@ const calcoloView = {
       <div class="calcolo-teams-container">
         <!-- SEZIONE SQUADRA CASA -->
         <div class="calcolo-team-section calcolo-team-casa">
-          <div class="calcolo-team-header">
+          <div class="calcolo-team-header ${isFavCasa ? 'team-header-box-favorite' : ''}">
             <div class="calcolo-team-title-wrap">
               <img src="${logoCasa}" class="calcolo-team-badge" alt="${match.homeTeamName}" onerror="this.src='img/sq/undefined.svg';">
               <div>
-                <span class="calcolo-team-name">${match.homeTeamName}</span>
+                <span class="calcolo-team-name">${isFavCasa ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${match.homeTeamName}</span>
                 <span class="calcolo-team-role-count">Modulo Tattico: <b>${moduloCasa}</b></span>
               </div>
             </div>
@@ -857,11 +869,11 @@ const calcoloView = {
 
         <!-- SEZIONE SQUADRA FUORI -->
         <div class="calcolo-team-section calcolo-team-fuori">
-          <div class="calcolo-team-header">
+          <div class="calcolo-team-header ${isFavFuori ? 'team-header-box-favorite' : ''}">
             <div class="calcolo-team-title-wrap">
               <img src="${logoFuori}" class="calcolo-team-badge" alt="${match.awayTeamName}" onerror="this.src='img/sq/undefined.svg';">
               <div>
-                <span class="calcolo-team-name">${match.awayTeamName}</span>
+                <span class="calcolo-team-name">${isFavFuori ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${match.awayTeamName}</span>
                 <span class="calcolo-team-role-count">Modulo Tattico: <b>${moduloFuori}</b></span>
               </div>
             </div>
@@ -929,16 +941,27 @@ const calcoloView = {
   getSelectVotoOptionsHtml(selectedVal) {
     const step = typeof intervallovoti !== 'undefined' ? Number(intervallovoti) : 0.25;
     let html = '';
-    const selNum = (selectedVal !== 'S.V.' && selectedVal !== 'sv' && selectedVal !== '' && selectedVal !== null && selectedVal !== undefined)
+    const selNum = (selectedVal !== 'S.V.' && selectedVal !== 'sv' && selectedVal !== 'SV' && selectedVal !== '' && selectedVal !== null && selectedVal !== undefined)
       ? Number(String(selectedVal).replace(',', '.'))
       : null;
+    const hasValidSel = (selNum !== null && !isNaN(selNum) && selNum > 0);
+    let matchedStep = false;
+    let customInserted = false;
 
     for (let v = 1; v <= 10; v = Number((v + step).toFixed(2))) {
-      const isSel = (selNum !== null && !isNaN(selNum) && Number(v.toFixed(2)) === Number(selNum.toFixed(2)));
+      const isSel = (hasValidSel && Math.abs(v - selNum) < 0.005);
+      if (isSel) matchedStep = true;
+      if (hasValidSel && !matchedStep && !customInserted && v > selNum) {
+        html += `<option value="${selNum}" selected>${selNum.toFixed(2)}</option>`;
+        customInserted = true;
+      }
       html += `<option value="${v}" ${isSel ? 'selected' : ''}>${v}</option>`;
     }
+    if (hasValidSel && !matchedStep && !customInserted) {
+      html += `<option value="${selNum}" selected>${selNum.toFixed(2)}</option>`;
+    }
 
-    const isSv = selectedVal === 'S.V.' || selectedVal === 'sv' || selNum === null || isNaN(selNum);
+    const isSv = selectedVal === 'S.V.' || selectedVal === 'sv' || selectedVal === 'SV' || !hasValidSel;
     html += `<option value="S.V." ${isSv ? 'selected' : ''}>S.V.</option>`;
     return html;
   },
@@ -977,7 +1000,7 @@ const calcoloView = {
 
     const renderRow = (p, isPanchina) => {
       const roleLetter = this.getRoleLetter(p.ruolo);
-      const magliaSrc = p.squadraDiA ? `img/live/sq/${p.squadraDiA}.png` : 'img/live/sq/0.png';
+      const magliaSrc = p.squadraDiA ? `img/sq/${p.squadraDiA}.png` : 'img/sq/0.png';
       const photoSrc = this.getPlayerPhoto(p.nome);
       const cognome = this.formatCognome(p.nome);
 
@@ -986,7 +1009,7 @@ const calcoloView = {
           <td class="col-player">
             <div class="calcolo-player-cell">
               <span class="calcolo-role-badge role-${roleLetter}">${roleLetter}</span>
-              <img src="${magliaSrc}" class="calcolo-seriea-shirt" alt="${p.squadraDiA}" title="${p.squadraDiA}" onerror="this.src='img/live/sq/0.png';">
+              <img src="${magliaSrc}" class="calcolo-seriea-shirt" alt="${p.squadraDiA}" title="${p.squadraDiA}" onerror="this.src='img/sq/0.png';">
               <img src="${photoSrc}" class="calcolo-player-photo" alt="${p.nome}" title="${p.nome} (${roleLetter})" loading="lazy" onerror="this.src='img/foto/misterx.gif';">
               <span class="calcolo-player-name calcolo-name-full" title="${p.nome}">${p.nome}</span>
               <span class="calcolo-player-name calcolo-name-short" title="${p.nome}">${cognome}</span>
@@ -1031,7 +1054,7 @@ const calcoloView = {
             <input type="checkbox" class="input-checkbox-custom" data-prop="esp" ${p.esp ? 'checked' : ''}>
           </td>
           <td class="col-finale">
-            <span class="voto-finale-val ${this.getFVotoClass(p.votoFinale)}">${p.votoFinale}</span>
+            <span class="voto-finale-val ${this.getFVotoClass(p.votoFinale)}">${typeof p.votoFinale === 'number' && !isNaN(p.votoFinale) ? p.votoFinale.toFixed(2) : p.votoFinale}</span>
           </td>
         </tr>
       `;
@@ -1111,7 +1134,9 @@ const calcoloView = {
         player.votoFinale = this.calcolaVotoFinaleGiocatore(player);
 
         if (finaleEl) {
-          finaleEl.textContent = player.votoFinale;
+          finaleEl.textContent = (typeof player.votoFinale === 'number' && !isNaN(player.votoFinale))
+            ? player.votoFinale.toFixed(2)
+            : player.votoFinale;
           finaleEl.className = `voto-finale-val ${this.getFVotoClass(player.votoFinale)}`;
         }
       };
@@ -1285,9 +1310,6 @@ const calcoloView = {
     try {
       if (typeof fcmDataLoader !== 'undefined') {
         await fcmDataLoader.loadScript('js/fcmVotiDatiVU.js', true);
-        try {
-          await fcmDataLoader.loadScript('js/fcmVotiAssociazioni.js', true);
-        } catch (eAssoc) { }
       }
     } catch (e) {
       console.warn('[calcoloView] Impossibile caricare fcmVotiDatiVU.js:', e);
@@ -1391,7 +1413,11 @@ const calcoloView = {
     const modal = this.container.querySelector('#calcModalInPage');
     if (!modal) return;
 
-    const formatSign = (val) => (val > 0 ? `+${val}` : `${val}`);
+    const cleanNum = (val) => Number((Math.round((Number(val) || 0) * 1e6) / 1e6).toFixed(2));
+    const formatSign = (val) => {
+      const n = cleanNum(val);
+      return n > 0 ? `+${n}` : `${n}`;
+    };
     const hasModX = typeof modX !== 'undefined' && (modX === 1 || modX === '1');
     const isAutoGolActive = typeof autoGol !== 'undefined' && (autoGol === 1 || autoGol === '1' || autoGol === true);
     const pAutogol_val = typeof pAutogol !== 'undefined' ? Number(pAutogol) : 59;
@@ -1437,13 +1463,13 @@ const calcoloView = {
               <td>
                 <div class="calc-row-item">
                   <span class="calc-row-label">Parziale squadra:</span>
-                  <span class="calc-row-val">${d.sommaCasa.toFixed(2)} pt</span>
+                  <span class="calc-row-val">${cleanNum(d.sommaCasa).toFixed(2)} pt</span>
                 </div>
               </td>
               <td>
                 <div class="calc-row-item">
                   <span class="calc-row-label">Parziale squadra:</span>
-                  <span class="calc-row-val">${d.sommaFuori.toFixed(2)} pt</span>
+                  <span class="calc-row-val">${cleanNum(d.sommaFuori).toFixed(2)} pt</span>
                 </div>
               </td>
             </tr>
@@ -1531,7 +1557,7 @@ const calcoloView = {
                 </div>
               </td>
             </tr>` : ''}
-            ${isAutoGolActive ? `<tr>
+            ${isAutoGolActive && (d.gol.autogolCasa || d.gol.autogolFuori) ? `<tr>
               <td>
                 <div class="calc-row-item">
                   <span class="calc-row-label">Gol Omaggio (Autogol):</span>
@@ -1618,7 +1644,7 @@ const calcoloView = {
 
   /**
    * MODALE / DRAWER ADMIN IMPOSTAZIONI REGOLE CALCOLO
-   * Stile e logica perfettamente conformi all'apertura standalone di impostazioni_calcolo.php
+   * Stile e logica perfettamente conformi all'apertura standalone di impostazioni.php
    */
   async openSettingsModal() {
     const modal = this.container.querySelector('#calcSettingsModal');
@@ -1641,7 +1667,7 @@ const calcoloView = {
                 <span>🚪 Esci</span>
               </button>
             </div>
-            <a href="inc/impostazioni_calcolo.php" id="btnModalExpandScreen" target="_blank" class="calc-modal-expand-btn" title="Espandi a tutto schermo e apri direttamente impostazioni_calcolo.php">
+            <a href="inc/impostazioni.php" id="btnModalExpandScreen" class="calc-modal-expand-btn" title="Espandi a tutto schermo e apri direttamente impostazioni.php">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M15 3h6v6"></path>
                 <path d="M9 21H3v-6"></path>
@@ -1654,10 +1680,12 @@ const calcoloView = {
         </div>
 
         <div id="calcSettingsModalContent" class="calc-settings-modal-content">
+          ${(typeof fcmSkeleton !== 'undefined') ? fcmSkeleton.table({ cols: 3, rows: 4, withToolbar: false }) : `
           <div style="text-align: center; padding: 40px;">
             <div class="calcolo-loading-spinner"></div>
             <div style="margin-top: 12px; color: var(--text-muted);">Verifica autenticazione amministratore...</div>
           </div>
+          `}
         </div>
       </div>
     `;
@@ -1666,14 +1694,15 @@ const calcoloView = {
     if (closeBtn) closeBtn.onclick = () => { modal.style.display = 'none'; };
     modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
 
-    // Fetch stato e definizioni da impostazioni_calcolo.php
+    // Fetch stato e definizioni da impostazioni.php
     try {
-      const res = await fetch(`inc/impostazioni_calcolo.php?action=get_calcolo_vars&_t=${Date.now()}`);
+      const res = await fetch(`inc/impostazioni.php?action=get_calcolo_vars&_t=${Date.now()}`);
       if (!res.ok) throw new Error("Errore chiamata API impostazioni");
       const data = await res.json();
 
       this.settingsModalState.isAdmin = !!data.isAdmin;
       this.settingsModalState.isConfigured = !!data.isConfigured;
+      this.settingsModalState.csrfToken = data.csrfToken || '';
       this.settingsModalState.lastUpdated = data.lastUpdated || '';
       this.settingsModalState.definitions = data.definitions || {};
       this.settingsModalState.currentValues = { ...(data.currentValues || {}) };
@@ -1704,7 +1733,13 @@ const calcoloView = {
 
     const eseguiLogout = async () => {
       try {
-        await fetch('inc/impostazioni_calcolo.php?action=admin_logout');
+        const fd = new FormData();
+        fd.append('action', 'admin_logout');
+        await fetch('inc/impostazioni.php', {
+          method: 'POST',
+          headers: this.settingsModalState.csrfToken ? { 'X-CSRF-Token': this.settingsModalState.csrfToken } : {},
+          body: fd
+        });
       } catch (e) { }
       this.settingsModalState.isAdmin = false;
       this.renderSettingsModalBody();
@@ -1719,7 +1754,7 @@ const calcoloView = {
     }
 
     if (!this.settingsModalState.isAdmin) {
-      // SCHERMATA LOGIN ADMIN (Identica a impostazioni_calcolo.php)
+      // SCHERMATA LOGIN ADMIN (Identica a impostazioni.php)
       content.innerHTML = `
         <div class="calc-admin-login-card">
           <div style="text-align: center; margin-bottom: 24px;">
@@ -1760,10 +1795,13 @@ const calcoloView = {
             formData.append('action', 'admin_login');
             formData.append('pwd', pwd);
 
-            const r = await fetch('inc/impostazioni_calcolo.php', { method: 'POST', body: formData });
+            const r = await fetch('inc/impostazioni.php', { method: 'POST', body: formData });
             const resp = await r.json();
             if (resp.success) {
               this.settingsModalState.isAdmin = true;
+              if (resp.csrfToken) {
+                this.settingsModalState.csrfToken = resp.csrfToken;
+              }
               this.renderSettingsModalBody();
             } else {
               if (errEl) { errEl.textContent = resp.error || 'Password errata.'; errEl.style.display = 'block'; }
@@ -1810,6 +1848,8 @@ const calcoloView = {
           return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-emerald, #10b981)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="12 6 15 10 13 14 11 14 9 10 12 6"></polygon></svg>`;
         case 'calcolo':
           return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-amber, #f59e0b)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="18"></line><path d="M16 10h.01"></path><path d="M12 10h.01"></path><path d="M8 10h.01"></path><path d="M12 14h.01"></path><path d="M8 14h.01"></path><path d="M12 18h.01"></path><path d="M8 18h.01"></path></svg>`;
+        case 'fonti_vu':
+          return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-purple, #a855f7)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
         case 'fasce':
           return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan, #06b6d4)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>`;
         default:
@@ -1836,7 +1876,7 @@ const calcoloView = {
           </div>
           <div class="calc-settings-grid">
             ${Object.entries(section.fields).map(([key, field]) => {
-        const currentVal = cur[key] !== undefined ? cur[key] : (field.type === 'boolean' ? 0 : 0);
+        const currentVal = cur[key] !== undefined ? cur[key] : (field.type === 'boolean' ? 0 : (field.default !== undefined ? field.default : 0));
         const initialVal = initVals[key] !== undefined ? initVals[key] : currentVal;
         return `
                 <div class="calc-field-row" id="row_modal_${key}" data-var="${key}">
@@ -1852,6 +1892,12 @@ const calcoloView = {
                         <button type="button" class="toggle-btn-opt opt-no ${currentVal == 0 ? 'active' : ''}" data-value="0">No</button>
                       </div>
                       <input type="hidden" id="input_modal_${key}" name="${key}" value="${currentVal == 1 ? '1' : '0'}" data-initial="${initialVal == 1 ? '1' : '0'}">
+                    ` : field.type === 'select' ? `
+                      <select id="input_modal_${key}" name="${key}" class="calc-input-select" data-initial="${initialVal}">
+                        ${Object.entries(field.options || {}).map(([optVal, optLabel]) => `
+                          <option value="${optVal}" ${String(currentVal) === String(optVal) ? 'selected' : ''}>${optLabel}</option>
+                        `).join('')}
+                      </select>
                     ` : `
                       <div style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600;">Valore:</div>
                       <input type="number" step="${field.step || 'any'}" id="input_modal_${key}" name="${key}" class="calc-input-number" value="${currentVal}" data-initial="${initialVal}">
@@ -1898,10 +1944,6 @@ const calcoloView = {
           <span style="font-size: 1.05rem;">🌐</span>
           <span>Associazioni Voti Ufficiosi (liveVU)</span>
         </button>
-        <button type="button" class="admin-tab-btn ${this.settingsModalState.adminMainTab === 'assoc-fp' ? 'active' : ''}" id="modalTabBtnAssocFp">
-          <span style="font-size: 1.05rem;">⚡</span>
-          <span>Associazioni Fantapazz (liveFP)</span>
-        </button>
       </div>
 
       <!-- TAB 1: PARAMETRI CALCOLO -->
@@ -1922,11 +1964,6 @@ const calcoloView = {
       <div id="modalTabContentAssoc" style="${this.settingsModalState.adminMainTab === 'assoc' ? 'display: block;' : 'display: none;'}">
         ${this.renderAssocModalTabHtml()}
       </div>
-
-      <!-- TAB 3: GESTIONE ASSOCIAZIONI FANTAPAZZ (liveFP) -->
-      <div id="modalTabContentAssocFp" style="${this.settingsModalState.adminMainTab === 'assoc-fp' ? 'display: block;' : 'display: none;'}">
-        ${this.renderFpAssocModalTabHtml()}
-      </div>
     `;
 
     // Logout da banner
@@ -1935,48 +1972,40 @@ const calcoloView = {
       btnBannerLogout.onclick = eseguiLogout;
     }
 
-    // Gestione Switch Tab (3 Schede Indipendenti)
+    // Gestione Switch Tab
     const btnTabCalc = content.querySelector('#modalTabBtnCalc');
     const btnTabAssoc = content.querySelector('#modalTabBtnAssoc');
-    const btnTabAssocFp = content.querySelector('#modalTabBtnAssocFp');
     const tabContentCalc = content.querySelector('#modalTabContentCalc');
     const tabContentAssoc = content.querySelector('#modalTabContentAssoc');
-    const tabContentAssocFp = content.querySelector('#modalTabContentAssocFp');
     const btnExpand = modal.querySelector('#btnModalExpandScreen');
     const modalTitle = modal.querySelector('.calc-modal-title');
 
     const switchModalTab = (tab) => {
-      this.settingsModalState.adminMainTab = tab;
-      if (btnTabCalc) btnTabCalc.classList.toggle('active', tab === 'calc');
-      if (btnTabAssoc) btnTabAssoc.classList.toggle('active', tab === 'assoc');
-      if (btnTabAssocFp) btnTabAssocFp.classList.toggle('active', tab === 'assoc-fp');
+      const safeTab = (tab === 'assoc') ? 'assoc' : 'calc';
+      this.settingsModalState.adminMainTab = safeTab;
+      if (btnTabCalc) btnTabCalc.classList.toggle('active', safeTab === 'calc');
+      if (btnTabAssoc) btnTabAssoc.classList.toggle('active', safeTab === 'assoc');
 
-      if (tabContentCalc) tabContentCalc.style.display = (tab === 'calc') ? 'block' : 'none';
-      if (tabContentAssoc) tabContentAssoc.style.display = (tab === 'assoc') ? 'block' : 'none';
-      if (tabContentAssocFp) tabContentAssocFp.style.display = (tab === 'assoc-fp') ? 'block' : 'none';
+      if (tabContentCalc) tabContentCalc.style.display = (safeTab === 'calc') ? 'block' : 'none';
+      if (tabContentAssoc) tabContentAssoc.style.display = (safeTab === 'assoc') ? 'block' : 'none';
 
       if (btnExpand) {
-        if (tab === 'assoc') btnExpand.href = 'inc/impostazioni_calcolo.php#assoc';
-        else if (tab === 'assoc-fp') btnExpand.href = 'inc/impostazioni_calcolo.php#assoc-fp';
-        else btnExpand.href = 'inc/impostazioni_calcolo.php#calc';
+        btnExpand.href = (safeTab === 'assoc') ? 'inc/impostazioni.php#assoc' : 'inc/impostazioni.php#calc';
       }
 
       if (modalTitle) {
-        if (tab === 'assoc') modalTitle.textContent = 'Associazioni Voti Ufficiosi (liveVU)';
-        else if (tab === 'assoc-fp') modalTitle.textContent = 'Associazioni Live Fantapazz (liveFP)';
-        else modalTitle.textContent = 'Parametri di Calcolo Risultati';
+        modalTitle.textContent = (safeTab === 'assoc')
+          ? 'Associazioni Voti Ufficiosi (liveVU)'
+          : 'Parametri di Calcolo Risultati';
       }
 
-      if (tab === 'assoc' && (!this.settingsModalState.assocItems || this.settingsModalState.assocItems.length === 0)) {
+      if (safeTab === 'assoc' && (!this.settingsModalState.assocItems || this.settingsModalState.assocItems.length === 0)) {
         this.loadCurrentAssocInModal(content);
-      } else if (tab === 'assoc-fp' && (!this.settingsModalState.fpAssocItems || this.settingsModalState.fpAssocItems.length === 0)) {
-        this.loadCurrentFpAssocInModal(content);
       }
     };
 
     if (btnTabCalc) btnTabCalc.onclick = () => switchModalTab('calc');
     if (btnTabAssoc) btnTabAssoc.onclick = () => switchModalTab('assoc');
-    if (btnTabAssocFp) btnTabAssocFp.onclick = () => switchModalTab('assoc-fp');
 
     // Sincronizza stato iniziale
     switchModalTab(this.settingsModalState.adminMainTab || 'calc');
@@ -1989,9 +2018,6 @@ const calcoloView = {
 
     // Attivazione logica per Tab 2 (liveVU)
     this.initAssocModalTabLogic(content);
-
-    // Attivazione logica per Tab 3 (liveFP Fantapazz)
-    this.initFpAssocModalTabLogic(content);
   },
 
   /**
@@ -1999,7 +2025,7 @@ const calcoloView = {
    */
   initSettingsModalFormLogic(content) {
     const modifiedKeys = new Set();
-    const allInputs = content.querySelectorAll('input[data-initial]');
+    const allInputs = content.querySelectorAll('input[data-initial], select[data-initial]');
     const btnSaveList = content.querySelectorAll('.btnSaveModifiche');
     const btnCancelList = content.querySelectorAll('.btnCancelChanges');
     const badgeList = content.querySelectorAll('.badgeChanges');
@@ -2083,6 +2109,11 @@ const calcoloView = {
       inp.addEventListener('change', checkFormChanges);
     });
 
+    // Bind eventi select a tendina
+    content.querySelectorAll('.calc-input-select').forEach(sel => {
+      sel.addEventListener('change', checkFormChanges);
+    });
+
     // Annulla modifiche (conforme a standalone)
     btnCancelList.forEach(btn => {
       btn.addEventListener('click', () => {
@@ -2119,7 +2150,11 @@ const calcoloView = {
         });
 
         try {
-          const res = await fetch('inc/impostazioni_calcolo.php', { method: 'POST', body: formData });
+          const res = await fetch('inc/impostazioni.php', {
+            method: 'POST',
+            headers: this.settingsModalState.csrfToken ? { 'X-CSRF-Token': this.settingsModalState.csrfToken } : {},
+            body: formData
+          });
           const resp = await res.json();
 
           if (resp.success) {
@@ -2181,7 +2216,7 @@ const calcoloView = {
             <span>Gestione e Aggiornamento Associazioni Live</span>
           </h4>
           <p style="margin: 0; font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5;">
-            Associa i giocatori attivi in <strong>Serie A</strong> con le quotazioni di <strong>Pianetafanta.it</strong> e <strong>Fantacalcio.it</strong> per aggiornare <code>liveVU_associazioni.php</code>.
+            Associa i giocatori attivi in <strong>Serie A</strong> con le quotazioni di <strong>Pianetafanta.it</strong> e <strong>Fantacalcio.it</strong> per aggiornare <code>inc/data/liveVU_associazioni.php</code>.
           </p>
         </div>
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
@@ -2288,7 +2323,7 @@ const calcoloView = {
           <div class="calc-actions-buttons">
             <button type="button" class="calc-btn-action calc-btn-save" id="modalBtnSaveAssoc">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-              <span>Salva liveVU_associazioni.php</span>
+              <span>Salva inc/data/liveVU_associazioni.php</span>
             </button>
           </div>
         </div>
@@ -2368,12 +2403,12 @@ const calcoloView = {
   },
 
   /**
-   * Ispezione dello stato attuale da liveVU_associazioni.php nel modale
+   * Ispezione dello stato attuale da inc/data/liveVU_associazioni.php nel modale
    */
   async loadCurrentAssocInModal(content) {
     try {
-      this.showToast("Caricamento stato attuale da liveVU_associazioni.php...");
-      const res = await fetch(`inc/impostazioni_calcolo.php?assoc_action=get_current_state&_t=${Date.now()}`);
+      this.showToast("Caricamento stato attuale da inc/data/liveVU_associazioni.php...");
+      const res = await fetch(`inc/impostazioni.php?assoc_action=get_current_state&_t=${Date.now()}`);
       const data = await res.json();
       if (!data.success) {
         alert("Errore: " + (data.error || "Impossibile caricare i dati"));
@@ -2438,7 +2473,11 @@ const calcoloView = {
       fd.append('excel_pf', filePF);
       fd.append('excel_fc', fileFC);
 
-      const res = await fetch('inc/impostazioni_calcolo.php', { method: 'POST', body: fd });
+      const res = await fetch('inc/impostazioni.php', {
+        method: 'POST',
+        headers: this.settingsModalState.csrfToken ? { 'X-CSRF-Token': this.settingsModalState.csrfToken } : {},
+        body: fd
+      });
       const data = await res.json();
       btn.disabled = false;
       btn.innerHTML = oldText;
@@ -2824,7 +2863,7 @@ const calcoloView = {
   },
 
   /**
-   * Salvataggio delle associazioni su liveVU_associazioni.php dal modale
+   * Salvataggio delle associazioni su inc/data/liveVU_associazioni.php dal modale
    */
   async saveAssocInModal(content) {
     const items = this.settingsModalState.assocItems || [];
@@ -2886,7 +2925,11 @@ const calcoloView = {
       fd.append('assoc_action', 'save_associations');
       fd.append('associations_json', JSON.stringify(payload));
 
-      const res = await fetch('inc/impostazioni_calcolo.php', { method: 'POST', body: fd });
+      const res = await fetch('inc/impostazioni.php', {
+        method: 'POST',
+        headers: this.settingsModalState.csrfToken ? { 'X-CSRF-Token': this.settingsModalState.csrfToken } : {},
+        body: fd
+      });
       const data = await res.json();
       btn.disabled = false;
       btn.innerHTML = oldText;
@@ -2897,648 +2940,6 @@ const calcoloView = {
       }
 
       this.showToast(`✅ ${data.message} (${data.count} giocatori)`);
-    } catch (e) {
-      btn.disabled = false;
-      btn.innerHTML = oldText;
-      alert("Errore di comunicazione: " + e.message);
-    }
-  },
-
-  /**
-   * Renderizza l'interfaccia HTML del Tab Associazioni Fantapazz (liveFP) nel modale
-   */
-  renderFpAssocModalTabHtml() {
-    return `
-      <!-- BANNER INTESTAZIONE MODULO ASSOCIAZIONI FANTAPAZZ -->
-      <div class="assoc-header-banner">
-        <div>
-          <h4 style="margin: 0 0 6px 0; font-size: 1.05rem; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
-            <span style="color: #f59e0b;">⚡</span>
-            <span>Gestione Associazioni Live Fantapazz</span>
-          </h4>
-          <p style="margin: 0; font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5;">
-            Associa i nomi dei giocatori del listone <strong>Fantapazz</strong> (<code>Listone_Fantapazz.csv</code>) con i giocatori attivi in <strong>Serie A</strong> per aggiornare <code>js/fcmVotiAssociazioni.js</code>.
-          </p>
-        </div>
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button type="button" class="calc-btn-action" id="modalBtnLoadCurrentFP" style="background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); color: var(--text-primary); font-size: 0.82rem; padding: 8px 14px; cursor: pointer;">
-            <span>👁️ Ispeziona Stato Attuale</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- SEZIONE UPLOAD FILE CSV FANTAPAZZ -->
-      <div style="max-width: 600px; margin: 0 auto 20px auto;">
-        <div class="assoc-upload-box" id="modalBoxUploadFP" style="padding: 24px 20px;">
-          <div class="assoc-upload-icon" style="color: #f59e0b;">📄</div>
-          <div class="assoc-upload-title">Listone Calciatori Fantapazz (.csv)</div>
-          <div class="assoc-upload-subtitle">Template: <code>Listone_Fantapazz.csv</code> (delimitatore <code>;</code>)</div>
-          <label class="assoc-file-label" style="margin-top: 10px;">
-            <input type="file" id="modalFileCsvFP" accept=".csv">
-            <span>📁 Seleziona File (.csv)</span>
-          </label>
-          <div class="assoc-file-selected-name" id="modalFileNameFP">Nessun file selezionato</div>
-        </div>
-      </div>
-
-      <!-- PULSANTE ANALISI -->
-      <div style="text-align: center; margin: 16px 0 22px 0;">
-        <button type="button" id="modalBtnAnalyzeFP" class="calc-btn-action calc-btn-save" style="padding: 12px 28px; font-size: 0.95rem; border-radius: 12px; cursor: pointer;">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <span>Analizza ed Elabora Associazioni Fantapazz</span>
-        </button>
-      </div>
-
-      <!-- WORKSPACE RISULTATI -->
-      <div id="modalFpAssocWorkspace" style="display: none;">
-        <!-- STATS CARDS -->
-        <div class="assoc-stats-grid">
-          <div class="assoc-stat-card">
-            <div class="assoc-stat-val" id="modalFpStatTotalFcm">0</div>
-            <div class="assoc-stat-lbl">Giocatori Serie A FCM</div>
-          </div>
-          <div class="assoc-stat-card stat-card-confirmed">
-            <div class="assoc-stat-val" id="modalFpStatConfirmed">0</div>
-            <div class="assoc-stat-lbl">✅ Convalidati / Mappati</div>
-          </div>
-          <div class="assoc-stat-card stat-card-doubtful">
-            <div class="assoc-stat-val" id="modalFpStatDoubtful">0</div>
-            <div class="assoc-stat-lbl">⚠️ Da Risolvere</div>
-          </div>
-          <div class="assoc-stat-card stat-card-notfound">
-            <div class="assoc-stat-val" id="modalFpStatNotFound">0</div>
-            <div class="assoc-stat-lbl">⚪ Non Trovati / Vuoti</div>
-          </div>
-        </div>
-
-        <!-- TOOLBAR FILTRI -->
-        <div class="assoc-toolbar">
-          <div class="assoc-filter-pills" id="modalFpAssocPills">
-            <button type="button" class="assoc-pill-btn active" data-filter="all">Tutti (<span id="modalFpCountPillAll">0</span>)</button>
-            <button type="button" class="assoc-pill-btn pill-doubtful" data-filter="dubbio">⚠️ Da Risolvere (<span id="modalFpCountPillDoubtful">0</span>)</button>
-            <button type="button" class="assoc-pill-btn pill-confirmed" data-filter="confermato">✅ Convalidati (<span id="modalFpCountPillConfirmed">0</span>)</button>
-            <button type="button" class="assoc-pill-btn pill-notfound" data-filter="non_trovato">⚪ Non Trovati (<span id="modalFpCountPillNotFound">0</span>)</button>
-          </div>
-          <div class="assoc-search-wrap">
-            <input type="text" id="modalFpAssocSearchInput" class="assoc-search-input" placeholder="🔍 Filtra nome o squadra...">
-          </div>
-        </div>
-
-        <!-- TABELLA INTERATTIVA -->
-        <div class="assoc-table-wrap">
-          <table class="assoc-table">
-            <thead>
-              <tr>
-                <th style="width: 44px; text-align: center;">R</th>
-                <th>Giocatore FCM</th>
-                <th>Squadra Serie A</th>
-                <th style="width: 140px; text-align: center;">Stato</th>
-                <th style="min-width: 280px;">Fantapazz (Nome Assegnato)</th>
-                <th style="width: 80px; text-align: center;">Azione</th>
-              </tr>
-            </thead>
-            <tbody id="modalFpAssocTableBody">
-            </tbody>
-          </table>
-        </div>
-
-        <!-- ACTION BAR STICKY BOTTOM SALVATAGGIO -->
-        <div class="calc-actions-bar is-sticky-bottom" style="margin-top: 18px;">
-          <div class="badge-wrap">
-            <span class="badge-status-changes" id="modalFpAssocSaveStatusBadge">
-              <span>⚪</span> In attesa di revisione
-            </span>
-          </div>
-          <div class="calc-actions-buttons">
-            <button type="button" class="calc-btn-action calc-btn-save" id="modalBtnSaveFpAssoc">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-              <span>Salva js/fcmVotiAssociazioni.js</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-  },
-
-  /**
-   * Inizializzazione eventi e logica del tab Associazioni Fantapazz nel modale
-   */
-  initFpAssocModalTabLogic(content) {
-    const fileFP = content.querySelector('#modalFileCsvFP');
-    const nameFP = content.querySelector('#modalFileNameFP');
-    const boxFP = content.querySelector('#modalBoxUploadFP');
-
-    if (fileFP) {
-      fileFP.onchange = () => {
-        const f = fileFP.files && fileFP.files[0];
-        if (f) {
-          nameFP.textContent = `📄 ${f.name} (${Math.round(f.size / 1024)} KB)`;
-          if (boxFP) boxFP.classList.add('has-file');
-        } else {
-          nameFP.textContent = 'Nessun file selezionato';
-          if (boxFP) boxFP.classList.remove('has-file');
-        }
-      };
-    }
-
-    const btnAnalyze = content.querySelector('#modalBtnAnalyzeFP');
-    if (btnAnalyze) {
-      btnAnalyze.onclick = () => this.analyzeFpAssocFilesInModal(content);
-    }
-
-    const btnLoadCurrent = content.querySelector('#modalBtnLoadCurrentFP');
-    if (btnLoadCurrent) {
-      btnLoadCurrent.onclick = () => this.loadCurrentFpAssocInModal(content);
-    }
-
-    const pillBtns = content.querySelectorAll('#modalFpAssocPills .assoc-pill-btn');
-    pillBtns.forEach(btn => {
-      btn.onclick = () => {
-        pillBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.settingsModalState.fpAssocFilter = btn.getAttribute('data-filter') || 'all';
-        this.renderFpAssocModalTable(content);
-      };
-    });
-
-    const searchInput = content.querySelector('#modalFpAssocSearchInput');
-    if (searchInput) {
-      searchInput.oninput = () => {
-        this.settingsModalState.fpAssocSearch = searchInput.value.toLowerCase().trim();
-        this.renderFpAssocModalTable(content);
-      };
-    }
-
-    const btnSave = content.querySelector('#modalBtnSaveFpAssoc');
-    if (btnSave) {
-      btnSave.onclick = () => this.saveFpAssocInModal(content);
-    }
-  },
-
-  /**
-   * Ispezione dello stato attuale da js/fcmVotiAssociazioni.js nel modale
-   */
-  /**
-   * Ispezione dello stato attuale da js/fcmVotiAssociazioni.js nel modale
-   */
-  async loadCurrentFpAssocInModal(content) {
-    try {
-      this.showToast("Caricamento stato attuale da js/fcmVotiAssociazioni.js...");
-      const res = await fetch(`inc/impostazioni_calcolo.php?fp_assoc_action=get_current_state&_t=${Date.now()}`);
-      const data = await res.json();
-      if (!data.success) {
-        alert("Errore: " + (data.error || "Impossibile caricare i dati"));
-        return;
-      }
-
-      this.settingsModalState.unassignedFP = data.unassigned_fp || [];
-      this.settingsModalState.fpAssocItems = (data.items || []).map((item, idx) => {
-        const hasFp = (item.fp_name && item.fp_name !== '');
-        return {
-          id: idx,
-          codiceFCM: item.player.codice,
-          idFCM: item.player.id,
-          nomeFCM: item.player.nome,
-          squadraFCM: item.player.squadra,
-          ruoloFCM: item.player.ruolo,
-          status: hasFp ? 'confermato' : 'non_trovato',
-          isDoubtful: false,
-          conflict: false,
-          fpSelected: hasFp ? { calciatore: item.fp_name, squadra: item.player.squadra } : null,
-          fpCandidates: [],
-          isManualEdit: false
-        };
-      });
-
-      const ws = content.querySelector('#modalFpAssocWorkspace');
-      if (ws) ws.style.display = 'block';
-
-      this.updateFpAssocModalStats(content);
-      this.renderFpAssocModalTable(content);
-      this.showToast(`Stato attuale caricato: ${data.total_fcm} giocatori Serie A rilevati.`);
-    } catch (e) {
-      alert("Errore di caricamento: " + e.message);
-    }
-  },
-
-  /**
-   * Analisi del file CSV Fantapazz nel modale
-   */
-  async analyzeFpAssocFilesInModal(content) {
-    const fileFP = content.querySelector('#modalFileCsvFP').files[0];
-    if (!fileFP) {
-      alert("Seleziona il file CSV Listone Fantapazz per procedere.");
-      return;
-    }
-
-    const btn = content.querySelector('#modalBtnAnalyzeFP');
-    const oldText = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span>⏳ Elaborazione in corso...</span>';
-
-    try {
-      const fd = new FormData();
-      fd.append('fp_assoc_action', 'analyze_file');
-      fd.append('csv_fp', fileFP);
-
-      const res = await fetch('inc/impostazioni_calcolo.php', { method: 'POST', body: fd });
-      const data = await res.json();
-      btn.disabled = false;
-      btn.innerHTML = oldText;
-
-      if (!data.success) {
-        alert("Errore analisi: " + (data.error || "Errore sconosciuto"));
-        return;
-      }
-
-      this.settingsModalState.unassignedFP = data.unassigned_fp || [];
-      this.settingsModalState.fpAssocItems = (data.all || []).map((item, idx) => ({
-        id: idx,
-        codiceFCM: item.player.codice,
-        idFCM: item.player.id,
-        nomeFCM: item.player.nome,
-        squadraFCM: item.player.squadra,
-        ruoloFCM: item.player.ruolo,
-        status: item.status,
-        isDoubtful: item.is_doubtful,
-        conflict: !!item.conflict,
-        fpSelected: item.fp_selected ? { calciatore: item.fp_selected.calciatore, squadra: item.fp_selected.squadra } : null,
-        fpCandidates: item.fp_candidates || [],
-        isManualEdit: false
-      }));
-
-      const ws = content.querySelector('#modalFpAssocWorkspace');
-      if (ws) ws.style.display = 'block';
-
-      this.updateFpAssocModalStats(content);
-
-      const doubtfulCount = this.settingsModalState.fpAssocItems.filter(i => i.status === 'dubbio').length;
-      const pills = content.querySelectorAll('#modalFpAssocPills .assoc-pill-btn');
-      pills.forEach(b => b.classList.remove('active'));
-
-      if (doubtfulCount > 0) {
-        this.settingsModalState.fpAssocFilter = 'dubbio';
-        const pDubbio = content.querySelector('#modalFpAssocPills .pill-doubtful');
-        if (pDubbio) pDubbio.classList.add('active');
-        this.showToast(`Analisi completata: trovati ${doubtfulCount} casi da verificare (risolvi prima del salvataggio).`);
-      } else {
-        this.settingsModalState.fpAssocFilter = 'all';
-        const pAll = content.querySelector('#modalFpAssocPills [data-filter="all"]');
-        if (pAll) pAll.classList.add('active');
-        this.showToast("Analisi completata con successo! Nessun conflitto rilevato.");
-      }
-
-      this.renderFpAssocModalTable(content);
-      if (ws) ws.scrollIntoView({ behavior: 'smooth' });
-    } catch (e) {
-      btn.disabled = false;
-      btn.innerHTML = oldText;
-      alert("Errore durante l'elaborazione: " + e.message);
-    }
-  },
-
-  /**
-   * Aggiornamento contatori e badge per Fantapazz
-   */
-  updateFpAssocModalStats(content) {
-    const items = this.settingsModalState.fpAssocItems || [];
-    let confirmed = 0;
-    let doubtful = 0;
-    let notFound = 0;
-
-    items.forEach(i => {
-      if (i.status === 'dubbio') doubtful++;
-      else if (i.status === 'confermato') confirmed++;
-      else notFound++;
-    });
-
-    const setT = (id, val) => {
-      const el = content.querySelector('#' + id);
-      if (el) el.textContent = val;
-    };
-
-    setT('modalFpStatTotalFcm', items.length);
-    setT('modalFpStatConfirmed', confirmed);
-    setT('modalFpStatDoubtful', doubtful);
-    setT('modalFpStatNotFound', notFound);
-
-    setT('modalFpCountPillAll', items.length);
-    setT('modalFpCountPillDoubtful', doubtful);
-    setT('modalFpCountPillConfirmed', confirmed);
-    setT('modalFpCountPillNotFound', notFound);
-
-    const statusBadge = content.querySelector('#modalFpAssocSaveStatusBadge');
-    if (statusBadge) {
-      if (doubtful > 0) {
-        statusBadge.className = 'badge-status-changes has-changes';
-        statusBadge.innerHTML = `<span>⚠️</span> ${doubtful} casi dubbi o conflitti rimanenti`;
-      } else {
-        statusBadge.className = 'badge-status-changes';
-        statusBadge.style.background = 'rgba(16, 185, 129, 0.15)';
-        statusBadge.style.color = 'var(--accent-emerald, #10b981)';
-        statusBadge.style.border = '1px solid rgba(16, 185, 129, 0.3)';
-        statusBadge.innerHTML = '<span>✅</span> Pronto al salvataggio univoco';
-      }
-    }
-  },
-
-  /**
-   * Rendering della tabella interattiva Fantapazz nel modale
-   */
-  renderFpAssocModalTable(content) {
-    const tbody = content.querySelector('#modalFpAssocTableBody');
-    if (!tbody) return;
-
-    const filter = this.settingsModalState.fpAssocFilter || 'all';
-    const term = this.settingsModalState.fpAssocSearch || '';
-    const items = this.settingsModalState.fpAssocItems || [];
-
-    const visible = items.filter(item => {
-      if (filter !== 'all' && item.status !== filter) return false;
-      if (term !== '') {
-        const matchNome = item.nomeFCM.toLowerCase().indexOf(term) > -1;
-        const matchSq = item.squadraFCM.toLowerCase().indexOf(term) > -1;
-        const matchCod = item.codiceFCM.toString().indexOf(term) > -1;
-        if (!matchNome && !matchSq && !matchCod) return false;
-      }
-      return true;
-    });
-
-    if (visible.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 26px; color: var(--text-muted); font-size: 0.88rem;">Nessun giocatore corrisponde ai filtri selezionati.</td></tr>';
-      return;
-    }
-
-    const esc = (s) => (s ? String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : '');
-
-    const normFpTeam = (t) => {
-      if (!t) return '';
-      t = String(t).toUpperCase().trim();
-      if (t.indexOf('VERONA') > -1) return 'VERONA';
-      if (t.indexOf('INTER') > -1) return 'INTER';
-      if (t.indexOf('JUVE') > -1) return 'JUVENTUS';
-      return t;
-    };
-
-    // Calcolo unassigned escludendo già assegnati
-    const assigned = {};
-    items.forEach(item => {
-      if (item.fpSelected && item.fpSelected.calciatore) {
-        assigned[item.fpSelected.calciatore.toLowerCase().trim()] = true;
-      }
-    });
-    const unassignedAll = (this.settingsModalState.unassignedFP || []).filter(p => !assigned[p.calciatore.toLowerCase().trim()]);
-
-    let html = '';
-    visible.forEach(item => {
-      const rowClass = (item.status === 'dubbio') ? 'row-doubtful' : '';
-
-      let statusBadge = '';
-      if (item.status === 'dubbio') {
-        const badgeText = item.conflict ? '⚠️ Conflitto Univocità' : '⚠️ Da Risolvere';
-        statusBadge = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4);">${badgeText}</span>`;
-      } else if (item.status === 'confermato') {
-        statusBadge = '<span style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">✅ Confermato</span>';
-      } else {
-        statusBadge = '<span style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: rgba(148, 163, 184, 0.1); color: #94a3b8;">⚪ Non Trovato</span>';
-      }
-
-      const isEditable = (item.status === 'dubbio' || item.status === 'non_trovato' || item.isManualEdit);
-
-      let colFP = '';
-      if (isEditable) {
-        colFP = `<select class="assoc-cand-select sel-fp" data-id="${item.id}">`;
-        colFP += '<option value="">-- Seleziona Calciatore Fantapazz --</option>';
-        colFP += `<option value="EMPTY" ${!item.fpSelected ? 'selected' : ''}>[Nessuna corrispondenza / Lascia vuoto]</option>`;
-
-        const candNames = {};
-        // 1. Candidati suggeriti dall'algoritmo
-        if (item.fpCandidates && item.fpCandidates.length > 0) {
-          colFP += `<optgroup label="Candidati Suggeriti (${item.fpCandidates.length})">`;
-          item.fpCandidates.forEach(c => {
-            candNames[c.calciatore.toLowerCase().trim()] = true;
-            const isSel = (item.fpSelected && item.fpSelected.calciatore === c.calciatore) ? 'selected' : '';
-            colFP += `<option value="${esc(c.calciatore)}" ${isSel}>${esc(c.calciatore)} (${esc(c.squadra)} - ${c.ruolo || ''})</option>`;
-          });
-          colFP += '</optgroup>';
-        }
-
-        // 2. Calciatori non ancora assegnati della stessa squadra
-        const sameTeamUnassigned = unassignedAll.filter(p => {
-          if (candNames[p.calciatore.toLowerCase().trim()]) return false;
-          return normFpTeam(p.squadra) === normFpTeam(item.squadraFCM);
-        });
-        if (sameTeamUnassigned.length > 0) {
-          colFP += `<optgroup label="Non Assegnati - ${esc(item.squadraFCM)} (${sameTeamUnassigned.length})">`;
-          sameTeamUnassigned.forEach(p => {
-            candNames[p.calciatore.toLowerCase().trim()] = true;
-            const isSel = (item.fpSelected && item.fpSelected.calciatore === p.calciatore) ? 'selected' : '';
-            colFP += `<option value="${esc(p.calciatore)}" ${isSel}>${esc(p.calciatore)} (${esc(p.squadra)} - ${p.ruolo || ''})</option>`;
-          });
-          colFP += '</optgroup>';
-        }
-
-        // 3. Tutti gli altri calciatori non assegnati
-        const otherUnassigned = unassignedAll.filter(p => !candNames[p.calciatore.toLowerCase().trim()]);
-        if (otherUnassigned.length > 0) {
-          colFP += `<optgroup label="Altri Giocatori Non Assegnati (${otherUnassigned.length})">`;
-          otherUnassigned.forEach(p => {
-            const isSel = (item.fpSelected && item.fpSelected.calciatore === p.calciatore) ? 'selected' : '';
-            colFP += `<option value="${esc(p.calciatore)}" ${isSel}>${esc(p.calciatore)} (${esc(p.squadra)} - ${p.ruolo || ''})</option>`;
-          });
-          colFP += '</optgroup>';
-        }
-
-        // 4. Attualmente selezionato se non nei gruppi precedenti
-        if (item.fpSelected && item.fpSelected.calciatore && !candNames[item.fpSelected.calciatore.toLowerCase().trim()]) {
-          colFP += '<optgroup label="Attualmente Selezionato">';
-          colFP += `<option value="${esc(item.fpSelected.calciatore)}" selected>${esc(item.fpSelected.calciatore)} (${esc(item.fpSelected.squadra || '')})</option>`;
-          colFP += '</optgroup>';
-        }
-
-        colFP += '</select>';
-      } else {
-        if (item.fpSelected && item.fpSelected.calciatore) {
-          colFP = `<span style="font-weight: 700; color: var(--text-primary); font-size: 0.88rem;">${esc(item.fpSelected.calciatore)}</span>`;
-          if (item.fpSelected.squadra) {
-            colFP += ` <span style="font-size: 0.75rem; color: var(--text-muted);">(${esc(item.fpSelected.squadra)})</span>`;
-          }
-        } else {
-          colFP = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Nessuna associazione</span>';
-        }
-      }
-
-      let colAction = '';
-      if (isEditable) {
-        colAction = `<button type="button" class="calc-btn-action calc-btn-save btn-fp-row-save" data-id="${item.id}" style="padding: 5px 10px; font-size: 0.76rem;"><span>Salva</span></button>`;
-      } else {
-        colAction = `<button type="button" class="calc-btn-action calc-btn-cancel btn-fp-row-edit" data-id="${item.id}" style="padding: 5px 8px; font-size: 0.74rem;" title="Modifica associazione"><span>✏️</span></button>`;
-      }
-
-      html += `
-        <tr class="${rowClass}">
-          <td style="text-align: center;"><span class="badge-role badge-role-${item.ruoloFCM}">${item.ruoloFCM}</span></td>
-          <td><strong style="font-size: 0.88rem; color: var(--text-primary); display: block;">${esc(item.nomeFCM)}</strong><span style="font-size: 0.74rem; color: var(--text-muted); font-family: ui-monospace, monospace;">Cod: ${item.codiceFCM} • ID: ${item.idFCM}</span></td>
-          <td><span style="font-weight: 600; color: var(--text-secondary);">${esc(item.squadraFCM)}</span></td>
-          <td style="text-align: center;">${statusBadge}</td>
-          <td>${colFP}</td>
-          <td style="text-align: center;">${colAction}</td>
-        </tr>
-      `;
-    });
-
-    tbody.innerHTML = html;
-
-    // Listener dropdown candidati Fantapazz
-    tbody.querySelectorAll('.sel-fp').forEach(sel => {
-      sel.onchange = (e) => {
-        const id = parseInt(sel.getAttribute('data-id'), 10);
-        const item = this.settingsModalState.fpAssocItems[id];
-        if (!item) return;
-        const val = e.target.value;
-        if (val === 'EMPTY' || val === '') {
-          item.fpSelected = null;
-        } else {
-          let cand = (item.fpCandidates || []).find(c => c.calciatore === val);
-          if (!cand) {
-            cand = (this.settingsModalState.unassignedFP || []).find(c => c.calciatore === val);
-          }
-          if (cand) {
-            item.fpSelected = { calciatore: cand.calciatore, squadra: cand.squadra, ruolo: cand.ruolo };
-          } else {
-            item.fpSelected = { calciatore: val, squadra: '' };
-          }
-        }
-      };
-    });
-
-    tbody.querySelectorAll('.btn-fp-row-save').forEach(btn => {
-      btn.onclick = () => {
-        const id = parseInt(btn.getAttribute('data-id'), 10);
-        const item = this.settingsModalState.fpAssocItems[id];
-        if (!item) return;
-        item.isManualEdit = false;
-        item.conflict = false;
-
-        if (item.fpSelected && item.fpSelected.calciatore) {
-          item.status = 'confermato';
-          item.isDoubtful = false;
-
-          // VERIFICA UNICITÀ RIGOROSA: se questo calciatore era assegnato altrove
-          const selNorm = item.fpSelected.calciatore.toLowerCase().trim();
-          this.settingsModalState.fpAssocItems.forEach(other => {
-            if (other.id !== item.id && other.fpSelected && other.fpSelected.calciatore && other.fpSelected.calciatore.toLowerCase().trim() === selNorm) {
-              other.status = 'dubbio';
-              other.isDoubtful = true;
-              other.conflict = true;
-              this.showToast(`⚠️ Attenzione: '${item.fpSelected.calciatore}' era assegnato a ${other.nomeFCM}. Assegnazione spostata su ${item.nomeFCM}!`);
-            }
-          });
-        } else {
-          item.status = 'non_trovato';
-          item.isDoubtful = false;
-        }
-
-        this.updateFpAssocModalStats(content);
-        this.renderFpAssocModalTable(content);
-        this.showToast(`Associazione Fantapazz per ${item.nomeFCM} aggiornata!`);
-      };
-    });
-
-    tbody.querySelectorAll('.btn-fp-row-edit').forEach(btn => {
-      btn.onclick = () => {
-        const id = parseInt(btn.getAttribute('data-id'), 10);
-        const item = this.settingsModalState.fpAssocItems[id];
-        if (!item) return;
-        item.isManualEdit = !item.isManualEdit;
-        this.renderFpAssocModalTable(content);
-      };
-    });
-  },
-
-  /**
-   * Salvataggio delle associazioni su js/fcmVotiAssociazioni.js dal modale
-   */
-  async saveFpAssocInModal(content) {
-    const items = this.settingsModalState.fpAssocItems || [];
-
-    // Controllo unicità prima del salvataggio
-    const seen = {};
-    let hasDuplicates = false;
-    const dupDetails = [];
-    items.forEach(item => {
-      if (item.fpSelected && item.fpSelected.calciatore) {
-        const k = item.fpSelected.calciatore.toLowerCase().trim();
-        if (seen[k]) {
-          hasDuplicates = true;
-          dupDetails.push(`${item.fpSelected.calciatore} (assegnato sia a ${seen[k]} sia a ${item.nomeFCM})`);
-        }
-        seen[k] = item.nomeFCM;
-      }
-    });
-
-    if (hasDuplicates) {
-      alert("Errore salvataggio: rilevate assegnazioni duplicate del medesimo calciatore Fantapazz:\n- " + dupDetails.join("\n- ") + "\n\nIl match dev'essere univoco 1-a-1. Risolvi i conflitti prima di salvare.");
-      this.settingsModalState.fpAssocFilter = 'dubbio';
-      const pDubbio = content.querySelector('#modalFpAssocPills .pill-doubtful');
-      const pills = content.querySelectorAll('#modalFpAssocPills .assoc-pill-btn');
-      pills.forEach(b => b.classList.remove('active'));
-      if (pDubbio) pDubbio.classList.add('active');
-      this.renderFpAssocModalTable(content);
-      return;
-    }
-
-    const doubtfulCount = items.filter(i => i.status === 'dubbio').length;
-    if (doubtfulCount > 0) {
-      if (!confirm(`Attenzione: sono ancora presenti ${doubtfulCount} casi da verificare non risolti. Vuoi procedere comunque con il salvataggio su js/fcmVotiAssociazioni.js?`)) {
-        this.settingsModalState.fpAssocFilter = 'dubbio';
-        const pDubbio = content.querySelector('#modalFpAssocPills .pill-doubtful');
-        const pills = content.querySelectorAll('#modalFpAssocPills .assoc-pill-btn');
-        pills.forEach(b => b.classList.remove('active'));
-        if (pDubbio) pDubbio.classList.add('active');
-        this.renderFpAssocModalTable(content);
-        return;
-      }
-    }
-
-    const btn = content.querySelector('#modalBtnSaveFpAssoc');
-    const oldText = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span>⏳ Salvataggio in corso...</span>';
-
-    try {
-      const payload = [];
-      items.forEach(item => {
-        if (item.fpSelected && item.fpSelected.calciatore) {
-          payload.push({
-            fpNome: item.fpSelected.calciatore,
-            fcmNome: item.nomeFCM
-          });
-        }
-      });
-
-      const fd = new FormData();
-      fd.append('fp_assoc_action', 'save_associations');
-      fd.append('associations_json', JSON.stringify(payload));
-
-      const res = await fetch('inc/impostazioni_calcolo.php', { method: 'POST', body: fd });
-      const data = await res.json();
-      btn.disabled = false;
-      btn.innerHTML = oldText;
-
-      if (!data.success) {
-        alert("Errore salvataggio: " + (data.error || "Errore sconosciuto"));
-        return;
-      }
-
-      // Ricarica a caldo il file associazioni in memoria
-      if (typeof fcmDataLoader !== 'undefined') {
-        try {
-          await fcmDataLoader.loadScript('js/fcmVotiAssociazioni.js', true);
-        } catch (err) { }
-      }
-
-      this.showToast(`✅ ${data.message} (${data.count} associazioni salvate)`);
     } catch (e) {
       btn.disabled = false;
       btn.innerHTML = oldText;

@@ -3,15 +3,17 @@ const sectionsView = {
     ['#albo', '🏆', "Albo d'Oro", 'Palmares e titoli vinti dalle fantasquadre.'],
     ['#ranking', '📈', 'Ranking', 'Classifica perpetua e coefficienti storici delle fantasquadre.'],
     ['#album', '🖼', 'Album Storico', 'Lo storico dei calciatori transitati nella lega.'],
+    ['#schede_giocatori', '👤', 'Schede Giocatori', 'Database all-time, statistiche stagionali e schede tecniche dei calciatori.'],
     ['#topflop', '🌟', 'Top & Flop 11', 'Le migliori e peggiori formazioni storiche.'],
     ['#confrontidiretti', '⚔️', 'Scontri Diretti', 'Bilancio testa a testa tra due fantasquadre.'],
     ['#confronti', '📚', 'Confronti Storici', 'Archivio completo degli incontri e dei palmares.'],
     ['#recordstorici', '🎖️', 'Record Storici', 'I primati di gol, scarto, serie positive e punteggi.'],
+    ['#fantamstorico', '👔', 'FantaMister Storico', 'Analisi delle scelte, record e classifiche storiche dei fantallenatori.'],
     ['#almanacco', '📜', 'Almanacco', 'Statistiche, cannonieri e primati di lega.'],
     ['#rating', '⭐', 'Fanta Rating', 'Indice storico di rendimento delle fantasquadre.'],
     ['#topcosti', '💰', 'Top Costi Storico', 'I calciatori più pagati nella storia delle aste.'],
     ['#topcostistagione', '🏷️', 'Top Costi Stagione', 'I colpi più onerosi della stagione corrente.'],
-    ['#archivio', '🗂️', 'Archivio Stagioni', 'Classifica, rose e risultati delle stagioni passate.']
+    ['#archivio', '🗂️', 'Archivio Stagioni', 'Consultazione cronologica delle edizioni concluse, palmarès e primati storici.']
   ],
   extraItems: [
     ['#seavessiavuto', '📅', 'Se avessi avuto...', 'Simulazione dei calendari e della fortuna di lega.'],
@@ -26,14 +28,15 @@ const sectionsView = {
     ['#stats', '📊', 'Statistiche Visite', 'Contatore visite, accessi e statistiche di traffico della lega.']
   ],
 
-  render(container, title, subtitle, items) {
+  render(container, title, subtitle, items, extraActionHtml = '') {
     container.innerHTML = `
       <div class="card">
-        <div class="card-header">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
           <div>
             <div class="card-title">${title}</div>
             <div class="card-subtitle">${subtitle}</div>
           </div>
+          ${extraActionHtml || ''}
         </div>
         <div class="quick-links-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;">
           ${items.map(([href, icon, label, description]) => `
@@ -50,6 +53,9 @@ const sectionsView = {
   },
 
   async renderStorico(container) {
+    if (typeof fcmSkeleton !== 'undefined' && !container.querySelector('.quick-links-grid')) {
+      container.innerHTML = fcmSkeleton.grid({ count: 6 });
+    }
     let items = [...this.storicoItems];
     try {
       if (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.hasRankingDivisioni === 'function') {
@@ -65,7 +71,19 @@ const sectionsView = {
       items = items.filter(([href]) => fcmModules.isRouteEnabled(href));
     }
 
-    this.render(container, '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary, #0284c7)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 7v5l4 2"></path></svg> Storico', 'Albo d\'oro, statistiche e archivio storico della lega.', items);
+    const settingsLinkHtml = `
+      <div class="pill-tabs" style="margin-bottom:0;display:inline-flex;align-items:center;">
+        <a href="inc/impostazioni.php#ranking" class="pill-btn" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;" title="Impostazioni Ranking &amp; Storico">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span>Impostazioni</span>
+        </a>
+      </div>
+    `;
+
+    this.render(container, '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary, #0284c7)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path><path d="M12 7v5l4 2"></path></svg> Storico', 'Albo d\'oro, statistiche e archivio storico della lega.', items, settingsLinkHtml);
   },
 
   renderExtra(container) {

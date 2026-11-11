@@ -96,6 +96,7 @@
       const pGolV_val = this._getParam('pGolV', 1, options);
       const pGolP_val = this._getParam('pGolP', 0.5, options);
       const golVP_active = this._getParam('golVP', 0, options) === 1;
+      const calcPreciso = this._getParam('CalcoloPreciso', 0, options) === 1;
 
       const roleNum = this.getRoleNum(ruolo !== undefined ? ruolo : (v.ruolo || v.Ruolo));
       const isPortiere = roleNum === 1;
@@ -133,7 +134,7 @@
         fv = fv + (pGolF_val * netGoals) + (pRigF_val * rigoriSegnati) + gvBonus + gpBonus - (pAutoG_val * autoG) - (pRigS_val * rSba) + (pAss_val * ass) - cardMalus;
       }
 
-      return Number(fv.toFixed(2));
+      return calcPreciso ? fv : Number(fv.toFixed(2));
     },
 
     /**
@@ -158,8 +159,8 @@
       for (let i = 0; i < startersList.length; i++) {
         const orig = startersList[i];
         const p = { ...orig };
-        const pRole = this.getRoleNum(p.ruolo || p.Ruolo);
-        const pName = p.nome || p.Nome || `Giocatore ${i + 1}`;
+        const pRole = this.getRoleNum(p.ruolo !== undefined ? p.ruolo : (p.Ruolo !== undefined ? p.Ruolo : p.role));
+        const pName = p.nome || p.Nome || p.name || `Giocatore ${i + 1}`;
 
         if (this.hasVote(p)) {
           titolariFinali.push(p);
@@ -173,9 +174,9 @@
             const bKey = (b.uid !== undefined && b.uid !== null)
               ? b.uid
               : ((b.id !== undefined && b.id !== null) ? b.id : `bench_${bIdx}_${b.nome || b.Nome}`);
-            const bRole = this.getRoleNum(b.ruolo || b.Ruolo);
+            const bRole = this.getRoleNum(b.ruolo !== undefined ? b.ruolo : (b.Ruolo !== undefined ? b.Ruolo : b.role));
 
-            if (!benchUsata.has(bKey) && bRole === pRole && this.hasVote(b)) {
+            if (!benchUsata.has(bKey) && pRole > 0 && bRole === pRole && this.hasVote(b)) {
               benchUsata.add(bKey);
               numSost++;
               const bVote = (b.fantavoto !== undefined && typeof b.fantavoto === 'number')
@@ -197,7 +198,7 @@
 
               sostituzioniEffettuate.push({
                 uscito: pName,
-                entrato: b.nome || b.Nome,
+                entrato: b.nome || b.Nome || b.name,
                 ruolo: this.getRoleLetter(pRole),
                 voto: bVote,
                 tipo: 'panchina'
@@ -291,6 +292,7 @@
       const pModDRisU_val = this._getParam('pModDRisU', 5, options);
       const pModCRisU_val = this._getParam('pModCRisU', 5, options);
       const pModAArr_val = this._getParam('pModAArr', 0, options);
+      const calcPreciso_val = this._getParam('CalcoloPreciso', 0, options) === 1;
 
       const getBaseVote = (p, defaultVal) => {
         if (p.isRisUfficio || p.isRiservaUfficio || p.isNoSost) return defaultVal;
@@ -430,7 +432,7 @@
             if (voto >= 8) return 2;
             return 0;
           } else {
-            if (voto > 6 && voto < 8) return Number((voto - 6).toFixed(2));
+            if (voto > 6 && voto < 8) return calcPreciso_val ? (voto - 6) : Number((voto - 6).toFixed(2));
             if (voto >= 8) return 2;
             return 0;
           }
@@ -586,8 +588,9 @@
       const modAttCasa = m.modAttaccoCasa || 0;
       const modAttFuori = m.modAttaccoFuori || 0;
 
-      const totaleCasa = Number((sommaCasa + fc + modPorCasa + modDifFuori + modCenCasa + modAttCasa).toFixed(2));
-      const totaleFuori = Number((sommaFuori + modPorFuori + modDifCasa + modCenFuori + modAttFuori).toFixed(2));
+      const cleanSum = (n) => Math.round((Number(n) || 0) * 1e6) / 1e6;
+      const totaleCasa = Number(cleanSum(sommaCasa + fc + modPorCasa + modDifFuori + modCenCasa + modAttCasa).toFixed(2));
+      const totaleFuori = Number(cleanSum(sommaFuori + modPorFuori + modDifCasa + modCenFuori + modAttFuori).toFixed(2));
 
       return { totaleCasa, totaleFuori };
     },

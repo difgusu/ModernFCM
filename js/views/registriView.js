@@ -219,6 +219,10 @@ const registriView = {
    * Carica dinamicamente i dati di squadre, fonti, calendario e voti, e costruisce la tabella con i relativi controlli.
    */
   async render(container) {
+    if (typeof fcmSkeleton !== 'undefined' && !container.querySelector('#selRegistriTeam')) {
+      container.innerHTML = fcmSkeleton.table({ cols: 8, rows: 10, withToolbar: true, toolbarPills: 3 });
+    }
+
     // Caricamento dinamico di fcmSerieADati.js per arrQuotidiani e nomi calciatori (xg...) se necessario
     if (typeof arrQuotidiani === 'undefined') {
       await fcmDataLoader.loadScript('js/fcmSerieADati.js');
@@ -239,7 +243,11 @@ const registriView = {
       await fcmDataLoader.loadScript('js/fcmCalendarioDati.js');
     }
 
-    // Risoluzione dinamica della fantasquadra selezionata (default: prima squadra disponibile)
+    // Risoluzione dinamica della fantasquadra selezionata (Squadra del Cuore o prima squadra disponibile)
+    const favTeamId = (typeof fcmHomeConfigManager !== 'undefined') ? fcmHomeConfigManager.getFavoriteTeamId() : null;
+    if (!this.currentTeamId && favTeamId) {
+      this.currentTeamId = favTeamId;
+    }
     const currentTeam = (this.currentTeamId && fcmDataLoader.getTeamById(this.currentTeamId)) || teams[0] || { ID: 0, Nome: 'Fantasquadra' };
     this.currentTeamId = currentTeam.ID;
 
@@ -251,7 +259,9 @@ const registriView = {
     let teamRegistri = this._registriCache[this.currentTeamId];
 
     if (!teamRegistri) {
-      container.innerHTML = `
+      container.innerHTML = (typeof fcmSkeleton !== 'undefined')
+        ? fcmSkeleton.table({ cols: 8, rows: 10, withToolbar: true, toolbarPills: 3 })
+        : `
         <div class="card text-center" style="padding:40px;">
           <div style="font-size:1.1rem;font-weight:700;color:var(--accent-cyan);margin-bottom:8px;">Caricamento Registro Voti...</div>
           <div style="color:var(--text-muted);font-size:0.85rem;">${currentTeam.Nome} • ${currentQuot.name}</div>
@@ -362,7 +372,7 @@ const registriView = {
               </svg>
               Registri Voti
             </div>
-            <div class="card-subtitle">${currentTeam.Nome} • Presidente: ${currentTeam.Presidente || '-'} • Fonte: <b>${currentQuot.name}</b></div>
+            <div class="card-subtitle">${(favTeamId && currentTeam.ID == favTeamId) ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${currentTeam.Nome} • Presidente: ${currentTeam.Presidente || '-'} • Fonte: <b>${currentQuot.name}</b></div>
           </div>
 
           <!-- Pulsante Legenda in stile pill-tab -->
@@ -385,11 +395,14 @@ const registriView = {
               Seleziona Fantasquadra
             </label>
             <select id="selRegistriTeam" class="form-select" style="width:100%;">
-              ${teams.map(t => `
-                <option value="${t.ID}" ${t.ID === this.currentTeamId ? 'selected' : ''}>
-                  ${t.Nome}
-                </option>
-              `).join('')}
+              ${teams.map(t => {
+                const isFav = (favTeamId && t.ID == favTeamId);
+                return `
+                  <option value="${t.ID}" ${t.ID === this.currentTeamId ? 'selected' : ''}>
+                    ${isFav ? '⭐ ' : ''}${t.Nome}
+                  </option>
+                `;
+              }).join('')}
             </select>
           </div>
 
@@ -995,6 +1008,14 @@ const registriView = {
 
     // Applica i filtri iniziali all'avvio
     applyFilters();
+  },
+
+  destroy() {
+    if (this._scrollHandler && typeof window !== 'undefined') {
+      window.removeEventListener('scroll', this._scrollHandler);
+      window.removeEventListener('resize', this._scrollHandler);
+      this._scrollHandler = null;
+    }
   }
 };
 

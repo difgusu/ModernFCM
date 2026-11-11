@@ -49,6 +49,11 @@ const fantaClassificaView = {
   },
 
   async render(container) {
+    // 0. Immediate skeleton shimmer
+    if (typeof fcmSkeleton !== 'undefined') {
+      container.innerHTML = fcmSkeleton.table({ cols: 6, rows: 8, withToolbar: true, toolbarPills: 4 });
+    }
+
     // 1. Ensure core data scripts are loaded
     if (typeof arrCompetizioni === 'undefined') {
       await fcmDataLoader.loadScript('js/fcmCompetizioniDati.js');
@@ -63,12 +68,29 @@ const fantaClassificaView = {
       await fcmDataLoader.loadScript('js/fcmCalendarioDati.js');
     }
     if (typeof arrFantamTot === 'undefined') {
-      try {
-        await fcmDataLoader.loadScript('js/fcmFantamisterTot.js');
-      } catch (e) {
+      if (typeof fcmFantamisterMotore !== 'undefined') {
         try {
-          await fcmDataLoader.loadScript('fantam/fcmFantamisterTot.js');
-        } catch (err) { }
+          const season = await fcmFantamisterMotore.getSeasonData();
+          if (season && season.rendimentoPesatoRanking) {
+            window.arrFantamTot = [null];
+            season.rendimentoPesatoRanking.forEach((item, idx) => {
+              window.arrFantamTot[idx + 1] = {
+                Nome: item.Nome,
+                Tot: item.scartoMedioPesato,
+                Gare: item.partite
+              };
+            });
+          }
+        } catch (e) { }
+      }
+      if (typeof arrFantamTot === 'undefined') {
+        try {
+          await fcmDataLoader.loadScript('js/fcmFantamisterTot.js');
+        } catch (e) {
+          try {
+            await fcmDataLoader.loadScript('fantam/fcmFantamisterTot.js');
+          } catch (err) { }
+        }
       }
     }
     if (typeof fgol1 === 'undefined') {
@@ -138,6 +160,18 @@ const fantaClassificaView = {
     }
 
     if (daysToLoad.length === 0) return;
+
+    if (typeof fcmFantamisterMotore !== 'undefined') {
+      await Promise.all(daysToLoad.map(async (g) => {
+        try {
+          const dayData = await fcmFantamisterMotore.getMatchdayData(g);
+          if (dayData && Array.isArray(dayData.teamsList) && dayData.teamsList.length > 0) {
+            this._cachedFmDati[g] = [null, ...dayData.teamsList];
+          }
+        } catch (err) { }
+      }));
+      return;
+    }
 
     await Promise.all(daysToLoad.map(async (g) => {
       try {
@@ -600,7 +634,7 @@ const fantaClassificaView = {
               <div style="min-width:0;flex:1;">
                 <div style="font-size:0.7rem;font-weight:800;color:var(--accent-emerald);text-transform:uppercase;">Miglior Fanta-Allenatore</div>
                 <div style="font-weight:800;font-size:0.95rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                  ${bestMister ? bestMister.nome : '-'}
+                  ${(bestMister && typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(bestMister.id) || fcmHomeConfigManager.isFavoriteTeam(bestMister.nome))) ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${bestMister ? bestMister.nome : '-'}
                 </div>
                 <div style="font-size:0.75rem;color:var(--text-secondary);">Scarto medio: <b>${bestMister ? bestMister.scartoMedio : 0} pt / partita</b></div>
               </div>
@@ -612,7 +646,7 @@ const fantaClassificaView = {
               <div style="min-width:0;flex:1;">
                 <div style="font-size:0.7rem;font-weight:800;color:var(--accent-crimson);text-transform:uppercase;">Squadra Più Sprecona</div>
                 <div style="font-weight:800;font-size:0.95rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                  ${mostWasteful ? mostWasteful.nome : '-'}
+                  ${(mostWasteful && typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(mostWasteful.id) || fcmHomeConfigManager.isFavoriteTeam(mostWasteful.nome))) ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${mostWasteful ? mostWasteful.nome : '-'}
                 </div>
                 <div style="font-size:0.75rem;color:var(--text-secondary);">Punti persi: <b style="color:var(--accent-crimson);">+${mostWasteful ? mostWasteful.puntiMancati : 0} pt</b></div>
               </div>
@@ -624,7 +658,7 @@ const fantaClassificaView = {
               <div style="min-width:0;flex:1;">
                 <div style="font-size:0.7rem;font-weight:800;color:var(--accent-gold);text-transform:uppercase;">Più Gol in Panchina</div>
                 <div style="font-weight:800;font-size:0.95rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                  ${mostGoalsMissed ? mostGoalsMissed.nome : '-'}
+                  ${(mostGoalsMissed && typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(mostGoalsMissed.id) || fcmHomeConfigManager.isFavoriteTeam(mostGoalsMissed.nome))) ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${mostGoalsMissed ? mostGoalsMissed.nome : '-'}
                 </div>
                 <div style="font-size:0.75rem;color:var(--text-secondary);">Gol mancati: <b>${mostGoalsMissed ? mostGoalsMissed.golMancati : 0}</b></div>
               </div>
@@ -636,7 +670,7 @@ const fantaClassificaView = {
               <div style="min-width:0;flex:1;">
                 <div style="font-size:0.7rem;font-weight:800;color:var(--accent-cyan);text-transform:uppercase;">Potenziale Massimo</div>
                 <div style="font-weight:800;font-size:0.95rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                  ${highestPotential ? highestPotential.nome : '-'}
+                  ${(highestPotential && typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(highestPotential.id) || fcmHomeConfigManager.isFavoriteTeam(highestPotential.nome))) ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${highestPotential ? highestPotential.nome : '-'}
                 </div>
                 <div style="font-size:0.75rem;color:var(--text-secondary);">Punti Ipotetici: <b style="color:var(--accent-cyan);">${highestPotential ? highestPotential.puntiIpotetici : 0} pt</b></div>
               </div>
@@ -698,15 +732,16 @@ const fantaClassificaView = {
                   </td>
                 </tr>
               ` : items.map((row, index) => {
-      const posEffettiva = row.posReale;
-      const posBadge = posEffettiva === 1 ? '🥇' : posEffettiva === 2 ? '🥈' : posEffettiva === 3 ? '🥉' : posEffettiva;
+                const posEffettiva = row.posReale;
+                const posBadge = posEffettiva === 1 ? '🥇' : posEffettiva === 2 ? '🥈' : posEffettiva === 3 ? '🥉' : posEffettiva;
+                const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(row.id) || fcmHomeConfigManager.isFavoriteTeam(row.nome));
 
-      // Proportion for bars based on max hypothetical points
-      const pctReal = maxIpo > 0 ? (row.puntiReali / maxIpo) * 100 : 0;
-      const pctMiss = maxIpo > 0 ? (row.puntiMancati / maxIpo) * 100 : 0;
+                // Proportion for bars based on max hypothetical points
+                const pctReal = maxIpo > 0 ? (row.puntiReali / maxIpo) * 100 : 0;
+                const pctMiss = maxIpo > 0 ? (row.puntiMancati / maxIpo) * 100 : 0;
 
-      return `
-                  <tr style="border-bottom:1px solid var(--border-subtle);transition:background 0.15s;">
+                return `
+                  <tr class="${isFav ? 'table-row-favorite' : ''}" style="border-bottom:1px solid var(--border-subtle);transition:background 0.15s;">
                     <!-- Posizione Effettiva -->
                     <td style="text-align:center;font-weight:800;font-size:0.95rem;">
                       ${posBadge}
@@ -717,8 +752,8 @@ const fantaClassificaView = {
                       <div style="display:flex;align-items:center;gap:8px;">
                         <img src="img/sq/${encodeURI(row.nome)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(row.nome)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="width:20px;height:20px;object-fit:contain;" alt="" />
                         <div>
-                          <a href="#rose?fsq=${row.id}" style="text-decoration:none;font-weight:800;color:var(--text-primary);">
-                            ${row.nome}
+                          <a href="#rose?fsq=${row.id}" style="text-decoration:none;font-weight:800;color:${isFav ? 'var(--accent-gold)' : 'var(--text-primary)'};">
+                            ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${row.nome}
                           </a>
                           <div style="font-size:0.72rem;color:var(--text-muted);">${row.presidente}</div>
                         </div>

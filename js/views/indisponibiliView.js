@@ -11,7 +11,9 @@ const indisponibiliView = {
   async render(container) {
     // Se il container non ha ancora la card, mostriamo un indicatore di caricamento
     if (!container.querySelector('#indCardWrapper')) {
-      container.innerHTML = `
+      container.innerHTML = (typeof fcmSkeleton !== 'undefined')
+        ? fcmSkeleton.table({ cols: 5, rows: 8, withToolbar: true, toolbarPills: 3 })
+        : `
         <div class="card" style="padding: 48px 24px; text-align: center; color: var(--text-muted, #94a3b8);">
           <div class="ind-spin-loader" style="margin: 0 auto 14px; width: 32px; height: 32px; border: 3px solid rgba(2,132,199,0.2); border-top-color: var(--accent-primary, #0284c7); border-radius: 50%; animation: indSpin 0.7s linear infinite;"></div>
           <div style="font-weight: 700; font-size: 0.95rem; color: var(--text-primary, #f1f5f9);">Caricamento indisponibili &amp; infortunati...</div>
@@ -569,6 +571,10 @@ const indisponibiliView = {
         this.currentTab = btn.dataset.tab;
         container.querySelectorAll('.ind-tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
+        if (window.history && window.history.replaceState) {
+          const baseHash = (window.location.hash || '#indisponibili').split('?')[0];
+          window.history.replaceState(null, '', `${baseHash}?tab=${this.currentTab}`);
+        }
         this._renderResults(container);
       });
     });
@@ -650,9 +656,14 @@ const indisponibiliView = {
 
   _decodeEntities(str) {
     if (!str) return '';
-    const temp = document.createElement('textarea');
-    temp.innerHTML = str;
-    return temp.value;
+    try {
+      if (typeof document !== 'undefined') {
+        const temp = document.createElement('textarea');
+        temp.innerHTML = str;
+        return temp.value || str;
+      }
+    } catch (e) { }
+    return String(str);
   },
 
   _esc(s) {
@@ -677,7 +688,7 @@ const indisponibiliView = {
   _teamLogoHtml(teamName, size = 28) {
     if (!teamName) return '';
     const safe = teamName.replace(/'/g, '_');
-    return `<img src="img/live/sq/${safe}.png" width="${size}" height="${size}" style="object-fit:contain;" onerror="this.onerror=null;this.src='img/sq/${safe}.gif';" alt="${this._esc(teamName)}">`;
+    return `<img src="img/sq/${safe}.png" width="${size}" height="${size}" style="object-fit:contain;" onerror="this.onerror=null;this.src='img/sq/${safe}.gif';" alt="${this._esc(teamName)}">`;
   },
 
   _fsqLogoHtml(fsqName, size = 22) {
@@ -693,9 +704,10 @@ const indisponibiliView = {
 
   _findRoseEntry(playerName) {
     if (typeof arrRose === 'undefined' || !playerName) return null;
+    const clean = playerName.trim().toLowerCase();
     for (let i = 1; i < arrRose.length; i++) {
       const r = arrRose[i];
-      if (r && r.Stato !== 1 && r.Nome === playerName) return r;
+      if (r && r.Stato !== 1 && (r.Nome || '').trim().toLowerCase() === clean) return r;
     }
     return null;
   },
@@ -751,6 +763,7 @@ const indisponibiliView = {
         const fsq = roseEntry ? this._getFsq(roseEntry.IDSquadra) : null;
         const fsqName = fsq ? fsq.Nome : null;
         const inLista = roseEntry ? roseEntry.Stato === 2 : false;
+        const isFav = Boolean(fsq && typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(fsq.ID) || fcmHomeConfigManager.isFavoriteTeam(fsq.Nome)));
 
         if (!this._matchesSearch(playerName, motivo, `${squadra} ${fsqName || ''}`)) continue;
 
@@ -761,7 +774,8 @@ const indisponibiliView = {
           playerName,
           motivo,
           fsqName,
-          inLista
+          inLista,
+          isFav
         });
       }
 
@@ -779,8 +793,9 @@ const indisponibiliView = {
       `;
 
       for (const p of players) {
+        const isFav = p.isFav;
         const fsqBadge = p.fsqName
-          ? `<span class="ind-badge ind-badge-fsq">${this._fsqLogoHtml(p.fsqName, 18)} <span>${this._esc(p.fsqName)}</span></span>`
+          ? `<span class="ind-badge ind-badge-fsq">${this._fsqLogoHtml(p.fsqName, 18)} <span>${isFav ? '<span class="fav-team-star">⭐</span> ' : ''}${this._esc(p.fsqName)}</span></span>`
           : '';
 
         const listaBadge = p.inLista
@@ -795,13 +810,13 @@ const indisponibiliView = {
         const rientroClass = hasRientro ? 'ind-col-rientro' : 'ind-col-rientro ind-rientro-empty';
 
         html += `
-          <div class="ind-player-row">
+          <div class="ind-player-row ${isFav ? 'player-row-favorite' : ''}">
             <!-- 1. Calciatore -->
             <div class="ind-col-player">
               ${this._playerPhotoHtml(p.ga.Codice)}
               <span class="ind-role-badge ind-role-${p.ga.Ruolo}">${this._roleName(p.ga.Ruolo)}</span>
               <div class="ind-player-info">
-                <span class="ind-player-name ${p.inLista ? 'in-lista' : ''}">${this._esc(p.playerName)}</span>
+                <span class="ind-player-name ${p.inLista ? 'in-lista' : ''}">${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span>' : ''}${this._esc(p.playerName)}</span>
                 <div class="ind-team-mobile">${fsqBadge}</div>
               </div>
             </div>
@@ -848,8 +863,14 @@ const indisponibiliView = {
         if (!ga) continue;
         const pname = window['xg' + ga.ID];
         if (pname) {
-          nameToGA[pname.trim()] = ga;
-          nameToGA[pname.trim().toLowerCase()] = ga;
+          const clean = pname.trim().toLowerCase();
+          const teamName = (window['xa' + ga.IDSquadra] || '').trim().toLowerCase();
+          nameToGA[`${clean}|${ga.Ruolo}|${teamName}`] = ga;
+          nameToGA[`${clean}|${ga.Ruolo}`] = ga;
+          if (!nameToGA[clean]) {
+            nameToGA[clean] = ga;
+            nameToGA[pname.trim()] = ga;
+          }
         }
       }
     }
@@ -875,7 +896,12 @@ const indisponibiliView = {
         if (!r || r.IDSquadra !== fsq.ID || r.Stato === 1) continue;
 
         const playerName = r.Nome || '';
-        const gaP = nameToGA[playerName.trim()] || nameToGA[playerName.trim().toLowerCase()];
+        const cleanName = playerName.trim().toLowerCase();
+        const rTeam = (r.Squadra || '').trim().toLowerCase();
+        const gaP = nameToGA[`${cleanName}|${r.Ruolo}|${rTeam}`]
+          || nameToGA[`${cleanName}|${r.Ruolo}`]
+          || nameToGA[cleanName]
+          || nameToGA[playerName.trim()];
         if (!gaP) continue;
 
         const ind = arrIndisponibili[gaP.ID];
@@ -898,11 +924,12 @@ const indisponibiliView = {
 
       if (players.length === 0) continue;
       totalCount += players.length;
+      const isFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(fsq.ID) || fcmHomeConfigManager.isFavoriteTeam(fsq.Nome));
 
       html += `
-        <div class="ind-team-header">
+        <div class="ind-team-header ${isFav ? 'ind-team-header-favorite' : ''}">
           ${this._fsqLogoHtml(fsq.Nome, 28)}
-          <span>${this._esc(fsq.Nome)}</span>
+          <span>${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${this._esc(fsq.Nome)}</span>
           <span style="margin-left:auto;font-size:0.78rem;color:var(--text-muted);font-weight:600;">
             ${players.length} indisponibil${players.length !== 1 ? 'i' : 'e'}
           </span>
@@ -930,13 +957,13 @@ const indisponibiliView = {
         const rientroClass = hasRientro ? 'ind-col-rientro' : 'ind-col-rientro ind-rientro-empty';
 
         html += `
-          <div class="ind-player-row">
+          <div class="ind-player-row ${isFav ? 'player-row-favorite' : ''}">
             <!-- 1. Calciatore -->
             <div class="ind-col-player">
               ${this._playerPhotoHtml(p.ga.Codice)}
               <span class="ind-role-badge ind-role-${p.ga.Ruolo}">${this._roleName(p.ga.Ruolo)}</span>
               <div class="ind-player-info">
-                <span class="ind-player-name ${inLista ? 'in-lista' : ''}">${this._esc(p.playerName)}</span>
+                <span class="ind-player-name ${inLista ? 'in-lista' : ''}">${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span>' : ''}${this._esc(p.playerName)}</span>
                 <div class="ind-team-mobile">${serieABadge}</div>
               </div>
             </div>
@@ -982,8 +1009,14 @@ const indisponibiliView = {
       if (!ga) continue;
       const pname = window['xg' + ga.ID];
       if (pname) {
-        nameToGA[pname.trim()] = ga;
-        nameToGA[pname.trim().toLowerCase()] = ga;
+        const clean = pname.trim().toLowerCase();
+        const teamName = (window['xa' + ga.IDSquadra] || '').trim().toLowerCase();
+        nameToGA[`${clean}|${ga.Ruolo}|${teamName}`] = ga;
+        nameToGA[`${clean}|${ga.Ruolo}`] = ga;
+        if (!nameToGA[clean]) {
+          nameToGA[clean] = ga;
+          nameToGA[pname.trim()] = ga;
+        }
       }
     }
 
@@ -996,7 +1029,12 @@ const indisponibiliView = {
       if (!r || r.Stato !== 2) continue;
 
       const playerName = r.Nome || '';
-      const gaP = nameToGA[playerName.trim()] || nameToGA[playerName.trim().toLowerCase()];
+      const cleanName = playerName.trim().toLowerCase();
+      const rTeam = (r.Squadra || '').trim().toLowerCase();
+      const gaP = nameToGA[`${cleanName}|${r.Ruolo}|${rTeam}`]
+        || nameToGA[`${cleanName}|${r.Ruolo}`]
+        || nameToGA[cleanName]
+        || nameToGA[playerName.trim()];
       const ind = (gaP && typeof arrIndisponibili !== 'undefined') ? arrIndisponibili[gaP.ID] : undefined;
       const isStillOut = Boolean(ind && gaP && ind.ID === gaP.ID);
       const motivo = isStillOut ? (ind.Motivo || '') : 'Recuperato / Nessun infortunio';
@@ -1044,11 +1082,12 @@ const indisponibiliView = {
       const players = byFsqMap[fsqId];
       const fsq = this._getFsq(fsqId);
       const fsqName = fsq ? fsq.Nome : `Squadra ${fsqId}`;
+      const isFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(fsqId) || fcmHomeConfigManager.isFavoriteTeam(fsqName));
 
       html += `
-        <div class="ind-team-header">
+        <div class="ind-team-header ${isFav ? 'ind-team-header-favorite' : ''}">
           ${this._fsqLogoHtml(fsqName, 28)}
-          <span>${this._esc(fsqName)}</span>
+          <span>${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${this._esc(fsqName)}</span>
           <span style="margin-left:auto;font-size:0.78rem;color:var(--text-muted);font-weight:600;">
             ${players.length} in lista infortunati
           </span>
@@ -1086,13 +1125,13 @@ const indisponibiliView = {
         const rientroClass = hasRientro ? 'ind-col-rientro' : 'ind-col-rientro ind-rientro-empty';
 
         html += `
-          <div class="ind-player-row">
+          <div class="ind-player-row ${isFav ? 'player-row-favorite' : ''}">
             <!-- 1. Calciatore -->
             <div class="ind-col-player">
               ${this._playerPhotoHtml(codice)}
               ${ruolo ? `<span class="ind-role-badge ind-role-${ruolo}">${this._roleName(ruolo)}</span>` : ''}
               <div class="ind-player-info">
-                <span class="ind-player-name in-lista">${this._esc(p.playerName)}</span>
+                <span class="ind-player-name in-lista">${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span>' : ''}${this._esc(p.playerName)}</span>
                 <div class="ind-team-mobile">${serieABadge}</div>
               </div>
             </div>

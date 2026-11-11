@@ -24,22 +24,67 @@ function mercato_json_read($filename, $default = []) {
     return is_array($data) ? $data : $default;
 }
 
-function mercato_json_write($filename, $data) {
+function mercato_json_update($filename, callable $mutator, $default = []) {
     if (!is_dir(MERCATO_DATA_DIR)) {
-        mkdir(MERCATO_DATA_DIR, 0755, true);
+        if (!@mkdir(MERCATO_DATA_DIR, 0755, true) && !is_dir(MERCATO_DATA_DIR)) {
+            return false;
+        }
     }
     $filePath = MERCATO_DATA_DIR . '/' . $filename;
-    $fp = fopen($filePath, 'c+');
+    $fp = @fopen($filePath, 'c+');
     if (!$fp) return false;
-    
-    flock($fp, LOCK_EX);
-    ftruncate($fp, 0);
-    rewind($fp);
-    fwrite($fp, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-    fflush($fp);
-    flock($fp, LOCK_UN);
-    fclose($fp);
-    return true;
+
+    if (!flock($fp, LOCK_EX)) {
+        fclose($fp);
+        return false;
+    }
+
+    $result = true;
+    $shouldWrite = true;
+    try {
+        rewind($fp);
+        $content = stream_get_contents($fp);
+        $data = $default;
+        if ($content !== false && trim($content) !== '') {
+            $decoded = json_decode($content, true);
+            if (is_array($decoded)) {
+                $data = $decoded;
+            }
+        }
+
+        $mutated = $mutator($data);
+        if (is_array($mutated) && array_key_exists('data', $mutated)) {
+            $data = $mutated['data'];
+            $result = $mutated['result'] ?? true;
+            if (isset($mutated['write']) && $mutated['write'] === false) {
+                $shouldWrite = false;
+            }
+        } else {
+            $data = $mutated;
+        }
+
+        if ($shouldWrite) {
+            $encoded = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+            if ($encoded === false) {
+                return false;
+            }
+            ftruncate($fp, 0);
+            rewind($fp);
+            fwrite($fp, $encoded);
+            fflush($fp);
+        }
+    } finally {
+        flock($fp, LOCK_UN);
+        fclose($fp);
+    }
+
+    return $result;
+}
+
+function mercato_json_write($filename, $data) {
+    return (bool)mercato_json_update($filename, function() use ($data) {
+        return ['data' => $data, 'result' => true];
+    }, []);
 }
 
 // ==========================================
@@ -70,65 +115,90 @@ function mercato_db_get_active_session() {
 }
 
 function mercato_db_save_session($data) {
-    $sessions = mercato_json_read('sessioni.json', []);
-    $id = !empty($data['id']) ? (int)$data['id'] : null;
+    return (bool)mercato_json_update('sessioni.json', function($sessions) use ($data) {
+        if (!is_array($sessions)) $sessions = [];
+        $id = !empty($data['id']) ? (int)$data['id'] : null;
 
-    if ($id) {
-        foreach ($sessions as &$s) {
-            if ((int)$s['id'] === $id) {
-                $s['nome'] = $data['nome'] ?? $s['nome'];
-                $s['data_apertura'] = $data['data_apertura'] ?? $s['data_apertura'];
-                $s['data_chiusura'] = $data['data_chiusura'] ?? $s['data_chiusura'];
-                if (isset($data['attiva'])) $s['attiva'] = (int)$data['attiva'];
-                if (isset($data['elaborata'])) $s['elaborata'] = (int)$data['elaborata'];
-                break;
+        if ($id) {
+            $found = false;
+            foreach ($sessions as &$s) {
+                if ((int)$s['id'] === $id) {
+                    $s['nome'] = $data['nome'] ?? $s['nome'];
+                    $s['data_apertura'] = $data['data_apertura'] ?? $s['data_apertura'];
+                    $s['data_chiusura'] = $data['data_chiusura'] ?? $s['data_chiusura'];
+                    if (isset($data['attiva'])) $s['attiva'] = (int)$data['attiva'];
+                    if (isset($data['elaborata'])) $s['elaborata'] = (int)$data['elaborata'];
+                    if (isset($data['report_txt'])) $s['report_txt'] = (string)$data['report_txt'];
+                    $found = true;
+                    break;
+                }
             }
+            unset($s);
+            if (!$found) {
+                $newItem = [
+                    'id'            => $id,
+                    'nome'          => $data['nome'] ?? "Sessione #$id",
+                    'data_apertura' => $data['data_apertura'] ?? date('Y-m-d H:i:s'),
+                    'data_chiusura' => $data['data_chiusura'] ?? date('Y-m-d H:i:s', time() + 86400),
+                    'attiva'        => isset($data['attiva']) ? (int)$data['attiva'] : 1,
+                    'elaborata'     => isset($data['elaborata']) ? (int)$data['elaborata'] : 0,
+                    'creato_il'     => date('Y-m-d H:i:s')
+                ];
+                if (isset($data['report_txt'])) $newItem['report_txt'] = (string)$data['report_txt'];
+                $sessions[] = $newItem;
+            }
+        } else {
+            $maxId = 0;
+            foreach ($sessions as $s) {
+                if (($s['id'] ?? 0) > $maxId) $maxId = $s['id'];
+            }
+            $newSession = [
+                'id'            => $maxId + 1,
+                'nome'          => $data['nome'],
+                'data_apertura' => $data['data_apertura'],
+                'data_chiusura' => $data['data_chiusura'],
+                'attiva'        => 1,
+                'elaborata'     => 0,
+                'creato_il'     => date('Y-m-d H:i:s')
+            ];
+            $sessions[] = $newSession;
         }
-    } else {
-        $maxId = 0;
-        foreach ($sessions as $s) {
-            if (($s['id'] ?? 0) > $maxId) $maxId = $s['id'];
-        }
-        $newSession = [
-            'id'            => $maxId + 1,
-            'nome'          => $data['nome'],
-            'data_apertura' => $data['data_apertura'],
-            'data_chiusura' => $data['data_chiusura'],
-            'attiva'        => 1,
-            'elaborata'     => 0,
-            'creato_il'     => date('Y-m-d H:i:s')
-        ];
-        $sessions[] = $newSession;
-    }
 
-    mercato_json_write('sessioni.json', $sessions);
-    return true;
+        return ['data' => $sessions, 'result' => true];
+    }, []);
 }
 
 function mercato_db_toggle_session($id, $attiva) {
-    $sessions = mercato_json_read('sessioni.json', []);
-    foreach ($sessions as &$s) {
-        if ((int)$s['id'] === (int)$id) {
-            $s['attiva'] = (int)$attiva;
-            break;
+    return (bool)mercato_json_update('sessioni.json', function($sessions) use ($id, $attiva) {
+        if (!is_array($sessions)) $sessions = [];
+        foreach ($sessions as &$s) {
+            if ((int)$s['id'] === (int)$id) {
+                $s['attiva'] = (int)$attiva;
+                break;
+            }
         }
-    }
-    return mercato_json_write('sessioni.json', $sessions);
+        unset($s);
+        return ['data' => $sessions, 'result' => true];
+    }, []);
 }
 
 function mercato_db_delete_session($id) {
-    $sessions = mercato_json_read('sessioni.json', []);
-    $sessions = array_values(array_filter($sessions, function($s) use ($id) {
-        return (int)$s['id'] !== (int)$id;
-    }));
-    mercato_json_write('sessioni.json', $sessions);
+    mercato_json_update('sessioni.json', function($sessions) use ($id) {
+        if (!is_array($sessions)) $sessions = [];
+        $filtered = array_values(array_filter($sessions, function($s) use ($id) {
+            return (int)$s['id'] !== (int)$id;
+        }));
+        return ['data' => $filtered, 'result' => true];
+    }, []);
 
     // Rimuove tutte le offerte relative a questa sessione
-    $bids = mercato_json_read('offerte.json', []);
-    $bids = array_values(array_filter($bids, function($b) use ($id) {
-        return (int)$b['id_sessione'] !== (int)$id;
-    }));
-    mercato_json_write('offerte.json', $bids);
+    mercato_json_update('offerte.json', function($bids) use ($id) {
+        if (!is_array($bids)) $bids = [];
+        $filtered = array_values(array_filter($bids, function($b) use ($id) {
+            return (int)$b['id_sessione'] !== (int)$id;
+        }));
+        return ['data' => $filtered, 'result' => true];
+    }, []);
 
     // Rimuove eventuali crediti extra assegnati da questa sessione
     mercato_db_delete_extra_saldo_by_session($id);
@@ -167,35 +237,38 @@ function mercato_db_count_bids($idSessione) {
 }
 
 function mercato_db_save_bid($bidData) {
-    $bids = mercato_json_read('offerte.json', []);
-    $idSessione = (int)$bidData['id_sessione'];
-    $idSquadra = (int)$bidData['id_squadra'];
-    $codiceG = (int)$bidData['codice_giocatore'];
+    return (bool)mercato_json_update('offerte.json', function($bids) use ($bidData) {
+        if (!is_array($bids)) $bids = [];
+        $idSessione = (int)$bidData['id_sessione'];
+        $idSquadra = (int)$bidData['id_squadra'];
+        $codiceG = (int)$bidData['codice_giocatore'];
 
-    // Rimuove eventuale offerta precedente per lo stesso giocatore in questa sessione
-    $bids = array_values(array_filter($bids, function($b) use ($idSessione, $idSquadra, $codiceG) {
-        return !((int)$b['id_sessione'] === $idSessione && (int)$b['id_squadra'] === $idSquadra && (int)$b['codice_giocatore'] === $codiceG);
-    }));
+        // Rimuove eventuale offerta precedente per lo stesso giocatore in questa sessione
+        $bids = array_values(array_filter($bids, function($b) use ($idSessione, $idSquadra, $codiceG) {
+            return !((int)$b['id_sessione'] === $idSessione && (int)$b['id_squadra'] === $idSquadra && (int)$b['codice_giocatore'] === $codiceG);
+        }));
 
-    $maxId = 0;
-    foreach ($bids as $b) {
-        if (($b['id'] ?? 0) > $maxId) $maxId = $b['id'];
-    }
+        $maxId = 0;
+        foreach ($bids as $b) {
+            if (($b['id'] ?? 0) > $maxId) $maxId = $b['id'];
+        }
 
-    $bidData['id'] = $maxId + 1;
-    $bidData['timest'] = date('Y-m-d H:i:s');
-    $bids[] = $bidData;
+        $bidData['id'] = $maxId + 1;
+        $bidData['timest'] = date('Y-m-d H:i:s');
+        $bids[] = $bidData;
 
-    mercato_json_write('offerte.json', $bids);
-    return true;
+        return ['data' => $bids, 'result' => true];
+    }, []);
 }
 
 function mercato_db_delete_bid($idOfferta, $idSquadra, $idSessione) {
-    $bids = mercato_json_read('offerte.json', []);
-    $bids = array_values(array_filter($bids, function($b) use ($idOfferta, $idSquadra, $idSessione) {
-        return !((int)$b['id'] === (int)$idOfferta && (int)$b['id_squadra'] === (int)$idSquadra && (int)$b['id_sessione'] === (int)$idSessione);
-    }));
-    return mercato_json_write('offerte.json', $bids);
+    return (bool)mercato_json_update('offerte.json', function($bids) use ($idOfferta, $idSquadra, $idSessione) {
+        if (!is_array($bids)) $bids = [];
+        $filtered = array_values(array_filter($bids, function($b) use ($idOfferta, $idSquadra, $idSessione) {
+            return !((int)$b['id'] === (int)$idOfferta && (int)$b['id_squadra'] === (int)$idSquadra && (int)$b['id_sessione'] === (int)$idSessione);
+        }));
+        return ['data' => $filtered, 'result' => true];
+    }, []);
 }
 
 // ==========================================
@@ -233,27 +306,27 @@ function mercato_db_add_extra_saldo($idSquadra, $diff, $idSessione = null, $desc
     $diff = (int)$diff;
     if ($diff === 0) return true;
 
-    $entries = mercato_json_read('crediti_extra.json', []);
-    if (!is_array($entries)) $entries = [];
+    return (bool)mercato_json_update('crediti_extra.json', function($entries) use ($idSquadra, $diff, $idSessione, $desc) {
+        if (!is_array($entries)) $entries = [];
 
-    $maxId = 0;
-    foreach ($entries as $e) {
-        if (is_array($e) && isset($e['id']) && (int)$e['id'] > $maxId) {
-            $maxId = (int)$e['id'];
+        $maxId = 0;
+        foreach ($entries as $e) {
+            if (is_array($e) && isset($e['id']) && (int)$e['id'] > $maxId) {
+                $maxId = (int)$e['id'];
+            }
         }
-    }
 
-    $newEntry = [
-        'id'          => $maxId + 1,
-        'id_sessione' => $idSessione !== null ? (int)$idSessione : null,
-        'id_squadra'  => (int)$idSquadra,
-        'diff'        => $diff,
-        'descrizione' => $desc,
-        'data'        => date('Y-m-d H:i:s')
-    ];
+        $entries[] = [
+            'id'          => $maxId + 1,
+            'id_sessione' => $idSessione !== null ? (int)$idSessione : null,
+            'id_squadra'  => (int)$idSquadra,
+            'diff'        => $diff,
+            'descrizione' => $desc,
+            'data'        => date('Y-m-d H:i:s')
+        ];
 
-    $entries[] = $newEntry;
-    return mercato_json_write('crediti_extra.json', $entries);
+        return ['data' => $entries, 'result' => true];
+    }, []);
 }
 
 /**
@@ -261,16 +334,17 @@ function mercato_db_add_extra_saldo($idSquadra, $diff, $idSessione = null, $desc
  */
 function mercato_db_delete_extra_saldo_by_session($idSessione) {
     if (!$idSessione) return false;
-    $entries = mercato_json_read('crediti_extra.json', []);
-    if (!is_array($entries)) return true;
+    return (bool)mercato_json_update('crediti_extra.json', function($entries) use ($idSessione) {
+        if (!is_array($entries)) return ['data' => [], 'result' => true];
 
-    $filtered = array_values(array_filter($entries, function($e) use ($idSessione) {
-        if (!is_array($e)) return true; // preserva eventuali chiavi legacy
-        if (!isset($e['id_sessione'])) return true;
-        return (int)$e['id_sessione'] !== (int)$idSessione;
-    }));
+        $filtered = array_values(array_filter($entries, function($e) use ($idSessione) {
+            if (!is_array($e)) return true; // preserva eventuali chiavi legacy
+            if (!isset($e['id_sessione'])) return true;
+            return (int)$e['id_sessione'] !== (int)$idSessione;
+        }));
 
-    return mercato_json_write('crediti_extra.json', $filtered);
+        return ['data' => $filtered, 'result' => true];
+    }, []);
 }
 
 /**

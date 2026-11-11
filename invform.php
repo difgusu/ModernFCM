@@ -14,8 +14,8 @@ if (file_exists(__DIR__ . '/inc/getprossima.php')) {
 $defaultProssimaGiornata = function_exists('getprossima') ? getprossima() : 1;
 
 // Caricamento configurazione amministratore (admin_config.inc.php o invform.inc.php)
-if (file_exists(__DIR__ . '/invform/admin_config.inc.php')) {
-    require_once __DIR__ . '/invform/admin_config.inc.php';
+if (file_exists(__DIR__ . '/inc/admin_config.inc.php')) {
+    require_once __DIR__ . '/inc/admin_config.inc.php';
 } elseif (file_exists(__DIR__ . '/invform/invform.inc.php')) {
     require_once __DIR__ . '/invform/invform.inc.php';
 }
@@ -143,20 +143,40 @@ $pname = $isAdminMode ? "invform_prec" : "invform";
     
     <!-- Design System & Styles (Master Unified CSS) -->
     <link href="css/style.css?v=<?php echo filemtime('css/style.css'); ?>" rel="stylesheet" type="text/css" />
+    <?php
+    if (file_exists(__DIR__ . '/inc/theme_loader.php')) {
+        require_once __DIR__ . '/inc/theme_loader.php';
+        echo fcm_render_custom_theme_css();
+    }
+    $fcmDefaultThemePref = isset($GLOBALS['fcmThemeConfig']['default_mode']) ? $GLOBALS['fcmThemeConfig']['default_mode'] : 'system';
+    ?>
 
     <script type="text/javascript">
         window.pname = "<?php echo $pname; ?>";
-        // Sincronizzazione immediata tema Dark / Light da localStorage (anti-flicker) e modalità iframe
+        // Sincronizzazione immediata tema Dark / Light da localStorage o frame padre (anti-flicker) e modalità iframe
         (function() {
-            var savedTheme = localStorage.getItem('pn_theme') || 'system';
+            var defaultPref = <?php echo json_encode($fcmDefaultThemePref); ?>;
+            var savedTheme = localStorage.getItem('pn_theme') || defaultPref || 'system';
             var resolved = savedTheme;
-            if (savedTheme === 'system' || (savedTheme !== 'light' && savedTheme !== 'dark')) {
+            if (window.self !== window.top) {
+                document.documentElement.classList.add('in-iframe');
+                try {
+                    var topTheme = window.top.document.documentElement.getAttribute('data-theme');
+                    if (topTheme === 'light' || topTheme === 'dark') {
+                        resolved = topTheme;
+                    }
+                } catch (e) {}
+            }
+            if (resolved !== 'light' && resolved !== 'dark') {
                 resolved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
             }
             document.documentElement.setAttribute('data-theme', resolved);
-            if (window.self !== window.top) {
-                document.documentElement.classList.add('in-iframe');
-            }
+            document.documentElement.setAttribute('data-theme-preference', savedTheme);
+            window.addEventListener('message', function(e) {
+                if (e.data && e.data.type === 'pn_theme_change' && (e.data.theme === 'light' || e.data.theme === 'dark')) {
+                    document.documentElement.setAttribute('data-theme', e.data.theme);
+                }
+            });
         })();
     </script>
 
@@ -186,7 +206,25 @@ $pname = $isAdminMode ? "invform_prec" : "invform";
         var cGio, cFsq, cGioPrec, cVmin, cMod, cAff, cMvFm, cCF, cPanc;
         var pname = "<?php echo $pname; ?>";
         window.pname = "<?php echo $pname; ?>";
-        cFsq = parseInt(JSQueryString("Fsq")) || <?php echo $reqFsq; ?>;
+        var jsFsq = parseInt(JSQueryString("Fsq"));
+        if (!isNaN(jsFsq) && jsFsq > 0) {
+            cFsq = jsFsq;
+        } else if (<?php echo !empty($_GET['Fsq']) ? intval($_GET['Fsq']) : 0; ?> > 0) {
+            cFsq = <?php echo !empty($_GET['Fsq']) ? intval($_GET['Fsq']) : 0; ?>;
+        } else {
+            try {
+                var rawCfg = localStorage.getItem('pn_home_layout');
+                if (rawCfg) {
+                    var parsed = JSON.parse(rawCfg);
+                    if (parsed && parsed.favoriteTeamId) {
+                        cFsq = parseInt(parsed.favoriteTeamId, 10);
+                    }
+                }
+            } catch(e) {}
+            if (!cFsq && typeof arrFantasquadre !== 'undefined' && arrFantasquadre[1]) {
+                cFsq = arrFantasquadre[1].ID;
+            }
+        }
         cGio = parseInt(JSQueryString("Gio")) || <?php echo $reqGio; ?>;
         cVmin = JSQueryString("Vmin"); cMod = JSQueryString("Mod");
         cAff = JSQueryString("Aff"); cMvFm = JSQueryString("MvFm");
@@ -199,10 +237,6 @@ $pname = $isAdminMode ? "invform_prec" : "invform";
             ? serverProxGio
             : ((typeof GetProssimaGiornataDaGiocare === 'function') ? GetProssimaGiornataDaGiocare() : 1);
         if (proxGio > maxLimit) proxGio = maxLimit;
-
-        if (isNaN(cFsq) && typeof arrFantasquadre !== 'undefined' && arrFantasquadre[1]) {
-            cFsq = arrFantasquadre[1].ID;
-        }
 
         if (isNaN(cGio) || cGio < 1 || cGio > maxLimit) { 
             cGio = proxGio; 
@@ -239,6 +273,9 @@ $pname = $isAdminMode ? "invform_prec" : "invform";
     <?php endif; ?>
     <?php endif; ?>
     <?php endif; ?>
+    <?php if (fcm_module_enabled('ModProbabiliSky') && file_exists('js/fcmProbabiliSky.js')): ?>
+    <script src="js/fcmProbabiliSky.js?v=<?php echo filemtime('js/fcmProbabiliSky.js');?>" type="text/javascript"></script>
+    <?php endif; ?>
     <script src="js/fcmVariabiliJdPI.js?<?php echo filemtime('js/fcmVariabiliJdPI.js');?>" type="text/javascript"></script>
 </head>
 <body class="invform-page">
@@ -255,7 +292,7 @@ $pname = $isAdminMode ? "invform_prec" : "invform";
             </div>
         </a>
         <div style="display: flex; align-items: center; gap: 8px;">
-            <button type="button" id="btnToggleTheme" class="invform-back-btn" title="Cambia tema chiaro/scuro" style="cursor: pointer; padding: 8px 12px;">
+            <button type="button" id="btnToggleTheme" class="invform-back-btn" title="Cambia tema (Chiaro / Scuro / Sistema)" aria-label="Cambia tema" style="cursor: pointer; padding: 8px 12px;">
                 <span id="themeIcon">🌓</span>
             </button>
             <?php if ($isAdminMode && $isAdminLogged): ?>
@@ -306,7 +343,7 @@ $pname = $isAdminMode ? "invform_prec" : "invform";
                 <?php else: ?>
                 <!-- Pulsante Admin visualizzato solo quando il termine è scaduto -->
                 <a id="btnAdminScaduto" href="invform_prec.php?Gio=<?php echo $reqGio; ?>&Fsq=<?php echo $reqFsq; ?>" class="standalone-btn" style="display:none; color:#f59e0b; border-color:rgba(245,158,11,0.4);" title="Servizio Amministratore: Inserisci formazione a termine scaduto">
-                    🛡️ Servizio Admin (Scaduto) &rarr;
+                    🛡️ Invio Formazione (Admin) &rarr;
                 </a>
                 <?php endif; ?>
             </div>
@@ -620,47 +657,6 @@ $pname = $isAdminMode ? "invform_prec" : "invform";
                 InizializzaQTipInfortuni();
             }
 
-            // Gestione del pulsante cambio tema
-            var themeBtn = document.getElementById('btnToggleTheme');
-            var themeIcon = document.getElementById('themeIcon');
-            function updateIcon(th) {
-                if (themeIcon) themeIcon.textContent = (th === 'dark') ? '🌙' : '☀️';
-            }
-            var currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
-            updateIcon(currentTheme);
-
-            if (themeBtn) {
-                themeBtn.addEventListener('click', function() {
-                    var curr = document.documentElement.getAttribute('data-theme') || 'light';
-                    var next = curr === 'dark' ? 'light' : 'dark';
-                    document.documentElement.setAttribute('data-theme', next);
-                    localStorage.setItem('pn_theme', next);
-                    updateIcon(next);
-                });
-            }
-
-            // Sincronizzazione tema quando invocato da SPA (messaggi postMessage)
-            window.addEventListener('message', function(e) {
-                if (e.data && e.data.type === 'pn_theme_change') {
-                    var th = e.data.theme || 'light';
-                    document.documentElement.setAttribute('data-theme', th);
-                    updateIcon(th);
-                }
-            });
-
-            // Observer sul cambio attributo data-theme per aggiornare icona
-            if (window.MutationObserver) {
-                var themeObserver = new MutationObserver(function(mutations) {
-                    mutations.forEach(function(m) {
-                        if (m.attributeName === 'data-theme') {
-                            var th = document.documentElement.getAttribute('data-theme') || 'light';
-                            updateIcon(th);
-                        }
-                    });
-                });
-                themeObserver.observe(document.documentElement, { attributes: true });
-            }
-
             <?php if (!$isAdminMode): ?>
             // Controllo per far comparire il pulsante Admin solo quando la formazione è scaduta
             function AggiornaPulsanteAdminScaduto() {
@@ -773,6 +769,10 @@ $pname = $isAdminMode ? "invform_prec" : "invform";
 <!-- Tooltip Giocatore Campetto Tattico Desktop -->
 <div id="tacticalPlayerTooltip"></div>
 
+<!-- Tooltip Statistiche Calciatori Probabili Formazioni Sky -->
+<div id="probSkyTooltip" class="prob-sky-tooltip" role="tooltip" aria-hidden="true"></div>
+
+<script src="js/fcmThemeToggle.js?v=<?php echo filemtime('js/fcmThemeToggle.js'); ?>"></script>
 <?php if (file_exists('fkounter5/counter.js.php') && (!function_exists('fcm_module_enabled') || fcm_module_enabled('ModCounter'))): ?>
 <script type="text/javascript">
 if (window.self === window.top) {

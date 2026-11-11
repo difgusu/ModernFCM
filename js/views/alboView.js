@@ -7,6 +7,8 @@
 const alboView = {
   activeSubtab: 'palmares', // 'palmares', 'piazzamenti', 'storico', 'dettaglio'
   currentCompId: null,      // Dynamically selected from arrAdOCompetizioni
+  palmaresSortKey: 'total', // 'total', 'name', or compId (number)
+  palmaresSortOrder: 'desc', // 'desc' or 'asc'
   piazzamentiCompId: 0,    // 0 = Tutte le competizioni, o IDc
   storicoCompId: null,     // Dynamically selected from arrAdOCompetizioni
   storicoEra: null,        // Dynamically generated based on available years in arrAdOPosizioni
@@ -92,9 +94,32 @@ const alboView = {
     }
     if (typeof arrPalmares === 'undefined') {
       try {
-        await fcmDataLoader.loadScript('persjs/fcmConfrontiDati.js');
+        await fcmDataLoader.loadConfronti();
       } catch (e) {
-        console.warn('Could not load persjs/fcmConfrontiDati.js', e);
+        console.warn('Could not load confronti historical data', e);
+      }
+    }
+
+    // Parsing parametri URL (es. #albo?subtab=dettaglio&year=2024 o #albo?tab=dettaglio&year=2024)
+    const hash = window.location.hash || '';
+    if (hash.includes('?')) {
+      const qStr = hash.substring(hash.indexOf('?'));
+      const params = new URLSearchParams(qStr);
+      const sub = (params.get('subtab') || params.get('tab') || '').toLowerCase();
+      if (['palmares', 'piazzamenti', 'storico', 'dettaglio'].includes(sub)) {
+        this.activeSubtab = sub;
+      }
+      if (params.has('year') || params.has('anno')) {
+        const y = parseInt(params.get('year') || params.get('anno'), 10);
+        if (!isNaN(y) && y > 0) {
+          this.dettaglioYear = y;
+          // Se è specificato un anno ma non un subtab, seleziona dettaglio annuale
+          if (!sub) this.activeSubtab = 'dettaglio';
+        }
+      }
+      if (params.has('comp')) {
+        const c = parseInt(params.get('comp'), 10);
+        if (!isNaN(c)) this.dettaglioCompId = c;
       }
     }
 
@@ -133,9 +158,11 @@ const alboView = {
 
         <!-- Subtab Container -->
         <div id="alboSubtabContent">
-          <div class="text-center" style="padding:30px;color:var(--text-muted);">
-            Caricamento dati storici...
-          </div>
+          ${(typeof fcmSkeleton !== 'undefined') ? fcmSkeleton.table({ cols: 4, rows: 6, withToolbar: false }) : `
+            <div class="text-center" style="padding:30px;color:var(--text-muted);">
+              Caricamento dati storici...
+            </div>
+          `}
         </div>
       </div>
     `;
@@ -160,6 +187,40 @@ const alboView = {
     } else if (this.activeSubtab === 'dettaglio') {
       this.renderDettaglio(subContainer);
     }
+  },
+
+  renderPalmaresSortIcon(key) {
+    if (String(this.palmaresSortKey) === String(key)) {
+      return `<span class="sort-icon sort-active">${this.palmaresSortOrder === 'asc' ? '▲' : '▼'}</span>`;
+    }
+    return `<span class="sort-icon sort-neutral">↕</span>`;
+  },
+
+  getSortedPalmares(list) {
+    const key = this.palmaresSortKey;
+    const order = this.palmaresSortOrder;
+
+    return [...list].sort((a, b) => {
+      if (key === 'name') {
+        const cmp = a.name.localeCompare(b.name, 'it', { sensitivity: 'base' });
+        if (cmp !== 0) return order === 'asc' ? cmp : -cmp;
+        return (b.total || 0) - (a.total || 0);
+      }
+
+      const valA = key === 'total' ? (a.total || 0) : ((a.byComp && a.byComp[key]) || 0);
+      const valB = key === 'total' ? (b.total || 0) : ((b.byComp && b.byComp[key]) || 0);
+
+      if (valA !== valB) {
+        return order === 'asc' ? valA - valB : valB - valA;
+      }
+
+      if (key !== 'total') {
+        const totalDiff = (b.total || 0) - (a.total || 0);
+        if (totalDiff !== 0) return totalDiff;
+      }
+
+      return a.name.localeCompare(b.name, 'it', { sensitivity: 'base' });
+    });
   },
 
   /**
@@ -215,9 +276,9 @@ const alboView = {
       tData.total += 1;
     });
 
-    const allTeamsTitles = Array.from(teamTitlesMap.values())
-      .filter(t => t.total > 0)
-      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+    const allTeamsTitles = this.getSortedPalmares(
+      Array.from(teamTitlesMap.values()).filter(t => t.total > 0)
+    );
 
     // Podiums for selected competition
     const compPositions = albo.positions.filter(p => p.idCompetizione === this.currentCompId);
@@ -247,57 +308,86 @@ const alboView = {
 
         <!-- Desktop View (Table) -->
         <div class="table-responsive albo-desktop-only">
-          <table class="modern-table">
+          <table class="modern-table albo-palmares-table">
             <thead>
               <tr>
-                <th style="text-align:left;min-width:180px;">Squadra</th>
+                <th class="sortable ${this.palmaresSortKey === 'name' ? 'is-sorted' : ''}" data-sort="name" style="text-align:left;min-width:180px;" title="Ordina per Squadra" aria-sort="${this.palmaresSortKey === 'name' ? (this.palmaresSortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}">
+                  <div style="display:inline-flex;align-items:center;gap:4px;">
+                    <span>Squadra</span>
+                    ${this.renderPalmaresSortIcon('name')}
+                  </div>
+                </th>
                 ${comps.map(c => `
-                  <th class="text-center" style="min-width:110px;">
+                  <th class="sortable text-center ${String(this.palmaresSortKey) === String(c.IDc) ? 'is-sorted' : ''}" data-sort="${c.IDc}" style="min-width:110px;" title="Ordina per ${c.nome}" aria-sort="${String(this.palmaresSortKey) === String(c.IDc) ? (this.palmaresSortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}">
                     <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px;">
                       <img src="${this.getCompTrophyIcon(c, true)}" style="height:15px;width:auto;vertical-align:middle;" onerror="this.style.display='none';" alt="" />
                       <span>${c.nome}</span>
+                      ${this.renderPalmaresSortIcon(c.IDc)}
                     </div>
                   </th>
                 `).join('')}
-                <th class="text-center" style="min-width:80px;background:rgba(245,158,11,0.15);color:var(--accent-gold);">Totale</th>
+                <th class="sortable text-center ${this.palmaresSortKey === 'total' ? 'is-sorted' : ''}" data-sort="total" style="min-width:80px;background:${this.palmaresSortKey === 'total' ? 'rgba(245,158,11,0.28)' : 'rgba(245,158,11,0.15)'};color:var(--accent-gold);" title="Ordina per Totale" aria-sort="${this.palmaresSortKey === 'total' ? (this.palmaresSortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}">
+                  <div style="display:inline-flex;align-items:center;justify-content:center;gap:4px;">
+                    <span>Totale</span>
+                    ${this.renderPalmaresSortIcon('total')}
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody>
-              ${allTeamsTitles.map(t => `
-                <tr>
+              ${allTeamsTitles.map(t => {
+      const isFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(t.idAttuale) || fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
+      return `
+                <tr class="${isFav ? 'table-row-favorite' : ''}">
                   <td style="text-align:left;font-weight:700;">
                     <div style="display:flex;align-items:center;gap:8px;">
-                      <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" style="width:24px;height:24px;border-radius:3px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
+                      <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" style="width:24px;height:24px;border-radius:3px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
                       <div>
                         <span style="color:${t.isCurrent ? 'var(--text-primary)' : 'var(--text-muted)'};font-style:${t.isCurrent ? 'normal' : 'italic'};">
-                          ${t.name}
+                          ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${t.name}
                         </span>
                         ${!t.isCurrent ? '<span style="font-size:0.65rem;color:var(--text-muted);margin-left:4px;">(storica)</span>' : ''}
                       </div>
                     </div>
                   </td>
                   ${comps.map(c => {
-      const count = t.byComp[c.IDc] || 0;
-      return `<td class="text-center font-bold" style="${count > 0 ? 'color:var(--accent-gold);' : 'color:var(--text-muted);'}">${count > 0 ? count : '-'}</td>`;
-    }).join('')}
+        const count = t.byComp[c.IDc] || 0;
+        return `<td class="text-center font-bold" style="${count > 0 ? 'color:var(--accent-gold);' : 'color:var(--text-muted);'}">${count > 0 ? count : '-'}</td>`;
+      }).join('')}
                   <td class="text-center font-bold" style="background:rgba(245,158,11,0.1);color:var(--accent-gold);font-size:1.05rem;">
                     ${t.total}
                   </td>
                 </tr>
-              `).join('')}
+              `;
+    }).join('')}
             </tbody>
           </table>
         </div>
 
         <!-- Mobile View (Cards List - Zero Horizontal Scroll) -->
         <div class="albo-mobile-only">
+          <div style="margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+            <label for="alboPalmaresMobileSort" style="font-size:0.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;white-space:nowrap;">Ordina:</label>
+            <select id="alboPalmaresMobileSort" class="form-select" style="width:100%;font-weight:700;font-size:0.85rem;padding:7px 10px;">
+              <option value="total_desc" ${this.palmaresSortKey === 'total' && this.palmaresSortOrder === 'desc' ? 'selected' : ''}>🏆 Totale Trofei (Max → Min)</option>
+              <option value="total_asc" ${this.palmaresSortKey === 'total' && this.palmaresSortOrder === 'asc' ? 'selected' : ''}>🏆 Totale Trofei (Min → Max)</option>
+              <option value="name_asc" ${this.palmaresSortKey === 'name' && this.palmaresSortOrder === 'asc' ? 'selected' : ''}>🔤 Squadra (A → Z)</option>
+              <option value="name_desc" ${this.palmaresSortKey === 'name' && this.palmaresSortOrder === 'desc' ? 'selected' : ''}>🔤 Squadra (Z → A)</option>
+              ${comps.map(c => `
+                <option value="${c.IDc}_desc" ${String(this.palmaresSortKey) === String(c.IDc) && this.palmaresSortOrder === 'desc' ? 'selected' : ''}>🥇 ${c.nome} (Più vinti)</option>
+                <option value="${c.IDc}_asc" ${String(this.palmaresSortKey) === String(c.IDc) && this.palmaresSortOrder === 'asc' ? 'selected' : ''}>🥇 ${c.nome} (Meno vinti)</option>
+              `).join('')}
+            </select>
+          </div>
           <div class="albo-palmares-mobile-list">
-            ${allTeamsTitles.map(t => `
-              <div class="albo-palmares-card">
+            ${allTeamsTitles.map(t => {
+      const isFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(t.idAttuale) || fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
+      return `
+              <div class="albo-palmares-card ${isFav ? 'match-card-favorite' : ''}">
                 <div class="albo-palmares-team-row">
                   <div class="albo-palmares-team-info">
-                    <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" class="albo-palmares-team-logo" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
-                    <span class="albo-palmares-team-name">${t.name}</span>
+                    <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" class="albo-palmares-team-logo" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
+                    <span class="albo-palmares-team-name">${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${t.name}</span>
                     ${!t.isCurrent ? '<span class="albo-team-historic-tag">(storica)</span>' : ''}
                   </div>
                   <div class="albo-palmares-total-badge">
@@ -308,19 +398,20 @@ const alboView = {
                 </div>
                 <div class="albo-palmares-pills">
                   ${comps.map(c => {
-      const count = t.byComp[c.IDc] || 0;
-      if (count === 0) return '';
-      return `
+        const count = t.byComp[c.IDc] || 0;
+        if (count === 0) return '';
+        return `
                       <span class="albo-trophy-pill">
                         <img src="${this.getCompTrophyIcon(c, true)}" style="height:14px;width:auto;vertical-align:middle;margin-right:4px;" onerror="this.style.display='none';" alt="" />
                         <span class="pill-cname">${c.nome}</span>
                         <strong class="pill-ccount">${count}</strong>
                       </span>
                     `;
-    }).filter(Boolean).join('')}
+      }).filter(Boolean).join('')}
                 </div>
               </div>
-            `).join('')}
+            `;
+    }).join('')}
           </div>
         </div>
       </div>
@@ -359,6 +450,10 @@ const alboView = {
       const secondLogoId = second ? this.getTeamLogoId(albo, second.idSquadra) : 0;
       const thirdLogoId = third ? this.getTeamLogoId(albo, third.idSquadra) : 0;
 
+      const isWinnerFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(winner.idSquadra) || fcmHomeConfigManager.isFavoriteTeam(this.getTeamName(albo, winner.idSquadra, winner.presidente)));
+      const isSecondFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(second.idSquadra) || fcmHomeConfigManager.isFavoriteTeam(this.getTeamName(albo, second.idSquadra, second.presidente)));
+      const isThirdFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(third.idSquadra) || fcmHomeConfigManager.isFavoriteTeam(this.getTeamName(albo, third.idSquadra, third.presidente)));
+
       const edTitle = s.season ? `${s.season}ª Edizione ` : '';
 
       return `
@@ -372,12 +467,13 @@ const alboView = {
 
               <!-- Winner Spotlight -->
               ${winner ? `
-                <div style="display:flex;align-items:center;gap:14px;background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(217,119,6,0.05));border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius-md);padding:12px;margin-bottom:10px;">
+                <div style="display:flex;align-items:center;gap:14px;background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(217,119,6,0.05));border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius-md);padding:12px;margin-bottom:10px;" ${isWinnerFav ? 'class="match-card-favorite"' : ''}>
                   <img src="${compTrophy}" style="height:38px;width:38px;object-fit:contain;flex-shrink:0;" alt="Vincitore" onerror="this.src='img/ico-coppa.gif'" />
                   <div style="min-width:0;flex:1;">
                     <div style="font-size:0.7rem;color:var(--accent-gold);text-transform:uppercase;font-weight:700;">1° Classificato • Vincitore</div>
                     <div style="font-size:1.1rem;font-weight:800;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
                       <img src="${fcmDataLoader.getTeamLogo(winnerLogoId)}" style="width:20px;height:20px;border-radius:3px;vertical-align:middle;margin-right:6px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
+                      ${isWinnerFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}
                       ${winnerName}
                     </div>
                     <div style="font-size:0.75rem;color:var(--text-muted);word-break:break-word;">
@@ -390,11 +486,12 @@ const alboView = {
               <!-- 2nd & 3rd Place -->
               <div class="albo-podium-runners">
                 ${second ? `
-                  <div style="background:var(--bg-main);padding:8px 12px;border-radius:var(--radius-sm);display:flex;align-items:center;gap:8px;">
+                  <div style="background:var(--bg-main);padding:8px 12px;border-radius:var(--radius-sm);display:flex;align-items:center;gap:8px;" ${isSecondFav ? 'class="match-card-favorite"' : ''}>
                     <span class="table-pos table-pos-2">2°</span>
                     <div style="min-width:0;flex:1;">
                       <div style="font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px;">
                         <img src="${fcmDataLoader.getTeamLogo(secondLogoId)}" style="width:18px;height:18px;border-radius:3px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
+                        ${isSecondFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}
                         <span>${secondName}</span>
                       </div>
                       <div style="font-size:0.7rem;color:var(--text-muted);">${second.presidente ? `${second.presidente} ` : ''}(${second.punti !== null && second.punti !== undefined ? second.punti : '-'} pt)</div>
@@ -403,11 +500,12 @@ const alboView = {
                 ` : ''}
 
                 ${third ? `
-                  <div style="background:var(--bg-main);padding:8px 12px;border-radius:var(--radius-sm);display:flex;align-items:center;gap:8px;">
+                  <div style="background:var(--bg-main);padding:8px 12px;border-radius:var(--radius-sm);display:flex;align-items:center;gap:8px;" ${isThirdFav ? 'class="match-card-favorite"' : ''}>
                     <span class="table-pos table-pos-3">3°</span>
                     <div style="min-width:0;flex:1;">
                       <div style="font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px;">
                         <img src="${fcmDataLoader.getTeamLogo(thirdLogoId)}" style="width:18px;height:18px;border-radius:3px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
+                        ${isThirdFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}
                         <span>${thirdName}</span>
                       </div>
                       <div style="font-size:0.7rem;color:var(--text-muted);">${third.presidente ? `${third.presidente} ` : ''}(${third.punti !== null && third.punti !== undefined ? third.punti : '-'} pt)</div>
@@ -424,12 +522,40 @@ const alboView = {
 
     subContainer.innerHTML = html;
 
+    const sortHeaders = subContainer.querySelectorAll('.albo-palmares-table th.sortable');
+    sortHeaders.forEach(th => {
+      th.addEventListener('click', () => {
+        const sortAttr = th.getAttribute('data-sort');
+        if (sortAttr) {
+          const numKey = Number(sortAttr);
+          const resolvedKey = isNaN(numKey) ? sortAttr : numKey;
+          if (String(this.palmaresSortKey) === String(resolvedKey)) {
+            this.palmaresSortOrder = this.palmaresSortOrder === 'asc' ? 'desc' : 'asc';
+          } else {
+            this.palmaresSortKey = resolvedKey;
+            this.palmaresSortOrder = (resolvedKey === 'name') ? 'asc' : 'desc';
+          }
+          this.renderPalmares(subContainer);
+        }
+      });
+    });
+
     const compTabs = subContainer.querySelectorAll('#alboCompTabs button');
     compTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         this.currentCompId = parseInt(tab.getAttribute('data-comp-id'), 10);
         this.renderPalmares(subContainer);
       });
+    });
+
+    subContainer.querySelector('#alboPalmaresMobileSort')?.addEventListener('change', (e) => {
+      const parts = e.target.value.split('_');
+      const order = parts.pop();
+      const key = parts.join('_');
+      const numKey = Number(key);
+      this.palmaresSortKey = isNaN(numKey) ? key : numKey;
+      this.palmaresSortOrder = order || 'desc';
+      this.renderPalmares(subContainer);
     });
   },
 
@@ -520,25 +646,28 @@ const alboView = {
             </tr>
           </thead>
           <tbody>
-            ${sortedTeams.map(t => `
-              <tr>
+            ${sortedTeams.map(t => {
+      const isFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(t.idAttuale) || fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
+      return `
+              <tr class="${isFav ? 'table-row-favorite' : ''}">
                 <td style="text-align:left;font-weight:700;">
                   <div style="display:flex;align-items:center;gap:8px;">
-                    <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" style="width:24px;height:24px;border-radius:3px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
+                    <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" style="width:24px;height:24px;border-radius:3px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
                     <div>
                       <span style="color:${t.isCurrent ? 'var(--text-primary)' : 'var(--text-muted)'};font-style:${t.isCurrent ? 'normal' : 'italic'};">
-                        ${t.name}
+                        ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${t.name}
                       </span>
                       ${!t.isCurrent ? '<div style="font-size:0.65rem;color:var(--text-muted);font-weight:normal;">(storica)</div>' : ''}
                     </div>
                   </div>
                 </td>
                 ${comps.map(c => {
-      const parts = formatPlacements(t.data.get(c.IDc));
-      return `<td class="text-center" style="font-size:0.8rem;white-space:normal;line-height:1.5;">${parts.length > 0 ? parts.join(', ') : '<span style="color:var(--text-muted);">-</span>'}</td>`;
-    }).join('')}
+        const parts = formatPlacements(t.data.get(c.IDc));
+        return `<td class="text-center" style="font-size:0.8rem;white-space:normal;line-height:1.5;">${parts.length > 0 ? parts.join(', ') : '<span style="color:var(--text-muted);">-</span>'}</td>`;
+      }).join('')}
               </tr>
-            `).join('')}
+            `;
+    }).join('')}
           </tbody>
         </table>
       </div>
@@ -558,12 +687,13 @@ const alboView = {
           <div style="display:flex;flex-direction:column;gap:10px;">
             ${sortedTeams.map(t => {
       const teamCompsWithData = comps.map(c => ({ comp: c, parts: formatPlacements(t.data.get(c.IDc)) })).filter(item => item.parts.length > 0);
+      const isFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(t.idAttuale) || fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
       return `
-                <div class="albo-piazzamenti-team-card">
+                <div class="albo-piazzamenti-team-card ${isFav ? 'match-card-favorite' : ''}">
                   <div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border-subtle);padding-bottom:6px;">
-                    <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" style="width:24px;height:24px;border-radius:3px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
+                    <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" style="width:24px;height:24px;border-radius:3px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
                     <div style="font-weight:800;color:${t.isCurrent ? 'var(--text-primary)' : 'var(--text-muted)'};font-size:0.92rem;">
-                      ${t.name} ${!t.isCurrent ? '<span class="albo-team-historic-tag">(storica)</span>' : ''}
+                      ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${t.name} ${!t.isCurrent ? '<span class="albo-team-historic-tag">(storica)</span>' : ''}
                     </div>
                   </div>
                   ${teamCompsWithData.length === 0 ? `
@@ -594,13 +724,14 @@ const alboView = {
               <tbody>
                 ${sortedTeams.map(t => {
       const parts = formatPlacements(t.data.get(this.piazzamentiCompId));
+      const isFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(t.idAttuale) || fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
       return `
-                    <tr>
+                    <tr class="${isFav ? 'table-row-favorite' : ''}">
                       <td style="text-align:left;font-weight:700;padding:8px 6px;">
                         <div style="display:flex;align-items:center;gap:6px;">
-                          <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" style="width:20px;height:20px;border-radius:3px;flex-shrink:0;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
+                          <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" style="width:20px;height:20px;border-radius:3px;flex-shrink:0;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
                           <span style="font-size:0.82rem;color:${t.isCurrent ? 'var(--text-primary)' : 'var(--text-muted)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                            ${t.name}
+                            ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${t.name}
                           </span>
                         </div>
                       </td>
@@ -761,29 +892,32 @@ const alboView = {
             </tr>
           </thead>
           <tbody>
-            ${sortedTeams.map(t => `
-              <tr>
+            ${sortedTeams.map(t => {
+      const isFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(t.idAttuale) || fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
+      return `
+              <tr class="${isFav ? 'table-row-favorite' : ''}">
                 <td style="text-align:left;font-weight:700;">
                   <div style="display:flex;align-items:center;gap:8px;">
-                    <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" style="width:22px;height:22px;border-radius:3px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
+                    <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" style="width:22px;height:22px;border-radius:3px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
                     <div>
                       <span style="color:${t.isCurrent ? 'var(--text-primary)' : 'var(--text-muted)'};font-style:${t.isCurrent ? 'normal' : 'italic'};">
-                        ${t.name}
+                        ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${t.name}
                       </span>
                     </div>
                   </div>
                 </td>
                 ${allYears.map(y => {
-      const pos = t.years[y];
-      if (!pos) return '<td class="text-center" style="color:var(--text-muted);">-</td>';
-      let posClass = '';
-      if (pos === 1) posClass = 'background:rgba(245,158,11,0.2);color:var(--accent-gold);font-weight:900;border-radius:4px;';
-      else if (pos === 2) posClass = 'background:rgba(148,163,184,0.15);color:#94a3b8;font-weight:800;border-radius:4px;';
-      else if (pos === 3) posClass = 'background:rgba(217,119,6,0.15);color:#d97706;font-weight:800;border-radius:4px;';
-      return `<td class="text-center" style="${posClass}">${pos}°</td>`;
-    }).join('')}
+        const pos = t.years[y];
+        if (!pos) return '<td class="text-center" style="color:var(--text-muted);">-</td>';
+        let posClass = '';
+        if (pos === 1) posClass = 'background:rgba(245,158,11,0.2);color:var(--accent-gold);font-weight:900;border-radius:4px;';
+        else if (pos === 2) posClass = 'background:rgba(148,163,184,0.15);color:#94a3b8;font-weight:800;border-radius:4px;';
+        else if (pos === 3) posClass = 'background:rgba(217,119,6,0.15);color:#d97706;font-weight:800;border-radius:4px;';
+        return `<td class="text-center" style="${posClass}">${pos}°</td>`;
+      }).join('')}
               </tr>
-            `).join('')}
+            `;
+    }).join('')}
           </tbody>
         </table>
       </div>
@@ -810,27 +944,30 @@ const alboView = {
               </tr>
             </thead>
             <tbody>
-              ${sortedTeams.map(t => `
-                <tr>
+              ${sortedTeams.map(t => {
+      const isFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(t.idAttuale) || fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
+      return `
+                <tr class="${isFav ? 'table-row-favorite' : ''}">
                   <td class="albo-sticky-col-cell" style="text-align:left;font-weight:700;padding:6px 8px;min-width:130px;max-width:140px;">
                     <div style="display:flex;align-items:center;gap:6px;">
-                      <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" style="width:20px;height:20px;border-radius:3px;flex-shrink:0;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
+                      <img src="${fcmDataLoader.getTeamLogo(t.idAttuale || t.id)}" style="width:20px;height:20px;border-radius:3px;flex-shrink:0;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
                       <span style="font-size:0.78rem;color:${t.isCurrent ? 'var(--text-primary)' : 'var(--text-muted)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                        ${t.name}
+                        ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${t.name}
                       </span>
                     </div>
                   </td>
                   ${mobileYears.map(y => {
-      const pos = t.years[y];
-      if (!pos) return '<td class="text-center" style="color:var(--text-muted);font-size:0.75rem;padding:6px 2px;">-</td>';
-      let posClass = '';
-      if (pos === 1) posClass = 'background:rgba(245,158,11,0.2);color:var(--accent-gold);font-weight:900;border-radius:3px;';
-      else if (pos === 2) posClass = 'background:rgba(148,163,184,0.15);color:#94a3b8;font-weight:800;border-radius:3px;';
-      else if (pos === 3) posClass = 'background:rgba(217,119,6,0.15);color:#d97706;font-weight:800;border-radius:3px;';
-      return `<td class="text-center" style="font-size:0.78rem;padding:6px 2px;${posClass}">${pos}°</td>`;
-    }).join('')}
+        const pos = t.years[y];
+        if (!pos) return '<td class="text-center" style="color:var(--text-muted);font-size:0.75rem;padding:6px 2px;">-</td>';
+        let posClass = '';
+        if (pos === 1) posClass = 'background:rgba(245,158,11,0.2);color:var(--accent-gold);font-weight:900;border-radius:3px;';
+        else if (pos === 2) posClass = 'background:rgba(148,163,184,0.15);color:#94a3b8;font-weight:800;border-radius:3px;';
+        else if (pos === 3) posClass = 'background:rgba(217,119,6,0.15);color:#d97706;font-weight:800;border-radius:3px;';
+        return `<td class="text-center" style="font-size:0.78rem;padding:6px 2px;${posClass}">${pos}°</td>`;
+      }).join('')}
                 </tr>
-              `).join('')}
+              `;
+    }).join('')}
             </tbody>
           </table>
         </div>
@@ -959,8 +1096,9 @@ const alboView = {
         const teamName = this.getTeamName(albo, r.idSquadra, r.presidente);
         const logoId = this.getTeamLogoId(albo, r.idSquadra);
         const isWinner = r.posizione === 1;
+        const isFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(r.idSquadra) || fcmHomeConfigManager.isFavoriteTeam(teamName));
         return `
-                        <tr style="${isWinner ? 'background:rgba(245,158,11,0.08);' : ''}">
+                        <tr class="${isFav ? 'table-row-favorite' : ''}" style="${isWinner ? 'background:rgba(245,158,11,0.08);' : ''}">
                           <td class="text-center font-bold">
                             <span class="table-pos ${r.posizione === 1 ? 'table-pos-1' : r.posizione === 2 ? 'table-pos-2' : r.posizione === 3 ? 'table-pos-3' : ''}">
                               ${r.posizione}°
@@ -968,8 +1106,8 @@ const alboView = {
                           </td>
                           <td style="text-align:left;font-weight:700;">
                             <div style="display:flex;align-items:center;gap:8px;">
-                              <img src="${fcmDataLoader.getTeamLogo(logoId)}" style="width:24px;height:24px;border-radius:3px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
-                              <span>${teamName}</span>
+                              <img src="${fcmDataLoader.getTeamLogo(logoId)}" style="width:24px;height:24px;border-radius:3px;" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
+                              <span>${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${teamName}</span>
                               ${isWinner ? `<img src="${this.getCompTrophyIcon(group.comp, true)}" style="height:18px;vertical-align:middle;margin-left:4px;" onerror="this.style.display='none';" alt="Vincitore" />` : ''}
                             </div>
                           </td>
@@ -990,8 +1128,9 @@ const alboView = {
         const teamName = this.getTeamName(albo, r.idSquadra, r.presidente);
         const logoId = this.getTeamLogoId(albo, r.idSquadra);
         const isWinner = r.posizione === 1;
+        const isFav = (typeof fcmHomeConfigManager !== 'undefined') && (fcmHomeConfigManager.isFavoriteTeam(r.idSquadra) || fcmHomeConfigManager.isFavoriteTeam(teamName));
         return `
-                      <div class="albo-dettaglio-row ${isWinner ? 'is-winner' : ''}">
+                      <div class="albo-dettaglio-row ${isWinner ? 'is-winner' : ''} ${isFav ? 'match-card-favorite' : ''}">
                         <div class="albo-dettaglio-pos">
                           <span class="table-pos ${r.posizione === 1 ? 'table-pos-1' : r.posizione === 2 ? 'table-pos-2' : r.posizione === 3 ? 'table-pos-3' : ''}">
                             ${r.posizione}°
@@ -999,8 +1138,8 @@ const alboView = {
                         </div>
                         <div class="albo-dettaglio-team-info">
                           <div class="albo-dettaglio-team-header">
-                            <img src="${fcmDataLoader.getTeamLogo(logoId)}" class="albo-dettaglio-logo" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
-                            <span class="albo-dettaglio-team-name">${teamName}</span>
+                            <img src="${fcmDataLoader.getTeamLogo(logoId)}" class="albo-dettaglio-logo" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/, '.gif');}else{this.onerror=null;this.src='img/sq/undefined.svg';}" />
+                            <span class="albo-dettaglio-team-name">${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${teamName}</span>
                             ${isWinner ? `<img src="${this.getCompTrophyIcon(group.comp, true)}" style="height:16px;vertical-align:middle;flex-shrink:0;" onerror="this.style.display='none';" alt="Vincitore" />` : ''}
                           </div>
                           <div class="albo-dettaglio-subtext">

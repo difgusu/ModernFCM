@@ -72,6 +72,17 @@ function OttieniSquadraSerieA(gg) {
 	return String(raw || "");
 }
 
+function OttieniLogoSquadraSerieA(sq) {
+	if (!sq) return "img/sq/logo/{ELIMINATA}.png";
+	var clean = String(sq).trim();
+	if (clean === "{ELIMINATA}" || clean === "{SERIE ESTERA}" || clean === "{SERIE MINORE}" ||
+		clean.toUpperCase() === "{ELIMINATA}" || clean.toUpperCase() === "{SERIE ESTERA}" || clean.toUpperCase() === "{SERIE MINORE}" ||
+		clean === "ELIMINATA" || clean === "SERIE ESTERA" || clean === "SERIE MINORE") {
+		return "img/sq/logo/{ELIMINATA}.png";
+	}
+	return "img/sq/logo/" + encodeURIComponent(clean) + ".png";
+}
+
 // Inserimento sicuro nel DOM
 function InserisciContenutoDOM(html, preferredId) {
 	if (preferredId) {
@@ -377,11 +388,22 @@ function GeneraIntestazioneInvioFormazione(cFsq, cGio, pname) {
 	var isDisabGio = (typeof disabilitaGiornata !== 'undefined') ? disabilitaGiornata : 1;
 	var attr = isDisabGio ? "disabled" : "";
 
+	var favTeamId = null;
+	try {
+		var rawCfg = localStorage.getItem('pn_home_layout');
+		if (rawCfg) {
+			var parsed = JSON.parse(rawCfg);
+			if (parsed && parsed.favoriteTeamId) favTeamId = Number(parsed.favoriteTeamId);
+		}
+	} catch (e) {}
+
 	var fsqOptions = "";
 	for (var i = 1; i < arrF.length; i++) {
+		var isFav = (favTeamId && arrF[i].ID === favTeamId);
 		var sel = (arrF[i].ID === cFsq) ? " selected" : "";
 		if (arrF[i].ID === cFsq) idxFsq = i;
-		fsqOptions += `<option value='${arrF[i].ID}'${sel}>${arrF[i].Nome}</option>`;
+		var label = (isFav ? "⭐ " : "") + arrF[i].Nome;
+		fsqOptions += `<option value='${arrF[i].ID}'${sel}>${label}</option>`;
 	}
 
 	var gioOptions = "";
@@ -586,9 +608,15 @@ function GeneraTabelleGiocatori() {
   <div class='inv-prob-card'>
     <div class='inv-card-header'>
       <div class='inv-card-title'>📋 Probabili Formazioni &amp; Indisponibili Serie A</div>
-      <span class='inv-source-badge'>Fonte: Sky</span>
+      <div class='inv-prob-actions'>
+        <button type='button' class='inv-prob-refresh-btn' id='btnRefreshProbSky' onclick='window.AggiornaProbabiliSky && window.AggiornaProbabiliSky(true)' title='Ricarica dati aggiornati da Sky Sport'>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          <span>Aggiorna</span>
+        </button>
+        <span class='inv-source-badge'>Fonte: Sky Sport</span>
+      </div>
     </div>
-    <iframe class='prob-iframe' scrolling='no' frameborder='0' src='probform/probhtml.htm?v=20260908_7'></iframe>
+    <div id='probSkyContainer' class='prob-sky-wrapper'></div>
   </div>
 </div>`
 		: "";
@@ -628,6 +656,12 @@ function GeneraTabelleGiocatori() {
 			InizializzaQTipInfortuni('#viewTable');
 		}, 60);
 	}
+
+	if (isProb && typeof window.InizializzaProbabiliSky === 'function') {
+		setTimeout(function () {
+			window.InizializzaProbabiliSky();
+		}, 30);
+	}
 }
 
 /* --- SWITCH MODALITA' DI VISTA --- */
@@ -663,25 +697,10 @@ function SwitchInvView(viewName) {
 			InizializzaQTipInfortuni('#viewTable');
 		}
 	} else if (viewName === "prob") {
-		var ifr = document.querySelector(".prob-iframe");
-		if (ifr && ifr.contentWindow) {
-			try {
-				ifr.contentWindow.postMessage({ type: "request-height" }, "*");
-			} catch (e) { }
+		if (typeof window.InizializzaProbabiliSky === 'function') {
+			window.InizializzaProbabiliSky();
 		}
 	}
-}
-
-// Sincronizzazione dinamica altezza iframe Probabili Sky (Zero Scrollbar & No Loop)
-if (typeof window !== "undefined" && window.addEventListener) {
-	window.addEventListener("message", function (e) {
-		if (e.data && e.data.type === "probform-height") {
-			var ifr = document.querySelector(".prob-iframe");
-			if (ifr && e.data.height) {
-				ifr.style.height = e.data.height + "px";
-			}
-		}
-	});
 }
 
 /* --- TOOLBAR MODULI ED AZIONI VELOCI (CONDIVISA TRA CAMPETTO E TABELLA) --- */
@@ -1274,6 +1293,7 @@ function GeneraSlotRigaCampo(ruolo, numSlots, titolariArray) {
 			var gg = item.gg;
 			var cognome = EstraiCognome(OttieniNomeGiocatore(gg));
 			var sq = OttieniSquadraSerieA(gg);
+			var logoSq = OttieniLogoSquadraSerieA(sq);
 			var pct = OttieniPercentualeFGNumero(gg.NomeCode);
 			var pctClass = pct >= 70 ? "pct-high" : (pct >= 45 ? "pct-mid" : "pct-low");
 			var photoUrl = OttieniFotoGiocatore(gg);
@@ -1302,12 +1322,12 @@ function GeneraSlotRigaCampo(ruolo, numSlots, titolariArray) {
 <div class='pitch-slot' data-idg='${item.idG}' onclick='ApriRosterDrawer(${ruolo}, "starter")'>
   <div class='pitch-slot-filled' data-idg='${item.idG}'>
     <button type='button' class='slot-remove-btn' title='Rimuovi ${cognome}' onclick='event.stopPropagation(); ClickGiocatoreFormazione(${item.pos});'>✕</button>
-    <div class='slot-header-top'>
-      <img class='slot-player-jersey' src='img/live/sq/${sq}.png' width='16' height='16' onerror='this.src="img/sq/undefined.svg"'>
+    <div class='slot-avatar-wrap' data-idg='${item.idG}'>
+      <div class='slot-photo-wrap' data-idg='${item.idG}'>
+        <img class='slot-player-photo' src='${photoUrl}' onerror='this.src="img/foto/misterx.gif"' alt='${cognome}'>
+      </div>
       <span class='slot-role-badge role-${rLabel}'>${rLabel}</span>
-    </div>
-    <div class='slot-photo-wrap' data-idg='${item.idG}'>
-      <img class='slot-player-photo' src='${photoUrl}' onerror='this.src="img/foto/misterx.gif"' alt='${cognome}'>
+      <img class='slot-team-logo' src='${logoSq}' onerror='this.style.display="none"' alt='${sq}'>
     </div>
     <div class='slot-player-name'><span>${cognome}</span></div>
     <div class='slot-player-team'>${sq}</div>
@@ -1343,6 +1363,7 @@ function AggiornaDugout() {
 			var gg = arrInvioFormazione[idG];
 			var cognome = EstraiCognome(OttieniNomeGiocatore(gg));
 			var sq = OttieniSquadraSerieA(gg);
+			var logoSq = OttieniLogoSquadraSerieA(sq);
 			var rLabel = ruoli[gg.Ruolo];
 			var pct = OttieniPercentualeFGNumero(gg.NomeCode);
 			var pctClass = pct >= 70 ? "pct-high" : (pct >= 45 ? "pct-mid" : "pct-low");
@@ -1373,12 +1394,12 @@ function AggiornaDugout() {
   <div class='pitch-slot-filled dugout-slot-filled' data-idg='${idG}'>
     <span class='dugout-order-badge' title='Ordine riserva #${num}'>#${num}</span>
     <button type='button' class='slot-remove-btn' title='Rimuovi ${cognome} dalla panchina' onclick='event.stopPropagation(); ClickGiocatoreFormazione(${pos});'>✕</button>
-    <div class='slot-header-top'>
-      <img class='slot-player-jersey' src='img/live/sq/${sq}.png' width='16' height='16' onerror='this.src="img/sq/undefined.svg"'>
+    <div class='slot-avatar-wrap' data-idg='${idG}'>
+      <div class='slot-photo-wrap' data-idg='${idG}'>
+        <img class='slot-player-photo' src='${photoUrl}' onerror='this.src="img/foto/misterx.gif"' alt='${cognome}'>
+      </div>
       <span class='slot-role-badge role-${rLabel}'>${rLabel}</span>
-    </div>
-    <div class='slot-photo-wrap' data-idg='${idG}'>
-      <img class='slot-player-photo' src='${photoUrl}' onerror='this.src="img/foto/misterx.gif"' alt='${cognome}'>
+      <img class='slot-team-logo' src='${logoSq}' onerror='this.style.display="none"' alt='${sq}'>
     </div>
     <div class='slot-player-name'><span>${cognome}</span></div>
     <div class='slot-player-team'>${sq}</div>
@@ -1441,7 +1462,7 @@ function CostruisciContenutoTooltipGiocatore(idG) {
 	var pct = OttieniPercentualeFGNumero(gg.NomeCode);
 	var iconaTit = OttieniIconaTitolaritaHTML(gg.NomeCode);
 	var photoUrl = OttieniFotoGiocatore(gg);
-	var crestUrl = "img/live/sq/" + sq + ".png";
+	var crestUrl = OttieniLogoSquadraSerieA(sq);
 
 	var indInfo = "";
 	if (typeof arrIndisponibili !== 'undefined' && arrIndisponibili && arrIndisponibili[gg.NomeCode]) {
@@ -1560,7 +1581,7 @@ function NascondiTooltipTattico() {
 
 	document.addEventListener("mouseover", function (e) {
 		if (window.innerWidth <= 768) return;
-		var photoWrap = e.target.closest ? e.target.closest(".slot-photo-wrap") : null;
+		var photoWrap = e.target.closest ? (e.target.closest(".slot-photo-wrap") || e.target.closest(".slot-avatar-wrap")) : null;
 		if (photoWrap && photoWrap !== currentHoveredPhoto) {
 			currentHoveredPhoto = photoWrap;
 			var idG = photoWrap.getAttribute("data-idg");
@@ -2347,6 +2368,8 @@ function AggiornaListaDrawer() {
 		var avv = OttieniAvversarioSerieA(gg);
 		var iconaIndisp = OttieniIconaIndisponibileHTML(gg.NomeCode);
 		var iconaTitolarita = (typeof PerCentoFG === 'function') ? PerCentoFG(gg.NomeCode, 0) : "";
+		var photoUrl = OttieniFotoGiocatore(gg);
+		var logoSq = OttieniLogoSquadraSerieA(item.sq);
 
 		var stMvtClass = (item.clMvt > 0 && coloreDati[item.clMvt]) ? coloreDati[item.clMvt] : "";
 		var stFmtClass = (item.clFmt > 0 && coloreDati[item.clFmt]) ? coloreDati[item.clFmt] : "";
@@ -2377,12 +2400,17 @@ function AggiornaListaDrawer() {
 <div class='${cardClass}' onclick='ClickGiocatoreDrawer(${item.idG})'>
   <div class='rpc-left'>
     <span class='slot-role-badge role-${rLabel}'>${rLabel}</span>
-    <img src='img/live/sq/${item.sq}.png' width='20' height='20' onerror='this.style.display="none"'>
+    <div class='rpc-photo-wrap'>
+      <img class='rpc-player-photo' src='${photoUrl}' onerror='this.src="img/foto/misterx.gif"' alt='${item.cognome}'>
+    </div>
     <div class='rpc-name-wrap'>
       <div class='rpc-name'>${item.nome}</div>
       <div class='rpc-sub'>
         <div class='rpc-sub-meta'>
-          <span>${item.sq}${avv ? " (" + avv + ")" : ""}</span>${starterBenchBadge}
+          <span class='rpc-team-wrap'>
+            <img class='rpc-team-logo' src='${logoSq}' onerror='this.style.display="none"' alt='${item.sq}'>
+            <span>${item.sq}${avv ? " (" + avv + ")" : ""}</span>
+          </span>${starterBenchBadge}
         </div>
         <div class='rpc-stats-grid'>
           <div class='rpc-stat-box' title='Percentuale di Affidabilità (Aff)'><span class='rpc-stat-lbl'>Aff</span> <b class='rpc-stat-badge no-color'>${item.affVal}</b></div>
@@ -2482,7 +2510,7 @@ function GeneraVistaClassicaTabellare() {
 		rosaRowsHtml += `
 <tr class='t-xxs'>
   <td class='Form${pd}Centro'><b class='t-xxs${col}B' id='r_ruolo${g}' style='cursor:pointer;' onclick='ClickGiocatoreRosa(${g})'>${ruoli[gg.Ruolo]}</b></td>
-  <td class='Form${pd}'><div style='display:flex;align-items:center;gap:6px;text-align:left;cursor:pointer;width:100%;' onclick='ClickGiocatoreRosa(${g})'><img src='img/live/sq/${sqA}.png' width='16' height='16' onerror='this.style.display="none"' /><span class='player-name-label' id='r_nome${g}'>${nomeGiocatore} <span style='font-weight:normal;opacity:0.8;'>(${sqA})</span></span></div></td>
+  <td class='Form${pd}'><div style='display:flex;align-items:center;gap:6px;text-align:left;cursor:pointer;width:100%;' onclick='ClickGiocatoreRosa(${g})'><img src='img/sq/${sqA}.png' width='16' height='16' onerror='this.style.display="none"' /><span class='player-name-label' id='r_nome${g}'>${nomeGiocatore} <span style='font-weight:normal;opacity:0.8;'>(${sqA})</span></span></div></td>
   <td class='Form${pd}Centro'><div style='display:inline-flex; align-items:center; justify-content:center; white-space:nowrap; gap:2px; font-weight:bold;'>${pctHtml}</div></td>
   <td class='Form${pd}Centro'>${dati[0] || ""}</td>
   ${statsCols}
@@ -2501,8 +2529,8 @@ function GeneraVistaClassicaTabellare() {
   <div style='display:flex;align-items:center;justify-content:space-between;padding:2px 4px;'>
     <span>Riserve &bull; Panchina</span>
     <div style='display:flex;gap:6px;'>
-      <button type='button' class='inv-action-btn' onclick='AutoCompilaPanchina()' style='padding:3px 8px;font-size:0.72rem;' title='Compila automaticamente le riserve mancanti'>🪄 <span class='btn-text-full'>Auto-Panchina</span><span class='btn-text-short'>Auto</span></button>
-      <button type='button' class='inv-action-btn' onclick='SvuotaPanchina()' style='padding:3px 8px;font-size:0.72rem;' title='Svuota tutte le riserve dalla panchina'>🗑️ <span class='btn-text-full'>Svuota panchina</span><span class='btn-text-short'>Svuota</span></button>
+      <button type='button' class='pitch-quick-btn' onclick='AutoCompilaPanchina()' style='padding:3px 8px;font-size:0.72rem;' title='Compila automaticamente le riserve mancanti'>🪄 <span class='btn-text-full'>Auto-Panchina</span><span class='btn-text-short'>Auto</span></button>
+      <button type='button' class='pitch-quick-btn' onclick='SvuotaPanchina()' style='padding:3px 8px;font-size:0.72rem;' title='Svuota tutte le riserve dalla panchina'>🗑️ <span class='btn-text-full'>Svuota panchina</span><span class='btn-text-short'>Svuota</span></button>
     </div>
   </div>
 </th></tr>`;
@@ -2801,7 +2829,7 @@ function VisualizzaTabellaFormazione() {
 		} else {
 			var gg = arrInvioFormazione[arrFormazione[i]];
 			if (elMaglia) {
-				elMaglia.src = "img/live/sq/" + OttieniSquadraSerieA(gg) + ".png";
+				elMaglia.src = "img/sq/" + OttieniSquadraSerieA(gg) + ".png";
 				elMaglia.style.display = "inline-block";
 			}
 			var c = coloreRuoli[gg.Ruolo];
@@ -3057,7 +3085,7 @@ function AggiornaRigoristiCampetto() {
 			var rLabel = ruoli[gg.Ruolo];
 			playerInfoHtml = `
     <span class='slot-role-badge role-${rLabel}'>${rLabel}</span>
-    <img src='img/live/sq/${sq}.png' width='16' height='16' onerror='this.src="img/sq/undefined.svg"'>
+    <img src='${OttieniLogoSquadraSerieA(sq)}' width='16' height='16' onerror='this.src="img/sq/undefined.svg"'>
     <div class='penalty-player-info'>
       <span class='penalty-player-name'>${cognome}${isGkWarn ? " <span class='badge-gk-warn'>⚠️ Portiere &lt; 11</span>" : ""}</span>
       <span class='penalty-player-meta'>${sq} &bull; Titolare #${slotPos}</span>
@@ -3119,7 +3147,7 @@ function AggiornaRigoristiCampetto() {
 			var rLabel = ruoli[gg.Ruolo];
 			playerInfoHtml = `
     <span class='slot-role-badge role-${rLabel}'>${rLabel}</span>
-    <img src='img/live/sq/${sq}.png' width='16' height='16' onerror='this.src="img/sq/undefined.svg"'>
+    <img src='${OttieniLogoSquadraSerieA(sq)}' width='16' height='16' onerror='this.src="img/sq/undefined.svg"'>
     <div class='penalty-player-info'>
       <span class='penalty-player-name'>${cognome}</span>
       <span class='penalty-player-meta'>${sq} &bull; Riserva #${slotPos - 11}</span>

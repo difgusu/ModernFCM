@@ -53,6 +53,18 @@
 # INCLUSIONE DEI MODULI
 ############################################################################################
 
+// Modular guard: verifica se il modulo Counter/Stats è attivo
+$fcmVarFile = __DIR__ . '/../js/fcmVariabili.js';
+if (file_exists($fcmVarFile)) {
+    $raw = @file_get_contents($fcmVarFile);
+    if (preg_match('/var\s+ModCounter\s*=\s*["\']?(.*?)["\']?\s*;?$/m', $raw, $m)) {
+        $val = strtolower(trim($m[1]));
+        if ($val === 'no' || $val === '0' || $val === 'false') {
+            die("<!DOCTYPE html><html lang='it'><body style='font-family:system-ui,-apple-system,sans-serif;background:#0b1120;color:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;'><div style='text-align:center;padding:40px 24px;background:#131d35;border-radius:16px;border:1px solid rgba(255,255,255,0.08);max-width:500px;'><div style='font-size:3rem;margin-bottom:16px;'>🔒</div><h2 style='margin:0 0 12px 0;font-size:1.5rem;font-weight:700;'>Modulo Statistiche Non Attivo</h2><p style='color:#94a3b8;font-size:0.95rem;line-height:1.5;margin-bottom:24px;'>Il modulo Statistiche Visite è stato disabilitato nelle impostazioni del sito dall'amministratore di lega.</p><a href='../index.php#home' style='display:inline-flex;padding:10px 20px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;'>Torna al Sito</a></div></body></html>");
+        }
+    }
+}
+
 require("ver.inc.php");
 require("sys.inc.php");
 require("cnf.inc.php");
@@ -111,6 +123,7 @@ if(($par__id===FALSE)||($cnf__passwd_protect&&(md5($par__passwd)!==$cnf__userpas
  echo"<meta http-equiv=\"content-type\" content=\"text/html; charset=".CHARSET."\" />";
  echo"<base target=\"_self\" />";
  echo"<link type=\"text/css\" rel=\"stylesheet\" href=\"stats.css?v=".(file_exists(__DIR__.'/stats.css') ? filemtime(__DIR__.'/stats.css') : '1')."\" />";
+if (file_exists(__DIR__ . '/../inc/theme_loader.php')) { require_once __DIR__ . '/../inc/theme_loader.php'; echo fcm_render_custom_theme_css(); }
  echo"<script type=\"text/javascript\">(function(){function syncTheme(){try{var t='light';if(window.self!==window.top){document.documentElement.classList.add('in-iframe');try{t=window.top.document.documentElement.getAttribute('data-theme')||localStorage.getItem('pn_theme')||'light';}catch(e){t=localStorage.getItem('pn_theme')||'light';}}else{t=localStorage.getItem('pn_theme')||'light';}document.documentElement.setAttribute('data-theme',t);}catch(err){}}syncTheme();try{if(window.self!==window.top){var obs=new MutationObserver(function(){syncTheme();});obs.observe(window.top.document.documentElement,{attributes:true,attributeFilter:['data-theme']});}}catch(e){}window.addEventListener('message',function(e){if(e.data&&e.data.type==='pn_theme_change'){document.documentElement.setAttribute('data-theme',e.data.theme);}});})();</script>";
  echo"</head>";
  echo"<body>";
@@ -207,6 +220,7 @@ echo"<meta name=\"keywords\" content=\"accessi,contatore,counter,fanKounter,pagi
 echo"<meta http-equiv=\"content-type\" content=\"text/html; charset=".CHARSET."\" />";
 echo"<base target=\"_self\" />";
 echo"<link type=\"text/css\" rel=\"stylesheet\" href=\"stats.css?v=".(file_exists(__DIR__.'/stats.css') ? filemtime(__DIR__.'/stats.css') : '1')."\" />";
+if (file_exists(__DIR__ . '/../inc/theme_loader.php')) { require_once __DIR__ . '/../inc/theme_loader.php'; echo fcm_render_custom_theme_css(); }
 echo"<script type=\"text/javascript\">(function(){function syncTheme(){try{var t='light';if(window.self!==window.top){document.documentElement.classList.add('in-iframe');try{t=window.top.document.documentElement.getAttribute('data-theme')||localStorage.getItem('pn_theme')||'light';}catch(e){t=localStorage.getItem('pn_theme')||'light';}}else{t=localStorage.getItem('pn_theme')||'light';}document.documentElement.setAttribute('data-theme',t);}catch(err){}}syncTheme();try{if(window.self!==window.top){var obs=new MutationObserver(function(){syncTheme();});obs.observe(window.top.document.documentElement,{attributes:true,attributeFilter:['data-theme']});}}catch(e){}window.addEventListener('message',function(e){if(e.data&&e.data.type==='pn_theme_change'){document.documentElement.setAttribute('data-theme',e.data.theme);}});window.addEventListener('DOMContentLoaded',function(){var activeBtn=document.querySelector('.stats-nav-bar .menu_hi');if(activeBtn&&activeBtn.scrollIntoView){try{activeBtn.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'});}catch(e){}}try{if(window.parent&&window.parent!==window){window.parent.postMessage({type:'pn_iframe_resize'},'*');}}catch(e){}});})();</script>";
 echo"</head>";
 echo"<body>";

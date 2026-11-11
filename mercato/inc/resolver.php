@@ -12,6 +12,11 @@ function mercato_resolve_session($idSessione, $isFinal = false) {
         throw new Exception("Questa sessione è già stata elaborata in via definitiva.");
     }
 
+    $settings = get_mercato_settings();
+    if (!$isFinal && empty($settings['abilita_simulazione'])) {
+        throw new Exception("La simulazione dell'asta è disabilitata nelle impostazioni di lega per garantire la segretezza delle offerte fino alla fine dell'asta.");
+    }
+
     $fcmData = fcm_parse_all_data();
     $fantasquadre = $fcmData['fantasquadre'];
 
@@ -36,6 +41,7 @@ function mercato_resolve_session($idSessione, $isFinal = false) {
     $esiti = [];
     $assegnazioni = [];
     $operazioniPerSquadra = []; // Per la Scheda Operazioni FCM
+    $tagliGiaRimborsati = [];   // Evita doppi rimborsi sullo stesso giocatore tagliato nella stessa sessione
 
     foreach ($gruppi as $chiave => $busteGruppo) {
         // Ordina per crediti decrescenti, poi per timestamp
@@ -63,6 +69,8 @@ function mercato_resolve_session($idSessione, $isFinal = false) {
                 $stato = 'PERSA';
             }
 
+            $taglioId = !empty($b['id_giocatore_taglio']) ? (int)$b['id_giocatore_taglio'] : 0;
+
             $record = [
                 'id_offerta'        => $b['id'],
                 'id_squadra'        => $b['id_squadra'],
@@ -73,6 +81,7 @@ function mercato_resolve_session($idSessione, $isFinal = false) {
                 'ruolo'             => $b['ruolo'],
                 'crediti'           => $b['crediti_in_chiaro'],
                 'stato'             => $stato,
+                'id_tagliato'       => $taglioId,
                 'nome_tagliato'     => $b['nome_giocatore_taglio'],
                 'crediti_recupero'  => $b['crediti_recuperati'],
                 'timest'            => $b['timest']
@@ -81,8 +90,25 @@ function mercato_resolve_session($idSessione, $isFinal = false) {
             $esiti[] = $record;
 
             if ($stato === 'ASSEGNATO') {
-                $assegnazioni[] = $record;
                 $sqId = $b['id_squadra'];
+                $recuperoEffettivo = 0;
+                $applicaTaglio = false;
+                if (!empty($b['nome_giocatore_taglio'])) {
+                    if ($taglioId > 0) {
+                        if (!isset($tagliGiaRimborsati[$sqId][$taglioId])) {
+                            $tagliGiaRimborsati[$sqId][$taglioId] = true;
+                            $recuperoEffettivo = (int)$b['crediti_recuperati'];
+                            $applicaTaglio = true;
+                        }
+                    } else {
+                        $recuperoEffettivo = (int)$b['crediti_recuperati'];
+                        $applicaTaglio = true;
+                    }
+                }
+
+                $record['crediti_recupero_applicati'] = $recuperoEffettivo;
+                $assegnazioni[] = $record;
+
                 if (!isset($operazioniPerSquadra[$sqId])) {
                     $operazioniPerSquadra[$sqId] = [
                         'nome_squadra' => $b['nome_squadra'],
@@ -97,13 +123,13 @@ function mercato_resolve_session($idSessione, $isFinal = false) {
                     'ruolo'     => $b['ruolo'],
                     'costo'     => $b['crediti_in_chiaro']
                 ];
-                if (!empty($b['nome_giocatore_taglio'])) {
+                if ($applicaTaglio) {
                     $operazioniPerSquadra[$sqId]['tagli'][] = [
                         'giocatore' => $b['nome_giocatore_taglio'],
-                        'recupero'  => $b['crediti_recuperati']
+                        'recupero'  => $recuperoEffettivo
                     ];
                 }
-                $operazioniPerSquadra[$sqId]['saldo_netto'] += ((int)$b['crediti_recuperati'] - (int)$b['crediti_in_chiaro']);
+                $operazioniPerSquadra[$sqId]['saldo_netto'] += ($recuperoEffettivo - (int)$b['crediti_in_chiaro']);
             }
         }
     }
@@ -171,10 +197,11 @@ function mercato_resolve_session($idSessione, $isFinal = false) {
         mercato_db_delete_extra_saldo_by_session($idSessione);
 
         foreach ($assegnazioni as $a) {
-            $diff = (int)$a['crediti_recupero'] - (int)$a['crediti'];
+            $recuperoApplicato = isset($a['crediti_recupero_applicati']) ? (int)$a['crediti_recupero_applicati'] : (int)$a['crediti_recupero'];
+            $diff = $recuperoApplicato - (int)$a['crediti'];
             $desc = "Acquisto {$a['nome_giocatore']} (-{$a['crediti']} cr)";
-            if (!empty($a['nome_tagliato'])) {
-                $desc .= ", Taglio {$a['nome_tagliato']} (+{$a['crediti_recupero']} cr)";
+            if (!empty($a['nome_tagliato']) && $recuperoApplicato > 0) {
+                $desc .= ", Taglio {$a['nome_tagliato']} (+{$recuperoApplicato} cr)";
             }
             mercato_db_add_extra_saldo($a['id_squadra'], $diff, $idSessione, $desc);
         }
@@ -189,7 +216,7 @@ function mercato_resolve_session($idSessione, $isFinal = false) {
         $dir = MERCATO_REPORTS_DIR;
         if (!is_dir($dir)) @mkdir($dir, 0755, true);
         $cleanDate = date('Y-m-d_H-i', strtotime($sessione['data_chiusura']));
-        file_put_contents("$dir/Report-Assegnazioni-Sess-{$idSessione}-{$cleanDate}.txt", $reportTxt);
+        fcm_write_file_atomic("$dir/Report-Assegnazioni-Sess-{$idSessione}-{$cleanDate}.txt", $reportTxt);
     }
 
     return [
@@ -220,7 +247,14 @@ function mercato_get_session_report($idSessione) {
         }
     }
 
-    // Se non ancora salvato su file o se simulazione, genera al volo
+    // Se non ancora salvato su file o se simulazione, genera al volo se la simulazione è abilitata
+    if (empty($session['elaborata'])) {
+        $settings = get_mercato_settings();
+        if (empty($settings['abilita_simulazione'])) {
+            return "Report non disponibile: la simulazione dell'asta è disabilitata nelle impostazioni. Le offerte rimangono segrete fino all'assegnazione finale dell'asta.";
+        }
+    }
+
     try {
         $res = mercato_resolve_session($idSessione, false);
         return $res['report_txt'] ?? '';

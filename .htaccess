@@ -1,0 +1,52 @@
+# ==============================================================================
+# ModernFCM - Configurazione
+# ==============================================================================
+
+# 1. Reindirizzamento HTTPS compatibile con il Reverse Proxy di Altervista
+# Altervista usa un proxy front-end: la connessione con l'utente è HTTPS,
+# ma verso il server Apache arriva HTTP con header "X-Forwarded-Proto: https".
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteCond %{HTTP:X-Forwarded-Proto} !https
+  RewriteCond %{HTTPS} off
+  RewriteRule .* https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# 2. MIME Types corretti per Web App Manifest e PWA
+<IfModule mod_mime.c>
+  AddType application/manifest+json .webmanifest
+  AddType application/json .json
+  AddType image/png .png
+</IfModule>
+
+# 3. Abilita Service Worker con scope esteso alla radice
+<IfModule mod_headers.c>
+  <FilesMatch "(sw\.js)$">
+    Header set Service-Worker-Allowed "/"
+  </FilesMatch>
+</IfModule>
+
+# 4. Protezione file di configurazione, backup, log e dati sensibili
+<FilesMatch "(\.(ini|bak|dat|log|tmp|sql|sh|exe|key|sqlite|db)|admin_config\.inc\.php|invform\.inc\.php|banned_ip\.txt|entries\.txt|ai_config\.json)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+# 5. Impedisci directory listing ed esplorazione delle cartelle
+Options -Indexes
+
+# 6. Impedisci l'accesso a cartelle nascoste (.git, .svn)
+<IfModule mod_rewrite.c>
+  RewriteRule (^|/)\.(git|svn) - [F,L]
+</IfModule>
+
+# 7. Hosting: abilita compressione GZIP e Brotli
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE application/json application/javascript text/plain text/css
+</IfModule>

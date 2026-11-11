@@ -4,49 +4,50 @@
  * Ottimizzato per dispositivi mobile e desktop
  */
 
-:root {
-  --stats-bg: #f8fafc;
-  --stats-card-bg: #ffffff;
-  --stats-text: #1e293b;
-  --stats-text-muted: #64748b;
-  --stats-title: #0f172a;
+:root,
+[data-theme="light"] {
+  --stats-bg: var(--bg-main, #f8fafc);
+  --stats-card-bg: var(--bg-surface, #ffffff);
+  --stats-text: var(--text-primary, #1e293b);
+  --stats-text-muted: var(--text-secondary, #64748b);
+  --stats-title: var(--text-primary, #0f172a);
   --stats-title-bg: rgba(37, 99, 235, 0.05);
-  --stats-border: #e2e8f0;
-  --stats-border-subtle: rgba(226, 232, 240, 0.7);
-  --stats-accent: #2563eb;
-  --stats-accent-hover: #1d4ed8;
+  --stats-border: var(--border-subtle, #e2e8f0);
+  --stats-border-subtle: var(--border-subtle, rgba(226, 232, 240, 0.7));
+  --stats-accent: var(--accent-primary, #2563eb);
+  --stats-accent-hover: var(--accent-primary-hover, #1d4ed8);
   --stats-pill-bg: rgba(37, 99, 235, 0.08);
   --stats-pill-border: rgba(37, 99, 235, 0.22);
-  --stats-count-color: #2563eb;
-  --stats-bar-color: #3b82f6;
-  --stats-header-bg: #f1f5f9;
-  --stats-entry-bg: #ffffff;
-  --stats-input-bg: #f8fafc;
+  --stats-count-color: var(--accent-primary, #2563eb);
+  --stats-bar-color: var(--accent-primary, #3b82f6);
+  --stats-header-bg: var(--bg-surface-elevated, #f1f5f9);
+  --stats-entry-bg: var(--bg-surface, #ffffff);
+  --stats-input-bg: var(--bg-surface-elevated, #f8fafc);
   --stats-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-  --stats-sunday-color: #dc2626;
+  --stats-sunday-color: var(--accent-crimson, #dc2626);
   color-scheme: light;
 }
 
 [data-theme="dark"] {
-  --stats-bg: #0b1120;
-  --stats-card-bg: #0f172a;
-  --stats-text: #f1f5f9;
-  --stats-text-muted: #94a3b8;
-  --stats-title: #38bdf8;
+  --stats-bg: var(--bg-main, #0b1120);
+  --stats-card-bg: var(--bg-surface, #0f172a);
+  --stats-text: var(--text-primary, #f1f5f9);
+  --stats-text-muted: var(--text-secondary, #94a3b8);
+  --stats-title: var(--accent-primary, #38bdf8);
   --stats-title-bg: rgba(56, 189, 248, 0.08);
-  --stats-border: rgba(255, 255, 255, 0.1);
-  --stats-border-subtle: rgba(255, 255, 255, 0.06);
-  --stats-accent: #38bdf8;
-  --stats-accent-hover: #7dd3fc;
+  --stats-border: var(--border-subtle, rgba(255, 255, 255, 0.1));
+  --stats-border-subtle: var(--border-subtle, rgba(255, 255, 255, 0.06));
+  --stats-accent: var(--accent-primary, #38bdf8);
+  --stats-accent-hover: var(--accent-primary-hover, #7dd3fc);
   --stats-pill-bg: rgba(56, 189, 248, 0.12);
   --stats-pill-border: rgba(56, 189, 248, 0.28);
-  --stats-count-color: #38bdf8;
-  --stats-bar-color: #38bdf8;
-  --stats-header-bg: rgba(56, 189, 248, 0.1);
+  --stats-count-color: var(--accent-primary, #38bdf8);
+  --stats-bar-color: var(--accent-primary, #38bdf8);
+  --stats-header-bg: var(--bg-surface-elevated, rgba(56, 189, 248, 0.1));
   --stats-entry-bg: rgba(255, 255, 255, 0.025);
-  --stats-input-bg: #1e293b;
+  --stats-input-bg: var(--bg-surface-elevated, #1e293b);
   --stats-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
-  --stats-sunday-color: #f87171;
+  --stats-sunday-color: var(--accent-crimson, #f87171);
   color-scheme: dark;
 }
 
@@ -55,7 +56,7 @@
 }
 
 html, body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif) !important;
   color: var(--stats-text) !important;
   background-color: var(--stats-bg) !important;
   margin: 0 !important;

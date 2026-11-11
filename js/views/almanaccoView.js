@@ -112,6 +112,7 @@ const almanaccoView = {
             display: flex;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
             gap: 8px;
           }
           .almanacco-card-player {
@@ -119,7 +120,7 @@ const almanaccoView = {
             align-items: center;
             gap: 8px;
             min-width: 0;
-            flex: 1;
+            flex: 1 1 180px;
           }
           .almanacco-card-rank {
             font-weight: 800;
@@ -127,6 +128,7 @@ const almanaccoView = {
             font-size: 0.8rem;
             min-width: 22px;
             text-align: center;
+            flex-shrink: 0;
           }
           .almanacco-card-name {
             font-weight: 700;
@@ -183,9 +185,11 @@ const almanaccoView = {
         </div>
 
         <div id="almanaccoContent">
-          <div class="text-center" style="padding:30px;color:var(--text-muted);">
-            Caricamento Almanacco Storico...
-          </div>
+          ${(typeof fcmSkeleton !== 'undefined') ? fcmSkeleton.table({ cols: 4, rows: 8, withToolbar: true, toolbarPills: 5 }) : `
+            <div class="text-center" style="padding:30px;color:var(--text-muted);">
+              Caricamento Almanacco Storico...
+            </div>
+          `}
         </div>
       </div>
     `;
@@ -221,11 +225,14 @@ const almanaccoView = {
             Fantasquadra:
           </label>
           <select id="almanaccoTeamSelect" class="form-select" style="min-width:220px;font-weight:700;">
-            ${alm.teams.map(t => `
-              <option value="${t.id}" ${t.id === this.currentTeamId ? 'selected' : ''}>
-                ${t.name}
-              </option>
-            `).join('')}
+            ${alm.teams.map(t => {
+              const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
+              return `
+                <option value="${t.id}" ${t.id === this.currentTeamId ? 'selected' : ''}>
+                  ${isFav ? '⭐ ' : ''}${t.name}
+                </option>
+              `;
+            }).join('')}
           </select>
         </div>
 
@@ -274,6 +281,35 @@ const almanaccoView = {
     });
   },
 
+  _escAttr(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  },
+
+  renderPlayerCell(p, extraNameClass = '') {
+    const name = p && p.player ? p.player : '';
+    const code = p && p.code ? p.code : null;
+    const profileLink = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getPlayerProfileLink === 'function')
+      ? fcmDataLoader.getPlayerProfileLink({ name, code })
+      : `#schede_giocatori?name=${encodeURIComponent(name)}`;
+    const photoSrc = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getPlayerPhoto === 'function')
+      ? fcmDataLoader.getPlayerPhoto(name, code)
+      : (code ? `img/foto/${code}.jpg` : 'img/foto/misterx.gif');
+    const safeName = this._escAttr(name);
+    const nameCls = extraNameClass ? `hist-player-name-link ${extraNameClass}` : 'hist-player-name-link';
+    return `
+      <div class="hist-player-cell">
+        <a href="${this._escAttr(profileLink)}" class="hist-player-avatar-link" aria-label="Apri scheda di ${safeName}" title="Apri scheda di ${safeName}">
+          <img src="${this._escAttr(photoSrc)}" class="hist-player-thumb" alt="" loading="lazy" onerror="this.onerror=null;this.src='img/foto/misterx.gif';" />
+        </a>
+        <a href="${this._escAttr(profileLink)}" class="${nameCls}" title="Apri scheda di ${safeName}">${safeName}</a>
+      </div>
+    `;
+  },
+
   renderCategoryDetail(detailContainer, data) {
     let content = '';
 
@@ -299,9 +335,9 @@ const almanaccoView = {
               ${data.fedelissimi.slice(0, 20).map((p, idx) => `
                 <tr>
                   <td class="text-center font-bold text-muted">${idx + 1}</td>
-                  <td class="font-bold">${p.player}</td>
+                  <td>${this.renderPlayerCell(p)}</td>
                   <td class="text-center">
-                    <span class="role-badge role-${p.roleShort.toLowerCase()}">${p.roleShort}</span>
+                    <span class="role-badge role-${(p.roleShort || p.role || 'C').toLowerCase()}">${p.roleShort || p.role || 'C'}</span>
                   </td>
                   <td class="text-center font-bold" style="color:var(--accent-cyan);font-size:1.05rem;">
                     ${p.appearances}
@@ -320,8 +356,8 @@ const almanaccoView = {
               <div class="almanacco-card-header">
                 <div class="almanacco-card-player">
                   <span class="almanacco-card-rank">#${idx + 1}</span>
-                  <span class="role-badge role-${p.roleShort.toLowerCase()}">${p.roleShort}</span>
-                  <span class="almanacco-card-name">${p.player}</span>
+                  <span class="role-badge role-${(p.roleShort || p.role || 'C').toLowerCase()}">${p.roleShort || p.role || 'C'}</span>
+                  ${this.renderPlayerCell(p, 'almanacco-card-name')}
                 </div>
                 <div class="almanacco-stat-pill" style="border-color:rgba(6,182,212,0.3);">
                   <span class="almanacco-stat-label">Presenze</span>
@@ -357,9 +393,9 @@ const almanaccoView = {
               ${data.cannonieri.slice(0, 20).map((p, idx) => `
                 <tr>
                   <td class="text-center font-bold text-muted">${idx + 1}</td>
-                  <td class="font-bold">${p.player}</td>
+                  <td>${this.renderPlayerCell(p)}</td>
                   <td class="text-center">
-                    <span class="role-badge role-${p.roleShort.toLowerCase()}">${p.roleShort}</span>
+                    <span class="role-badge role-${(p.roleShort || p.role || 'C').toLowerCase()}">${p.roleShort || p.role || 'C'}</span>
                   </td>
                   <td class="text-center font-bold" style="color:var(--accent-emerald);font-size:1.1rem;">
                     ⚽ ${p.goals}
@@ -381,8 +417,8 @@ const almanaccoView = {
               <div class="almanacco-card-header">
                 <div class="almanacco-card-player">
                   <span class="almanacco-card-rank">#${idx + 1}</span>
-                  <span class="role-badge role-${p.roleShort.toLowerCase()}">${p.roleShort}</span>
-                  <span class="almanacco-card-name">${p.player}</span>
+                  <span class="role-badge role-${(p.roleShort || p.role || 'C').toLowerCase()}">${p.roleShort || p.role || 'C'}</span>
+                  ${this.renderPlayerCell(p, 'almanacco-card-name')}
                 </div>
                 <div class="almanacco-stat-pill" style="border-color:rgba(16,185,129,0.3);">
                   <span class="almanacco-stat-label">Gol</span>
@@ -432,9 +468,9 @@ const almanaccoView = {
               ${data.cattivi.slice(0, 20).map((p, idx) => `
                 <tr>
                   <td class="text-center font-bold text-muted">${idx + 1}</td>
-                  <td class="font-bold">${p.player}</td>
+                  <td>${this.renderPlayerCell(p)}</td>
                   <td class="text-center">
-                    <span class="role-badge role-${p.roleShort.toLowerCase()}">${p.roleShort}</span>
+                    <span class="role-badge role-${(p.roleShort || p.role || 'C').toLowerCase()}">${p.roleShort || p.role || 'C'}</span>
                   </td>
                   <td class="text-center font-bold" style="color:var(--accent-rose);">
                     ${p.expulsions}
@@ -458,8 +494,8 @@ const almanaccoView = {
               <div class="almanacco-card-header">
                 <div class="almanacco-card-player">
                   <span class="almanacco-card-rank">#${idx + 1}</span>
-                  <span class="role-badge role-${p.roleShort.toLowerCase()}">${p.roleShort}</span>
-                  <span class="almanacco-card-name">${p.player}</span>
+                  <span class="role-badge role-${(p.roleShort || p.role || 'C').toLowerCase()}">${p.roleShort || p.role || 'C'}</span>
+                  ${this.renderPlayerCell(p, 'almanacco-card-name')}
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;">
                   <div class="almanacco-stat-pill" style="border-color:rgba(239,68,68,0.3);">
@@ -510,9 +546,9 @@ const almanaccoView = {
               ${data.bestieNere.slice(0, 20).map((p, idx) => `
                 <tr>
                   <td class="text-center font-bold text-muted">${idx + 1}</td>
-                  <td class="font-bold" style="color:var(--text-primary);">${p.player}</td>
+                  <td>${this.renderPlayerCell(p)}</td>
                   <td class="text-center">
-                    <span class="role-badge role-${p.roleShort.toLowerCase()}">${p.roleShort}</span>
+                    <span class="role-badge role-${(p.roleShort || p.role || 'C').toLowerCase()}">${p.roleShort || p.role || 'C'}</span>
                   </td>
                   <td class="text-center font-bold" style="color:var(--accent-rose);font-size:1.1rem;">
                     🎯 ${p.goals}
@@ -533,8 +569,8 @@ const almanaccoView = {
               <div class="almanacco-card-header">
                 <div class="almanacco-card-player">
                   <span class="almanacco-card-rank">#${idx + 1}</span>
-                  <span class="role-badge role-${p.roleShort.toLowerCase()}">${p.roleShort}</span>
-                  <span class="almanacco-card-name">${p.player}</span>
+                  <span class="role-badge role-${(p.roleShort || p.role || 'C').toLowerCase()}">${p.roleShort || p.role || 'C'}</span>
+                  ${this.renderPlayerCell(p, 'almanacco-card-name')}
                 </div>
                 <div class="almanacco-stat-pill" style="border-color:rgba(239,68,68,0.3);">
                   <span class="almanacco-stat-label">Gol Subiti</span>

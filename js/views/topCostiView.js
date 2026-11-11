@@ -9,6 +9,145 @@ const topCostiView = {
   currentTeamId: 0,      // 0 = Totale Lega
   currentRole: 'ALL',    // 'ALL', 'P', 'D', 'C', 'A'
 
+  _escAttr(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  },
+
+  handleTeamLogoError(img) {
+    if (!img || !img.dataset) return;
+    const stage = parseInt(img.dataset.stage || '0', 10);
+    const candidates = [img.dataset.gif, img.dataset.altPng, img.dataset.altGif];
+    for (let i = stage; i < candidates.length; i++) {
+      const nextSrc = candidates[i];
+      if (nextSrc && nextSrc !== img.getAttribute('src')) {
+        img.dataset.stage = String(i + 1);
+        img.src = nextSrc;
+        return;
+      }
+    }
+    img.onerror = null;
+    img.src = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader._resolvePath === 'function')
+      ? fcmDataLoader._resolvePath('img/sq/undefined.svg')
+      : 'img/sq/undefined.svg';
+  },
+
+  renderTeamShirtMarkup(teamName, teamId = 0, historicalTeamId = 0, seasonTeamName = '', extraClass = '') {
+    const cleanName = String(teamName || '').trim();
+    const cleanSeasonName = String(seasonTeamName || '').trim();
+    const resolve = (p) => (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader._resolvePath === 'function')
+      ? fcmDataLoader._resolvePath(p)
+      : p;
+    const encodeTeam = (n) => n ? encodeURIComponent(n).replace(/'/g, '%27') : '';
+    const encoded = encodeTeam(cleanName);
+    const primarySrc = encoded ? resolve(`img/sq/${encoded}.png`) : resolve('img/sq/undefined.svg');
+    const gifSrc = encoded ? resolve(`img/sq/${encoded}.gif`) : '';
+
+    let altPng = '';
+    if (cleanSeasonName && cleanSeasonName !== cleanName) {
+      altPng = resolve(`img/sq/${encodeTeam(cleanSeasonName)}.png`);
+    } else if (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getTeamLogo === 'function') {
+      const fallbackLogo = fcmDataLoader.getTeamLogo(historicalTeamId || teamId || cleanName);
+      if (fallbackLogo && !fallbackLogo.endsWith('undefined.svg') && fallbackLogo !== primarySrc) {
+        altPng = fallbackLogo;
+      }
+    }
+    const altGif = altPng ? altPng.replace(/\.png$/i, '.gif') : (cleanSeasonName && cleanSeasonName !== cleanName ? resolve(`img/sq/${encodeTeam(cleanSeasonName)}.gif`) : '');
+    const cls = extraClass ? `hist-team-shirt ${extraClass}` : 'hist-team-shirt';
+
+    return `<img src="${this._escAttr(primarySrc)}" class="${cls}" alt="" loading="lazy" data-gif="${this._escAttr(gifSrc)}" data-alt-png="${this._escAttr(altPng)}" data-alt-gif="${this._escAttr(altGif)}" onerror="topCostiView.handleTeamLogoError(this)" />`;
+  },
+
+  getRowRosterUrl(r, teamById, isCurrent) {
+    const masterId = Number(r.teamId || 0);
+    const tObj = teamById.get(masterId) || null;
+    const currentId = Number(tObj ? (tObj.currentId || tObj.idAttuale || 0) : 0);
+    const localId = Number(r.localTeamId || 0);
+    const seasonNum = Number(r.seasonNum || 0);
+
+    if (isCurrent) {
+      const targetId = currentId > 0 ? currentId : localId;
+      if (targetId > 0) return `#rose?team=${targetId}`;
+      if (masterId > 0) return `#rose?albo=${masterId}`;
+      return r.teamName ? `#rose?teamName=${encodeURIComponent(r.teamName)}` : '#rose';
+    }
+
+    if (seasonNum > 0 && localId > 0) {
+      if (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getSeasonRosterLink === 'function') {
+        const link = fcmDataLoader.getSeasonRosterLink(seasonNum, localId);
+        if (link && link.url) return link.url;
+      }
+      return `#rose?season=${seasonNum}&team=${localId}`;
+    }
+
+    if (seasonNum > 0 && masterId > 0) {
+      return `#rose?season=${seasonNum}&albo=${masterId}`;
+    }
+    if (masterId > 0) return `#rose?albo=${masterId}`;
+    return currentId > 0 ? `#rose?team=${currentId}` : '#rose';
+  },
+
+  renderTeamLink(r, rosterUrl, isFav, extraClass = '', isCurrent = false) {
+    const shirtHtml = this.renderTeamShirtMarkup(
+      r.teamName,
+      r.localTeamId || r.teamId,
+      r.teamId,
+      r.seasonTeamName || '',
+      ''
+    );
+    const favStar = isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : '';
+    const teamLabel = this._escAttr(r.teamName || '-');
+    const seasonSuffix = (!isCurrent && r.season) ? ` (${this._escAttr(r.season)})` : '';
+    const titlePrefix = isCurrent ? 'Apri rosa attuale di' : 'Apri rosa di';
+    const cls = extraClass ? `hist-team-link ${extraClass}` : 'hist-team-link';
+    if (!rosterUrl) {
+      return `<span class="${cls} is-static">${shirtHtml}${favStar}<span class="hist-team-name-text">${teamLabel}</span></span>`;
+    }
+    return `<a href="${this._escAttr(rosterUrl)}" class="${cls}" title="${titlePrefix} ${teamLabel}${seasonSuffix}">${shirtHtml}${favStar}<span class="hist-team-name-text">${teamLabel}</span></a>`;
+  },
+
+  renderPlayerCell(r, isMobile = false) {
+    const name = r && r.name ? String(r.name) : '';
+    const safeName = this._escAttr(name);
+    const rawCode = Number((r && r.code) || 0);
+    const fallbackCode = (r && Number(r.id) > 0) ? Number(r.id) : 0;
+    const pCode = (rawCode > 0 ? rawCode : fallbackCode) > 0 ? String(rawCode > 0 ? rawCode : fallbackCode) : null;
+
+    const profileLink = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getPlayerProfileLink === 'function')
+      ? fcmDataLoader.getPlayerProfileLink({ name, code: pCode, id: (r && (r.playerId || r.id)) || null, season: r && r.seasonNum })
+      : (pCode ? `#schede_giocatori?cod=${encodeURIComponent(pCode)}` : `#schede_giocatori?name=${encodeURIComponent(name)}`);
+
+    const photoSrc = (typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getPlayerPhoto === 'function')
+      ? fcmDataLoader.getPlayerPhoto(name, pCode)
+      : (pCode ? `img/foto/${pCode}.jpg` : 'img/foto/misterx.gif');
+
+    const serieARaw = String((r && r.serieA) || '').trim();
+    const serieALogo = (serieARaw && typeof fcmDataLoader !== 'undefined' && typeof fcmDataLoader.getSerieALogo === 'function')
+      ? fcmDataLoader.getSerieALogo(serieARaw)
+      : '';
+    const showClubBadge = Boolean(serieALogo && !serieALogo.endsWith('undefined.svg'));
+    const safeClub = this._escAttr(serieARaw);
+    const titleAttr = `Apri scheda di ${safeName}${serieARaw ? ` (${safeClub})` : ''}`;
+
+    const cellCls = isMobile ? 'hist-player-cell topcosti-card-player' : 'hist-player-cell';
+    const avatarCls = showClubBadge ? 'hist-player-avatar-link has-club-badge' : 'hist-player-avatar-link';
+    const nameCls = isMobile ? 'hist-player-name-link topcosti-card-name' : 'hist-player-name-link';
+
+    return `
+      <div class="${cellCls}">
+        <a href="${this._escAttr(profileLink)}" class="${avatarCls}" aria-label="Apri scheda di ${safeName}" title="${titleAttr}">
+          <img src="${this._escAttr(photoSrc)}" class="hist-player-thumb" alt="" loading="lazy" onerror="this.onerror=null;this.src='img/foto/misterx.gif';" />
+          ${showClubBadge ? `<img src="${this._escAttr(serieALogo)}" class="hist-player-club-badge" alt="" aria-hidden="true" title="${safeClub}" loading="lazy" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src=this.src.replace(/\\.png$/i,'.jpg');}else{this.style.display='none';}" />` : ''}
+        </a>
+        <a href="${this._escAttr(profileLink)}" class="${nameCls}" title="${titleAttr}">${safeName}</a>
+      </div>
+    `;
+  },
+
   async render(container) {
     const hash = window.location.hash || '';
     const baseHash = hash.split('?')[0];
@@ -24,11 +163,15 @@ const topCostiView = {
       if (params.has('fsq') || params.has('Fsq') || params.has('team')) {
         const pId = parseInt(params.get('fsq') || params.get('Fsq') || params.get('team'), 10);
         if (!isNaN(pId)) this.currentTeamId = pId;
+      } else {
+        this.currentTeamId = 0;
       }
       if (params.has('tab')) {
         const t = params.get('tab');
         if (t === 'storico' || t === 'stagione') this.currentTab = t;
       }
+    } else {
+      this.currentTeamId = 0;
     }
 
     container.innerHTML = `
@@ -57,9 +200,11 @@ const topCostiView = {
         </div>
 
         <div id="topCostiContent">
-          <div class="text-center" style="padding:30px;color:var(--text-muted);">
-            Caricamento Top Costi...
-          </div>
+          ${(typeof fcmSkeleton !== 'undefined') ? fcmSkeleton.table({ cols: 4, rows: 8, withToolbar: true, toolbarPills: 4 }) : `
+            <div class="text-center" style="padding:30px;color:var(--text-muted);">
+              Caricamento Top Costi...
+            </div>
+          `}
         </div>
       </div>
     `;
@@ -75,7 +220,8 @@ const topCostiView = {
         container.querySelectorAll('#topCostiSubtabs button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         if (window.history && window.history.replaceState) {
-          window.history.replaceState(null, '', newTab === 'stagione' ? '#topcostistagione' : '#topcosti');
+          const base = newTab === 'stagione' ? '#topcostistagione' : '#topcosti';
+          window.history.replaceState(null, '', this.currentTeamId > 0 ? `${base}?fsq=${this.currentTeamId}` : base);
         }
         this.renderTopCosti(subContainer);
       });
@@ -91,9 +237,26 @@ const topCostiView = {
       return;
     }
 
+    const teamById = new Map(costiData.teams.map(t => [Number(t.id), t]));
+
+    if (this.currentTeamId > 0) {
+      const match = costiData.teams.find(t => t.id === this.currentTeamId || t.idAttuale === this.currentTeamId || t.currentId === this.currentTeamId);
+      if (match) {
+        this.currentTeamId = match.id;
+      }
+    }
+
     const isCurrent = this.currentTab === 'stagione';
     const limit = this.currentRole === 'ALL' ? 20 : 15;
     const records = costiData.getTopCosti(this.currentTeamId, this.currentRole, isCurrent, limit);
+    const selectedTeamObj = this.currentTeamId > 0 ? (teamById.get(Number(this.currentTeamId)) || null) : null;
+    const selectedTeamCurrentId = Number(selectedTeamObj ? (selectedTeamObj.currentId || selectedTeamObj.idAttuale || 0) : 0);
+    const selectedTeamUrl = selectedTeamObj
+      ? (selectedTeamCurrentId > 0
+        ? `#rose?team=${selectedTeamCurrentId}`
+        : (records.length > 0 ? this.getRowRosterUrl(records[0], teamById, isCurrent) : `#rose?albo=${selectedTeamObj.id}`))
+      : '';
+    const emptyColspan = 7 + (this.currentTeamId === 0 ? 1 : 0) + (!isCurrent ? 1 : 0);
 
     subContainer.innerHTML = `
       <style>
@@ -235,6 +398,13 @@ const topCostiView = {
             justify-content: space-between;
             gap: 8px;
           }
+          .topcosti-card-left {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            flex: 1;
+          }
           .topcosti-card-player {
             display: flex;
             align-items: center;
@@ -248,10 +418,11 @@ const topCostiView = {
             font-size: 0.8rem;
             min-width: 22px;
             text-align: center;
+            flex-shrink: 0;
           }
           .topcosti-card-name {
             font-weight: 700;
-            font-size: 0.9rem;
+            font-size: 0.88rem;
             color: var(--text-primary);
             white-space: nowrap;
             overflow: hidden;
@@ -261,28 +432,33 @@ const topCostiView = {
             display: flex;
             align-items: center;
             gap: 6px;
-            font-size: 0.75rem;
+            font-size: 0.78rem;
             color: var(--text-secondary);
             flex-wrap: wrap;
           }
           .topcosti-card-stats {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 8px;
-            padding-top: 6px;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
+            padding-block-start: 6px;
             border-top: 1px solid var(--border-subtle);
             font-size: 0.78rem;
           }
           .topcosti-stat-pill {
             display: inline-flex;
             align-items: center;
-            gap: 5px;
+            justify-content: space-between;
+            gap: 4px;
+            min-inline-size: 0;
             background: var(--bg-surface);
             border: 1px solid var(--border-subtle);
             border-radius: var(--radius-sm);
-            padding: 3px 8px;
+            padding-block: 4px;
+            padding-inline: 7px;
+            box-sizing: border-box;
+          }
+          .topcosti-cost-pill {
+            flex-shrink: 0;
           }
           .topcosti-stat-label {
             font-size: 0.7rem;
@@ -293,6 +469,7 @@ const topCostiView = {
           .topcosti-stat-val {
             font-weight: 800;
             font-size: 0.85rem;
+            white-space: nowrap;
           }
         }
       </style>
@@ -305,12 +482,21 @@ const topCostiView = {
           </label>
           <select id="costiTeamSelect" class="form-select topcosti-team-select">
             <option value="0" ${this.currentTeamId === 0 ? 'selected' : ''}>** TOTALE LEGA (Tutte) **</option>
-            ${costiData.teams.map(t => `
+            ${costiData.teams.map(t => {
+      const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
+      return `
               <option value="${t.id}" ${t.id === this.currentTeamId ? 'selected' : ''}>
-                ${t.name}
+                ${isFav ? '⭐ ' : ''}${t.name}
               </option>
-            `).join('')}
+            `;
+    }).join('')}
           </select>
+          ${selectedTeamObj ? `
+            <a href="${this._escAttr(selectedTeamUrl)}" class="hist-team-link topcosti-toolbar-team-link" title="Apri rosa di ${this._escAttr(selectedTeamObj.name)}">
+              ${this.renderTeamShirtMarkup(selectedTeamObj.name, selectedTeamObj.currentId || selectedTeamObj.id, selectedTeamObj.id, '', 'topcosti-toolbar-team-shirt')}
+              <span class="hist-team-name-text">${this._escAttr(selectedTeamObj.name)}</span>
+            </a>
+          ` : ''}
         </div>
 
         <!-- Role Filter Tabs (3 in riga 1, 2 in riga 2 su mobile) -->
@@ -334,60 +520,56 @@ const topCostiView = {
       </div>
 
       <!-- Table Results: Desktop View -->
-      <div class="topcosti-desktop-view table-responsive">
-        <table class="modern-table">
+      <div class="topcosti-desktop-view table-responsive" tabindex="0" role="region" aria-label="Classifica Top Costi d'Asta — ${isCurrent ? 'Stagione Corrente' : 'Storico All-Time'}">
+        <table class="modern-table topcosti-table">
           <thead>
             <tr>
               <th style="width:50px;" class="text-center">#</th>
+              <th class="text-center" style="width:60px;">Ruolo</th>
               <th>Giocatore</th>
               ${this.currentTeamId === 0 ? `<th>Fantasquadra</th>` : ''}
-              <th class="text-center">Stagione</th>
-              <th>Serie A</th>
-              <th class="text-center" style="width:60px;">Ruolo</th>
+              ${!isCurrent ? `<th class="text-center">Stagione</th>` : ''}
               <th class="text-center" style="min-width:90px;">Costo Asta</th>
-              <th class="text-center">Pres</th>
-              <th class="text-center">Gol</th>
+              <th class="text-center">PRES</th>
               <th class="text-center">MV</th>
-              <th class="text-center">FMV</th>
+              <th class="text-center">FM</th>
             </tr>
           </thead>
           <tbody>
             ${records.length === 0 ? `
               <tr>
-                <td colspan="${this.currentTeamId === 0 ? 11 : 10}" class="text-center text-muted" style="padding:24px;">
+                <td colspan="${emptyColspan}" class="text-center text-muted" style="padding:24px;">
                   Nessun calciatore trovato per i parametri selezionati.
                 </td>
               </tr>
             ` : ''}
-            ${records.map((r, idx) => `
-              <tr>
+            ${records.map((r, idx) => {
+      const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(r.teamId) || fcmHomeConfigManager.isFavoriteTeam(r.teamName));
+      const roleVal = r.role || r.roleShort || 'C';
+      const rosterUrl = this.currentTeamId === 0 ? this.getRowRosterUrl(r, teamById, isCurrent) : '';
+      const presVal = (r.appearances !== undefined && r.appearances !== null && r.appearances !== '') ? r.appearances : '-';
+      return `
+              <tr class="${isFav ? 'table-row-favorite' : ''}">
                 <td class="text-center font-bold">
                   <span class="table-pos ${idx === 0 ? 'table-pos-1' : idx === 1 ? 'table-pos-2' : idx === 2 ? 'table-pos-3' : ''}">
                     ${idx + 1}
                   </span>
                 </td>
-                <td class="font-bold">${r.name}</td>
-                ${this.currentTeamId === 0 ? `<td style="color:var(--text-secondary);font-size:0.82rem;">${r.teamName}</td>` : ''}
-                <td class="text-center font-bold" style="font-size:0.8rem;color:var(--text-muted);">${r.season}</td>
-                <td>
-                  <span style="font-size:0.8rem;background:var(--bg-surface);padding:2px 6px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">
-                    ${r.serieA}
-                  </span>
-                </td>
                 <td class="text-center">
-                  <span class="role-badge role-${r.role.toLowerCase()}">${r.role}</span>
+                  <span class="role-badge role-${roleVal.toLowerCase()}">${roleVal}</span>
                 </td>
+                <td class="col-player">${this.renderPlayerCell(r, false)}</td>
+                ${this.currentTeamId === 0 ? `<td>${this.renderTeamLink(r, rosterUrl, isFav, '', isCurrent)}</td>` : ''}
+                ${!isCurrent ? `<td class="text-center font-bold" style="font-size:0.8rem;color:var(--text-muted);">${this._escAttr(r.season)}</td>` : ''}
                 <td class="text-center font-bold" style="color:var(--accent-gold);font-size:1.1rem;">
                   💰 ${r.cost}
                 </td>
-                <td class="text-center">${r.appearances}</td>
-                <td class="text-center font-bold" style="${r.goals > 0 ? 'color:var(--accent-emerald);' : ''}">
-                  ${r.goals}
-                </td>
+                <td class="text-center">${presVal}</td>
                 <td class="text-center">${r.mv}</td>
                 <td class="text-center font-bold" style="color:var(--accent-cyan);">${r.fmv}</td>
               </tr>
-            `).join('')}
+            `;
+    }).join('')}
           </tbody>
         </table>
       </div>
@@ -399,61 +581,64 @@ const topCostiView = {
             Nessun calciatore trovato per i parametri selezionati.
           </div>
         ` : ''}
-        ${records.map((r, idx) => `
-          <div class="topcosti-card-item">
-            <!-- Header: Posizione, Ruolo, Nome e Costo d'Asta -->
+        ${records.map((r, idx) => {
+      const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(r.teamId) || fcmHomeConfigManager.isFavoriteTeam(r.teamName));
+      const roleVal = r.role || r.roleShort || 'C';
+      const rosterUrl = this.currentTeamId === 0 ? this.getRowRosterUrl(r, teamById, isCurrent) : '';
+      const showSubinfo = (this.currentTeamId === 0) || !isCurrent;
+      const presVal = (r.appearances !== undefined && r.appearances !== null && r.appearances !== '') ? r.appearances : '-';
+      return `
+          <div class="topcosti-card-item ${isFav ? 'match-card-favorite' : ''}">
+            <!-- Header: Posizione, Ruolo, Minifoto+Club, Nome Linkato e Costo d'Asta -->
             <div class="topcosti-card-header">
-              <div class="topcosti-card-player">
+              <div class="topcosti-card-left">
                 <span class="topcosti-card-rank">#${idx + 1}</span>
-                <span class="role-badge role-${r.role.toLowerCase()}">${r.role}</span>
-                <span class="topcosti-card-name">${r.name}</span>
+                <span class="role-badge role-${roleVal.toLowerCase()}">${roleVal}</span>
+                ${this.renderPlayerCell(r, true)}
               </div>
-              <div class="topcosti-stat-pill" style="border-color:rgba(245,158,11,0.4);">
+              <div class="topcosti-stat-pill topcosti-cost-pill" style="border-color:rgba(245,158,11,0.4);">
                 <span class="topcosti-stat-label">Asta</span>
                 <span class="topcosti-stat-val" style="color:var(--accent-gold);font-size:0.95rem;">💰 ${r.cost}</span>
               </div>
             </div>
 
-            <!-- Subinfo: Fantasquadra (se Totale Lega), Stagione e Club Serie A -->
+            ${showSubinfo ? `
+            <!-- Subinfo: Fantasquadra con maglia/link (se Totale Lega) e Stagione (solo su Storico) -->
             <div class="topcosti-card-subinfo">
-              ${this.currentTeamId === 0 ? `
-                <span style="font-weight:700;color:var(--text-primary);">${r.teamName}</span>
-                <span>&bull;</span>
-              ` : ''}
-              <span style="font-weight:600;color:var(--text-muted);">${r.season}</span>
-              <span>&bull;</span>
-              <span style="background:var(--bg-surface);padding:1px 6px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);font-size:0.72rem;font-weight:600;">
-                ${r.serieA}
-              </span>
+              ${this.currentTeamId === 0 ? this.renderTeamLink(r, rosterUrl, isFav, 'topcosti-card-team-link', isCurrent) : ''}
+              ${(this.currentTeamId === 0 && !isCurrent) ? '<span>&bull;</span>' : ''}
+              ${!isCurrent ? `<span style="font-weight:600;color:var(--text-muted);">${this._escAttr(r.season)}</span>` : ''}
             </div>
+            ` : ''}
 
-            <!-- Stats Bar: Presenze, Gol, MV, FMV -->
+            <!-- Stats Bar: PRES, MV, FM -->
             <div class="topcosti-card-stats">
               <div class="topcosti-stat-pill">
-                <span class="topcosti-stat-label">Pres</span>
-                <span class="topcosti-stat-val">${r.appearances}</span>
-              </div>
-              <div class="topcosti-stat-pill">
-                <span class="topcosti-stat-label">Gol</span>
-                <span class="topcosti-stat-val" style="${r.goals > 0 ? 'color:var(--accent-emerald);' : ''}">${r.goals}</span>
+                <span class="topcosti-stat-label">PRES</span>
+                <span class="topcosti-stat-val">${presVal}</span>
               </div>
               <div class="topcosti-stat-pill">
                 <span class="topcosti-stat-label">MV</span>
                 <span class="topcosti-stat-val">${r.mv}</span>
               </div>
               <div class="topcosti-stat-pill" style="border-color:rgba(6,182,212,0.3);">
-                <span class="topcosti-stat-label">FMV</span>
+                <span class="topcosti-stat-label">FM</span>
                 <span class="topcosti-stat-val" style="color:var(--accent-cyan);">${r.fmv}</span>
               </div>
             </div>
           </div>
-        `).join('')}
+        `;
+    }).join('')}
       </div>
     `;
 
     // Event: Team select
     subContainer.querySelector('#costiTeamSelect').addEventListener('change', (e) => {
       this.currentTeamId = parseInt(e.target.value, 10);
+      if (window.history && window.history.replaceState) {
+        const base = isCurrent ? '#topcostistagione' : '#topcosti';
+        window.history.replaceState(null, '', this.currentTeamId > 0 ? `${base}?fsq=${this.currentTeamId}` : base);
+      }
       this.renderTopCosti(subContainer);
     });
 

@@ -78,11 +78,12 @@ _mkdir_(TEMP_FOLDER);
 
 // Whitelist delle sezioni che utilizzano effettivamente fanKounter
 $allowed_counter_ids = array(
-    'albo', 'album', 'almanacco', 'calcolo', 'cale', 'classifica',
-    'confronti', 'documenti', 'eta', 'fantamister', 'formazioni',
-    'incroci', 'index', 'indisponibili', 'invform', 'live', 'ranking',
-    'rating', 'registri', 'risultati', 'rose', 'schedegiocatori',
-    'statistiche', 'topcosti', 'topcostistagione', 'topflop'
+    'albo', 'album', 'almanacco', 'archivio', 'calcolo', 'cale', 'classifica',
+    'confronti', 'documenti', 'eta', 'extra', 'fantamister', 'formazioni',
+    'gbook', 'incroci', 'index', 'indisponibili', 'invform', 'live', 'mercato',
+    'ranking', 'rating', 'records', 'recordstorici', 'registri', 'risultati',
+    'rose', 'schedegiocatori', 'statistiche', 'stats', 'storico',
+    'topcosti', 'topcostistagione', 'topflop'
 );
 
 $par__id=(isset($par__id)&&preg_match("/^[a-z\d]+$/i",$par__id))?strtolower($par__id):FALSE;

@@ -56,43 +56,66 @@ if (file_exists('js/fcmLegaDati.js')) {
 $fcmAppName = $fcmNomeLega . ' - ModernFCM';
 $fcmAppShortName = $fcmNomeLega;
 
+// Sincronizza gli orari in js/DataA.js da arrDateA locale (o delega a endpoint asincrono se assente)
+$fcmDataANeedsRemoteSync = false;
+if (file_exists(__DIR__ . '/inc/aggiorna_dataA.php')) {
+    if (!defined('FCM_AGGIORNA_DATAA_HELPERS_ONLY')) {
+        define('FCM_AGGIORNA_DATAA_HELPERS_ONLY', true);
+    }
+    require_once __DIR__ . '/inc/aggiorna_dataA.php';
+    if (function_exists('fcm_sync_dataA')) {
+        $fcmDataASync = fcm_sync_dataA(__DIR__, ['remote' => false]);
+        $fcmDataANeedsRemoteSync = !empty($fcmDataASync['needsRemote']);
+    }
+}
+
 // Calcolo dinamico URL canonico e immagine assoluta per Open Graph e Twitter Card
-$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443) || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
-$siteHost = !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
+$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443)
+    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string)$_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+$rawHost = (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
+$siteHost = preg_match('/^[a-zA-Z0-9.-]+(:\d+)?$/', $rawHost) ? $rawHost : 'localhost';
+$siteScheme = $isHttps ? 'https' : 'http';
 $siteScript = $_SERVER['SCRIPT_NAME'] ?? '';
-$siteDirPath = rtrim(dirname($siteScript), '/\\');
-$ogBaseUrl = 'https://' . $siteHost . ($siteDirPath ? $siteDirPath . '/' : '/');
-$ogCanonicalUrl = 'https://' . $siteHost . ($_SERVER['REQUEST_URI'] ?? '/');
+$siteDirPath = str_replace('\\', '/', rtrim(dirname($siteScript), '/\\'));
+$ogBaseUrl = $siteScheme . '://' . $siteHost . ($siteDirPath && $siteDirPath !== '/' ? $siteDirPath . '/' : '/');
+$requestUri = (string)($_SERVER['REQUEST_URI'] ?? '/');
+if ($requestUri === '' || $requestUri[0] !== '/') {
+    $requestUri = '/';
+}
+$ogCanonicalUrl = $siteScheme . '://' . $siteHost . $requestUri;
 $ogImageUrl = $ogBaseUrl . 'img/logo.png';
 $fcmDescrizione = 'Sito ufficiale di ' . $fcmNomeLega . ' (Stagione ' . $currentStagNum . ') su piattaforma ModernFCM: classifica, formazioni, risultati live, statistiche e albo d\'oro.';
 
-// ====================================================================
-// CONFIGURAZIONE STAGIONI CON SKIN ModernFCM
-// ====================================================================
-// Elenco manuale opzionale delle stagioni passate (interi) che adottavano la skin ModernFCM (es. [13, 14]).
-// La stagione corrente è sempre considerata ModernFCM.
-// Nelle stagioni non presenti in questo elenco (vecchie skin), i link punteranno 
-// ai file dedicati (es. rose.htm e ris.php / ris.htm) all'interno delle cartelle
-// indicate in arrDirectory (persjs/fcmConfrontiDati.js generato dal plugin FCM).
-$fcmModernSeasonsConfig = [
-    // es. 13, 14
-];
+// Estrae WebmasterNome e WebmasterEmail dinamicamente da js/fcmVariabili.js (fallback neutro)
+$fcmWebmasterName = '';
+$fcmWebmasterEmail = '';
+if (file_exists('js/fcmVariabili.js')) {
+    $varContent = @file_get_contents('js/fcmVariabili.js');
+    if ($varContent !== false) {
+        if (preg_match('/var\s+WebmasterNome\s*=\s*["\'](.*?)["\']/i', $varContent, $mWm)) {
+            $fcmWebmasterName = trim($mWm[1]);
+        }
+        if (preg_match('/var\s+WebmasterEmail\s*=\s*["\'](.*?)["\']/i', $varContent, $mEm)) {
+            $fcmWebmasterEmail = trim($mEm[1]);
+        }
+    }
+}
 
-// Estrae dinamicamente le cartelle delle stagioni da arrDirectory in persjs/fcmConfrontiDati.js (generato dal plugin FCM)
+// ====================================================================
+// ====================================================================
+// CONFIGURAZIONE STAGIONI STORICHE (Archivio SQLite)
+// ====================================================================
+// Estrae dinamicamente le stagioni da sqlite/stagioni.json
 $fcmSeasonDirs = [];
 $confrontiCurrentStag = null;
-if (file_exists('persjs/fcmConfrontiDati.js') && fcm_module_enabled('ModStoricoAvanzato')) {
-    $confrontiContent = file_get_contents('persjs/fcmConfrontiDati.js');
-    if (preg_match_all('/new\s+X\s*\(\s*(\d+)\s*,\s*[^,]+\s*,\s*["\'](.*?)["\']\s*\)/i', $confrontiContent, $matches, PREG_SET_ORDER)) {
-        foreach ($matches as $m) {
-            $sNum = (int)$m[1];
-            $rawDir = trim($m[2]);
-            if ($rawDir === '.' || $rawDir === './') {
-                $confrontiCurrentStag = $sNum;
-            } else {
-                $cleanDir = ltrim($rawDir, './');
-                $fcmSeasonDirs[$sNum] = $cleanDir;
-            }
+$sqliteStagioniFile = 'sqlite/stagioni.json';
+if (file_exists($sqliteStagioniFile)) {
+    $stgJson = @json_decode(file_get_contents($sqliteStagioniFile), true);
+    if (!empty($stgJson) && is_array($stgJson)) {
+        $confrontiCurrentStag = (int)$stgJson[0]['id'];
+        foreach ($stgJson as $stg) {
+            $fcmSeasonDirs[(int)$stg['id']] = $stg['cartella'];
         }
     }
 }
@@ -100,61 +123,20 @@ if ($confrontiCurrentStag !== null && $confrontiCurrentStag > 0) {
     $currentStagNum = $confrontiCurrentStag;
 }
 
-$fcmModernSeasons = $fcmModernSeasonsConfig;
+$fcmModernSeasonsConfig = [];
+$fcmModernSeasons = array_keys($fcmSeasonDirs);
 if (!in_array($currentStagNum, $fcmModernSeasons)) {
     $fcmModernSeasons[] = $currentStagNum;
 }
-
-// Se non specificato manualmente in $fcmModernSeasonsConfig, verifica solo per le cartelle indicate in arrDirectory
-if (empty($fcmModernSeasonsConfig)) {
-    foreach ($fcmSeasonDirs as $sNum => $dirPath) {
-        if (!in_array($sNum, $fcmModernSeasons) && is_dir($dirPath)) {
-            $indexPath = $dirPath . '/index.php';
-            if (file_exists($indexPath)) {
-                $sample = @file_get_contents($indexPath, false, null, 0, 1000);
-                if ($sample && (stripos($sample, 'ModernFCM') !== false || stripos($sample, 'fcmDataLoader') !== false)) {
-                    $fcmModernSeasons[] = $sNum;
-                }
-            }
-        }
-    }
-}
 sort($fcmModernSeasons);
 
-// Sincronizza manifest.json statico su disco se fcmLegaDati.js è più recente
-if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemtime('js/fcmLegaDati.js') > filemtime('manifest.json'))) {
-    $manifestData = [
-        'name' => $fcmAppName,
-        'short_name' => $fcmAppShortName,
-        'description' => 'Skin ModernFCM per Fantacalcio Manager: classifica, calendario, formazioni, risultati e statistiche FCM.',
-        'start_url' => 'index.php',
-        'scope' => './',
-        'display' => 'standalone',
-        'orientation' => 'portrait-primary',
-        'background_color' => '#0b1120',
-        'theme_color' => '#0284c7',
-        'icons' => [
-            [
-                'src' => 'img/icon-192.png',
-                'sizes' => '192x192',
-                'type' => 'image/png',
-                'purpose' => 'any maskable'
-            ],
-            [
-                'src' => 'img/icon-512.png',
-                'sizes' => '512x512',
-                'type' => 'image/png',
-                'purpose' => 'any maskable'
-            ],
-            [
-                'src' => 'img/logo.png',
-                'sizes' => '1024x1024',
-                'type' => 'image/png',
-                'purpose' => 'any'
-            ]
-        ]
-    ];
-    @file_put_contents('manifest.json', json_encode($manifestData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+// Inizializzazione Theme Loader per custom theme e anti-FOUC
+if (file_exists('inc/theme_loader.php')) {
+    require_once 'inc/theme_loader.php';
+    $fcmThemeConfig = fcm_get_active_theme_config();
+    $fcmDefaultThemePref = $fcmThemeConfig['defaultTheme'] ?? 'system';
+} else {
+    $fcmDefaultThemePref = 'system';
 }
 ?>
 <!DOCTYPE html>
@@ -167,7 +149,8 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
   <script>
     (function() {
       try {
-        var mode = localStorage.getItem('pn_theme') || 'system';
+        var defaultTheme = '<?php echo htmlspecialchars($fcmDefaultThemePref); ?>';
+        var mode = localStorage.getItem('pn_theme') || defaultTheme || 'system';
         var resolved = mode;
         if (mode === 'system' || (mode !== 'light' && mode !== 'dark')) {
           resolved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
@@ -188,7 +171,9 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
   <meta property="og:description" content="<?php echo htmlspecialchars($fcmDescrizione); ?>">
   <meta property="og:url" content="<?php echo htmlspecialchars($ogCanonicalUrl); ?>">
   <meta property="og:image" content="<?php echo htmlspecialchars($ogImageUrl); ?>">
+<?php if ($isHttps): ?>
   <meta property="og:image:secure_url" content="<?php echo htmlspecialchars($ogImageUrl); ?>">
+<?php endif; ?>
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="512">
   <meta property="og:image:height" content="512">
@@ -218,7 +203,7 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
   <link rel="icon" type="image/png" href="img/logo.png">
   <link rel="apple-touch-icon" href="img/icon-192.png">
   <link rel="stylesheet" href="<?php echo fcm_ver('css/style.css'); ?>">
-  <link rel="stylesheet" href="<?php echo fcm_ver('fantam/fantamister.css'); ?>">
+  <?php if (function_exists('fcm_render_custom_theme_css')) { echo fcm_render_custom_theme_css(); } ?>
 
   <!-- ====================================================================
        FCM DATA CORE (Generated weekly by Fantacalcio Manager)
@@ -243,25 +228,17 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
   <script src="<?php echo fcm_ver('js/fcmFantasquadreDati.js'); ?>" charset="ISO-8859-1"></script>
   <script src="<?php echo fcm_ver('js/fcmClassificaDati.js'); ?>" charset="ISO-8859-1"></script>
   <script src="<?php echo fcm_ver('js/fcmCalendarioDati.js'); ?>" charset="ISO-8859-1"></script>
-  <?php if (file_exists('js/fcmTop11.js') && fcm_module_enabled('ModFantamister')): ?>
-  <script src="<?php echo fcm_ver('js/fcmTop11.js'); ?>" charset="ISO-8859-1"></script>
-  <?php endif; ?>
+
   <script src="<?php echo fcm_ver('js/fcmAlboDOroDati.js'); ?>" charset="ISO-8859-1"></script>
-  <?php if (file_exists('persjs/fcmConfrontiDati.js') && fcm_module_enabled('ModStoricoAvanzato')): ?>
-  <script src="<?php echo fcm_ver('persjs/fcmConfrontiDati.js'); ?>" charset="ISO-8859-1"></script>
-  <?php endif; ?>
   <?php if (file_exists('js/fcmDocumentiDati.js')): ?>
   <script src="<?php echo fcm_ver('js/fcmDocumentiDati.js'); ?>" charset="ISO-8859-1"></script>
   <?php endif; ?>
   <?php if (file_exists('js/fcmQueryDati.js')): ?>
   <script src="<?php echo fcm_ver('js/fcmQueryDati.js'); ?>" charset="ISO-8859-1"></script>
   <?php endif; ?>
-  <?php if (file_exists('js/incrociacalendari.js') && fcm_module_enabled('ModIncroci')): ?>
-  <script src="<?php echo fcm_ver('js/incrociacalendari.js'); ?>" charset="ISO-8859-1"></script>
-  <?php endif; ?>
 </head>
 
-<body>
+<body class="is-home-view">
 
   <!-- ====================================================================
        APP HEADER / TOP BAR
@@ -295,7 +272,7 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
         <a href="#formazioni" class="nav-item">Formazioni</a>
         <a href="#risultati" class="nav-item">Risultati</a>
         <a href="#statistiche" class="nav-item">Statistiche</a>
-        <?php if (fcm_module_enabled('ModStoricoAvanzato', 'persjs/fcmConfrontiDati.js')): ?>
+        <?php if (fcm_module_enabled('ModStoricoAvanzato', ['sqlite/confronti.json', 'sqlite/stagioni.json', 'persjs/fcmConfrontiDati.js'])): ?>
         <a href="#storico" class="nav-item">Storico</a>
         <?php else: ?>
         <a href="#albo" class="nav-item">Albo d'Oro</a>
@@ -332,17 +309,32 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
        ==================================================================== -->
   <footer class="app-footer">
     <div style="max-width: 1200px; margin: 0 auto;">
-      <p class="footer-credits">
-        Skin <b>ModernFCM</b> • Webmaster: <a href="mailto:difgusu@yahoo.it">difgusu</a>
+      <p class="footer-credits" id="footerCredits">
+        Skin <b>ModernFCM</b><?php
+        if ($fcmWebmasterName !== '') {
+            echo ' • Webmaster: ';
+            if ($fcmWebmasterEmail !== '' && filter_var($fcmWebmasterEmail, FILTER_VALIDATE_EMAIL)) {
+                echo '<a href="mailto:' . htmlspecialchars($fcmWebmasterEmail, ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($fcmWebmasterName, ENT_QUOTES, 'UTF-8') . '</a>';
+            } else {
+                echo '<span>' . htmlspecialchars($fcmWebmasterName, ENT_QUOTES, 'UTF-8') . '</span>';
+            }
+        }
+        ?>
       </p>
       <p id="footerLastUpdated" style="color:var(--accent-cyan);font-weight:600;">
         Caricamento aggiornamento...
       </p>
-      <p style="font-size: 0.72rem; margin-top: 10px;">
-        Powered by <b>difgusu</b>
-      </p>
     </div>
   </footer>
+
+  <!-- Pulsante Rapido Floating Personalizza Home (Solo Desktop) -->
+  <button type="button" class="desktop-fab-customize-home" id="btnDesktopFabCustomizeHome" title="Personalizza la Home" aria-label="Personalizza la Home">
+    <svg class="fab-gear-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+    </svg>
+    <span class="fab-label">Personalizza la Home</span>
+  </button>
 
   <!-- ====================================================================
        MOBILE BOTTOM NAVIGATION BAR
@@ -352,9 +344,10 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
   $bnavHasInvform = fcm_module_enabled('ModInvioFormazione', 'invform.php');
   $bnavHasLiveFP = fcm_module_enabled('ModLiveFantapazz');
   $bnavHasLiveFM = fcm_module_enabled('ModLiveFantaMaster');
+  $bnavHasLiveFC = fcm_module_enabled('ModLiveFantacalcio');
   $bnavHasLiveVU = fcm_module_enabled('ModLiveVU');
-  $bnavIsLiveEnabled = $bnavHasLiveFP || $bnavHasLiveFM || $bnavHasLiveVU;
-  $bnavLiveRoute = $bnavHasLiveFP ? '#liveFP' : ($bnavHasLiveFM ? '#liveFM' : '#liveVU');
+  $bnavIsLiveEnabled = $bnavHasLiveFP || $bnavHasLiveFM || $bnavHasLiveFC || $bnavHasLiveVU;
+  $bnavLiveRoute = '#live';
 
   $bnavIsInvformUnlocked = false;
   if ($bnavHasInvform && file_exists('js/fcmInvioFormazioneDati.js')) {
@@ -489,54 +482,6 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
       <button class="modal-close-btn" id="btnCloseDrawer" aria-label="Chiudi Menu">&times;</button>
     </div>
 
-    <!-- Selettore Rapido Tema in Testa al Drawer (Chiaro / Scuro / Sistema) -->
-    <div class="drawer-theme-box" id="drawerThemeBox">
-      <span class="drawer-theme-title">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="5"></circle>
-          <line x1="12" y1="1" x2="12" y2="3"></line>
-          <line x1="12" y1="21" x2="12" y2="23"></line>
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-          <line x1="1" y1="12" x2="3" y2="12"></line>
-          <line x1="21" y1="12" x2="23" y2="12"></line>
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-        </svg>
-        <span>Tema</span>
-      </span>
-      <div class="theme-segmented-group" role="radiogroup" aria-label="Seleziona tema grafico">
-        <button type="button" class="theme-seg-btn" data-theme-val="light" role="radio" aria-checked="false" title="Tema Chiaro">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="5"></circle>
-            <line x1="12" y1="1" x2="12" y2="3"></line>
-            <line x1="12" y1="21" x2="12" y2="23"></line>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-            <line x1="1" y1="12" x2="3" y2="12"></line>
-            <line x1="21" y1="12" x2="23" y2="12"></line>
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-          </svg>
-          <span>Chiaro</span>
-        </button>
-        <button type="button" class="theme-seg-btn" data-theme-val="dark" role="radio" aria-checked="false" title="Tema Scuro">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-          </svg>
-          <span>Scuro</span>
-        </button>
-        <button type="button" class="theme-seg-btn active" data-theme-val="system" role="radio" aria-checked="true" title="Segui impostazioni dispositivo">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-            <line x1="8" y1="21" x2="16" y2="21"></line>
-            <line x1="12" y1="17" x2="12" y2="21"></line>
-          </svg>
-          <span>Sistema</span>
-        </button>
-      </div>
-    </div>
-
     <div class="drawer-links">
       <!-- 1. 🏆 Competizioni & Partite -->
       <details class="drawer-accordion" open>
@@ -628,33 +573,12 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
             </svg>
             Statistiche (Giocatori liberi, etc.)
           </a>
-          <?php if (fcm_module_enabled('ModLiveFantapazz')): ?>
-          <a href="#liveFP" class="drawer-link">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <?php if (fcm_module_enabled('ModLiveVU') || fcm_module_enabled('ModLiveFantapazz') || fcm_module_enabled('ModLiveFantaMaster') || fcm_module_enabled('ModLiveFantacalcio')): ?>
+          <a href="#live" class="drawer-link">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
             </svg>
-            Live Fantapazz
-          </a>
-          <?php endif; ?>
-          <?php if (fcm_module_enabled('ModLiveFantaMaster')): ?>
-          <a href="#liveFM" class="drawer-link">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polygon points="12 6 15 12 12 18 9 12 12 6"></polygon>
-            </svg>
-            Live FantaMaster
-          </a>
-          <?php endif; ?>
-          <?php if (fcm_module_enabled('ModLiveVU')): ?>
-          <a href="#liveVU" class="drawer-link">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-              <polyline points="14 2 14 8 20 8"></polyline>
-              <line x1="16" y1="13" x2="8" y2="13"></line>
-              <line x1="16" y1="17" x2="8" y2="17"></line>
-              <polyline points="10 9 9 9 8 9"></polyline>
-            </svg>
-            Voti Ufficiosi PianetaFanta
+            Match Center Live
           </a>
           <?php endif; ?>
           <a href="#calcolo" class="drawer-link">
@@ -702,7 +626,7 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
           </svg>
         </summary>
         <div class="drawer-accordion-body">
-          <?php if (fcm_module_enabled('ModStoricoAvanzato', 'persjs/fcmConfrontiDati.js')): ?>
+          <?php if (fcm_module_enabled('ModStoricoAvanzato', ['sqlite/confronti.json', 'sqlite/stagioni.json', 'persjs/fcmConfrontiDati.js'])): ?>
           <a href="#storico" class="drawer-link">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 12a9 9 0 1 0 3-6.7"></path>
@@ -719,7 +643,7 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
             </svg>
             Albo d'Oro &amp; Palmares
           </a>
-          <?php if (fcm_module_enabled('ModStoricoAvanzato', 'persjs/fcmConfrontiDati.js')): ?>
+          <?php if (fcm_module_enabled('ModStoricoAvanzato', ['sqlite/confronti.json', 'sqlite/stagioni.json', 'persjs/fcmConfrontiDati.js'])): ?>
           <a href="#ranking" class="drawer-link">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="20" x2="18" y2="10"></line>
@@ -773,6 +697,18 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
             </svg>
             Record Storici
           </a>
+          <?php if (fcm_module_enabled('ModFantamister')): ?>
+          <a href="#fantamstorico" class="drawer-link">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="20" rx="2" ry="2"></rect>
+              <path d="M2 2l7.5 6"></path>
+              <path d="M22 2l-7.5 6"></path>
+              <path d="M10.5 7h3l.5 2-2 1-2-1 .5-2z"></path>
+              <path d="M11 10l-1.5 7 2.5 3.5 2.5-3.5-1.5-7"></path>
+            </svg>
+            FantaMister Storico
+          </a>
+          <?php endif; ?>
           <a href="#almanacco" class="drawer-link">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
@@ -836,7 +772,7 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
             </svg>
             Extra
           </a>
-          <?php if (fcm_module_enabled('ModIncroci', 'js/incrociacalendari.js')): ?>
+          <?php if (fcm_module_enabled('ModIncroci')): ?>
           <a href="#seavessiavuto" class="drawer-link">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="4" width="18" height="18" rx="2"></rect>
@@ -847,7 +783,7 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
             Se avessi avuto...
           </a>
           <?php endif; ?>
-          <?php if (fcm_module_enabled('ModFantaMassimi') && fcm_module_enabled('ModFantamister')): ?>
+          <?php if (fcm_module_enabled('ModFantaMassimi')): ?>
           <a href="#fantaMassimi" class="drawer-link">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M8 21h8"></path>
@@ -867,7 +803,7 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
             FantaClassifica Ipotetica
           </a>
           <?php endif; ?>
-          <?php if (fcm_module_enabled('ModRecords', ['fantam/records.htm', 'records/records.htm'])): ?>
+          <?php if (fcm_module_enabled('ModRecords')): ?>
           <a href="#records" class="drawer-link">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="8" r="7"></circle>
@@ -888,7 +824,7 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
             FantaMister
           </a>
           <?php endif; ?>
-          <?php if (fcm_module_enabled('ModEtaRose', 'js/fcmGiocatoriDati.js')): ?>
+          <?php if (fcm_module_enabled('ModEtaRose', ['sqlite/stagioni.json', 'sqlite'])): ?>
           <a href="#etaRose" class="drawer-link">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="9"></circle>
@@ -929,6 +865,71 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
       </details>
     </div>
 
+        <!-- Pulsante Rapido Personalizza Home nel Drawer -->
+    <div class="drawer-customize-home-box">
+      <button type="button" class="btn-drawer-customize-home" id="btnDrawerCustomizeHome">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        <span>Personalizza Home</span>
+      </button>
+      <a href="inc/impostazioni.php#home" class="btn-drawer-admin-home" title="Pannello Amministratore">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+        <span>Impostazioni Sito</span>
+      </a>
+    </div>
+
+    <!-- Selettore Rapido Tema in Calce al Drawer (Chiaro / Scuro / Sistema) -->
+    <div class="drawer-theme-box" id="drawerThemeBox">
+      <span class="drawer-theme-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+        <span>Tema</span>
+      </span>
+      <div class="theme-segmented-group" role="radiogroup" aria-label="Seleziona tema grafico">
+        <button type="button" class="theme-seg-btn" data-theme-val="light" role="radio" aria-checked="false" title="Tema Chiaro">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <span>Chiaro</span>
+        </button>
+        <button type="button" class="theme-seg-btn" data-theme-val="dark" role="radio" aria-checked="false" title="Tema Scuro">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <span>Scuro</span>
+        </button>
+        <button type="button" class="theme-seg-btn active" data-theme-val="system" role="radio" aria-checked="true" title="Segui impostazioni dispositivo">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+          <span>Sistema</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Pulsante Installa PWA in Calce al Drawer (visibile solo se non tramite PWA) -->
     <div class="drawer-pwa-install" id="drawerPwaInstall" style="display:none;">
       <button type="button" class="btn-pwa-drawer" id="btnDrawerInstall">
@@ -946,6 +947,7 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
        APPLICATION SCRIPTS
        ==================================================================== -->
   <script src="<?php echo fcm_ver('js/fcmDataLoader.js'); ?>"></script>
+  <script src="<?php echo fcm_ver('js/fcmHomeConfigManager.js'); ?>"></script>
   <script src="<?php echo fcm_ver('js/views/homeView.js'); ?>"></script>
   <script src="<?php echo fcm_ver('js/views/classificaView.js'); ?>" charset="UTF-8"></script>
   <script src="<?php echo fcm_ver('js/views/calendarioView.js'); ?>" charset="UTF-8"></script>
@@ -966,10 +968,15 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
   <script src="<?php echo fcm_ver('js/views/rankingDivisioniView.js'); ?>" charset="UTF-8"></script>
   <script src="<?php echo fcm_ver('js/views/registriView.js'); ?>" charset="UTF-8"></script>
   <script src="<?php echo fcm_ver('js/views/extraView.js'); ?>" charset="UTF-8"></script>
+  <script src="<?php echo fcm_ver('js/views/archivioView.js'); ?>" charset="UTF-8"></script>
+  <script src="<?php echo fcm_ver('js/views/etaRoseView.js'); ?>" charset="UTF-8"></script>
+  <script src="<?php echo fcm_ver('js/views/inverticalendarioView.js'); ?>" charset="UTF-8"></script>
+  <script src="<?php echo fcm_ver('js/fcmFantamisterMotore.js'); ?>" charset="UTF-8"></script>
   <script src="<?php echo fcm_ver('js/views/fantaMassimiView.js'); ?>" charset="UTF-8"></script>
   <script src="<?php echo fcm_ver('js/views/fantaClassificaView.js'); ?>" charset="UTF-8"></script>
   <script src="<?php echo fcm_ver('js/views/indisponibiliView.js'); ?>" charset="UTF-8"></script>
   <script src="<?php echo fcm_ver('js/views/fantamView.js'); ?>" charset="UTF-8"></script>
+  <script src="<?php echo fcm_ver('js/views/fantamStoricoView.js'); ?>" charset="UTF-8"></script>
   <script src="<?php echo fcm_ver('js/views/recordsView.js'); ?>" charset="UTF-8"></script>
   <script src="<?php echo fcm_ver('js/views/sectionsView.js'); ?>" charset="UTF-8"></script>
   <script src="<?php echo fcm_ver('js/fcmVotiLiveManager.js'); ?>" charset="UTF-8"></script>
@@ -1253,6 +1260,9 @@ if (!file_exists('manifest.json') || (file_exists('js/fcmLegaDati.js') && filemt
       });
     })();
   </script>
+  <?php if (!empty($fcmDataANeedsRemoteSync)): ?>
+  <script>if (window.fetch) { fetch('inc/aggiorna_dataA.php', { cache: 'no-store' }).catch(function(){}); }</script>
+  <?php endif; ?>
 </body>
 
 </html>

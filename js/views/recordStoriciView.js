@@ -40,6 +40,29 @@ const recordStoriciView = {
     return `${dow} ${d.getDate()} ${moy} ${d.getFullYear()}`;
   },
 
+  formatStreakParziali(s, tipo) {
+    if (['003', '004'].includes(tipo)) {
+      const v = s.parziale1 > 0 ? `<span style="color:var(--accent-emerald);font-weight:700;">${s.parziale1}V</span>` : '';
+      const n = s.parziale2 > 0 ? `<span style="color:var(--accent-cyan);font-weight:700;">${s.parziale2}N</span>` : '';
+      return [v, n].filter(Boolean).join(' ') || '-';
+    }
+    if (['005', '006'].includes(tipo)) {
+      const p = s.parziale1 > 0 ? `<span style="color:var(--accent-rose);font-weight:700;">${s.parziale1}P</span>` : '';
+      const n = s.parziale2 > 0 ? `<span style="color:var(--accent-cyan);font-weight:700;">${s.parziale2}N</span>` : '';
+      return [p, n].filter(Boolean).join(' ') || '-';
+    }
+    if (['007', '008'].includes(tipo)) {
+      return `<span style="color:var(--accent-emerald);font-weight:700;">${s.parziale1 || s.totale}V</span>`;
+    }
+    if (['009', '010'].includes(tipo)) {
+      return `<span style="color:var(--accent-cyan);font-weight:700;">${s.parziale2 || s.totale}N</span>`;
+    }
+    if (['011', '012'].includes(tipo)) {
+      return `<span style="color:var(--accent-rose);font-weight:700;">${s.parziale1 || s.totale}P</span>`;
+    }
+    return '-';
+  },
+
   async render(container) {
     const hash = window.location.hash || '';
     if (hash.includes('?')) {
@@ -96,9 +119,11 @@ const recordStoriciView = {
         </div>
 
         <div id="recordStoriciContent">
-          <div class="text-center" style="padding:30px;color:var(--text-muted);">
-            Caricamento primati e statistiche storiche...
-          </div>
+          ${(typeof fcmSkeleton !== 'undefined') ? fcmSkeleton.recordStorici() : `
+            <div class="text-center" style="padding:30px;color:var(--text-muted);">
+              Caricamento primati e statistiche storiche...
+            </div>
+          `}
         </div>
       </div>
     `;
@@ -154,9 +179,12 @@ const recordStoriciView = {
             </label>
             <select id="recTeamSelect" class="form-select" style="width:100%;font-size:0.85rem;font-weight:600;">
               <option value="0" ${this.currentTeamId === 0 ? 'selected' : ''}>-- Tutte le Fantasquadre --</option>
-              ${confData.teams.map(t => `
-                <option value="${t.id}" ${t.id === this.currentTeamId ? 'selected' : ''}>${t.name}</option>
-              `).join('')}
+              ${confData.teams.map(t => {
+                const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(t.id) || fcmHomeConfigManager.isFavoriteTeam(t.name));
+                return `
+                <option value="${t.id}" ${t.id === this.currentTeamId ? 'selected' : ''}>${isFav ? '⭐ ' : ''}${t.name}</option>
+              `;
+              }).join('')}
             </select>
           </div>
 
@@ -286,13 +314,18 @@ const recordStoriciView = {
               </tr>
             </thead>
             <tbody>
-              ${list.map((m, idx) => `
-                <tr>
+              ${list.map((m, idx) => {
+                const isFavHome = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(m.homeId) || fcmHomeConfigManager.isFavoriteTeam(m.homeTeam));
+                const isFavAway = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(m.awayId) || fcmHomeConfigManager.isFavoriteTeam(m.awayTeam));
+                const isFavMatch = isFavHome || isFavAway;
+
+                return `
+                <tr class="${isFavMatch ? 'table-row-favorite' : ''}">
                   <td class="text-center font-bold" style="color:var(--text-muted);">${idx + 1}</td>
                   <td style="text-align:right;font-weight:700;">
                     <span style="display:inline-flex;align-items:center;gap:8px;justify-content:flex-end;">
-                      <a href="#confronti?fsq=${m.homeId}" style="color:var(--text-primary);text-decoration:none;" title="Apri confronti storici">
-                        ${m.homeTeam}
+                      <a href="#confronti?fsq=${m.homeId}" style="color:${isFavHome ? 'var(--accent-gold)' : 'var(--text-primary)'};text-decoration:none;" title="Apri confronti storici">
+                        ${isFavHome ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${m.homeTeam}
                       </a>
                       <img src="img/sq/${encodeURI(m.homeTeam)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(m.homeTeam)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:20px;width:auto;vertical-align:middle;" alt="" />
                     </span>
@@ -305,8 +338,8 @@ const recordStoriciView = {
                   <td style="text-align:left;font-weight:700;">
                     <span style="display:inline-flex;align-items:center;gap:8px;">
                       <img src="img/sq/${encodeURI(m.awayTeam)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(m.awayTeam)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:20px;width:auto;vertical-align:middle;" alt="" />
-                      <a href="#confronti?fsq=${m.awayId}" style="color:var(--text-primary);text-decoration:none;" title="Apri confronti storici">
-                        ${m.awayTeam}
+                      <a href="#confronti?fsq=${m.awayId}" style="color:${isFavAway ? 'var(--accent-gold)' : 'var(--text-primary)'};text-decoration:none;" title="Apri confronti storici">
+                        ${isFavAway ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${m.awayTeam}
                       </a>
                     </span>
                   </td>
@@ -330,15 +363,21 @@ const recordStoriciView = {
                     ${this.formatDate(m.date || m.rawDate)}
                   </td>
                 </tr>
-              `).join('')}
+              `;
+              }).join('')}
             </tbody>
           </table>
         </div>
 
         <!-- Visualizzazione Mobile: Card Responsive Senza Scorrimento Orizzontale -->
         <div class="record-mobile-view">
-          ${list.map((m, idx) => `
-            <div class="match-card" style="padding:12px;background:var(--bg-surface-elevated);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
+          ${list.map((m, idx) => {
+            const isFavHome = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(m.homeId) || fcmHomeConfigManager.isFavoriteTeam(m.homeTeam));
+            const isFavAway = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(m.awayId) || fcmHomeConfigManager.isFavoriteTeam(m.awayTeam));
+            const isFavMatch = isFavHome || isFavAway;
+
+            return `
+            <div class="match-card ${isFavMatch ? 'match-card-favorite' : ''}" style="padding:12px;background:var(--bg-surface-elevated);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
               <!-- Riga Intestazione Card: Posizione, Competizione, Stagione e Data -->
               <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.72rem;color:var(--text-muted);margin-bottom:10px;gap:6px;flex-wrap:wrap;">
                 <div style="display:flex;align-items:center;gap:6px;">
@@ -361,8 +400,8 @@ const recordStoriciView = {
                 <!-- Casa -->
                 <div style="display:flex;align-items:center;gap:6px;min-width:0;">
                   <img src="img/sq/${encodeURI(m.homeTeam)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(m.homeTeam)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:22px;width:auto;flex-shrink:0;" alt="" />
-                  <a href="#confronti?fsq=${m.homeId}" style="color:var(--text-primary);text-decoration:none;font-size:0.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${m.homeTeam}">
-                    ${m.homeTeam}
+                  <a href="#confronti?fsq=${m.homeId}" style="color:${isFavHome ? 'var(--accent-gold)' : 'var(--text-primary)'};text-decoration:none;font-size:0.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${m.homeTeam}">
+                    ${isFavHome ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${m.homeTeam}
                   </a>
                 </div>
 
@@ -377,8 +416,8 @@ const recordStoriciView = {
 
                 <!-- Trasferta -->
                 <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;text-align:right;">
-                  <a href="#confronti?fsq=${m.awayId}" style="color:var(--text-primary);text-decoration:none;font-size:0.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${m.awayTeam}">
-                    ${m.awayTeam}
+                  <a href="#confronti?fsq=${m.awayId}" style="color:${isFavAway ? 'var(--accent-gold)' : 'var(--text-primary)'};text-decoration:none;font-size:0.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${m.awayTeam}">
+                    ${isFavAway ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${m.awayTeam}
                   </a>
                   <img src="img/sq/${encodeURI(m.awayTeam)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(m.awayTeam)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:22px;width:auto;flex-shrink:0;" alt="" />
                 </div>
@@ -390,7 +429,8 @@ const recordStoriciView = {
                 <span style="font-weight:800;font-size:0.95rem;color:var(--accent-gold);">${m.scoreVal}</span>
               </div>
             </div>
-          `).join('')}
+          `;
+          }).join('')}
         </div>
       </div>
     `;
@@ -422,14 +462,16 @@ const recordStoriciView = {
               </tr>
             </thead>
             <tbody>
-              ${list.map((s, idx) => `
-                <tr>
+              ${list.map((s, idx) => {
+                const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(s.teamId) || fcmHomeConfigManager.isFavoriteTeam(s.teamName));
+                return `
+                <tr class="${isFav ? 'table-row-favorite' : ''}">
                   <td class="text-center font-bold" style="color:var(--text-muted);">${idx + 1}</td>
                   <td>
                     <div style="display:flex;align-items:center;gap:10px;">
                       <img src="img/sq/${encodeURI(s.teamName)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(s.teamName)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:22px;width:auto;vertical-align:middle;flex-shrink:0;" alt="" />
-                      <a href="#confronti?fsq=${s.teamId}" style="color:var(--text-primary);text-decoration:none;font-weight:700;" title="Apri confronti storici">
-                        ${s.teamName}
+                      <a href="#confronti?fsq=${s.teamId}" style="color:${isFav ? 'var(--accent-gold)' : 'var(--text-primary)'};text-decoration:none;font-weight:700;" title="Apri confronti storici">
+                        ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${s.teamName}
                       </a>
                     </div>
                   </td>
@@ -437,8 +479,7 @@ const recordStoriciView = {
                     ${s.totale}
                   </td>
                   <td class="text-center" style="font-size:0.8rem;">
-                    ${s.parziale1 > 0 ? `<span style="color:var(--accent-emerald);font-weight:700;">${s.parziale1}V</span> ` : ''}
-                    ${s.parziale2 > 0 ? `<span style="color:var(--accent-cyan);font-weight:700;">${s.parziale2}N</span>` : ''}
+                    ${this.formatStreakParziali(s, this.currentTipo)}
                   </td>
                   <td>
                     <div style="font-weight:700;">Stagione ${s.stagioneI} &bull; ${s.giornataI}ª Giorn.</div>
@@ -460,15 +501,18 @@ const recordStoriciView = {
       }
                   </td>
                 </tr>
-              `).join('')}
+              `;
+              }).join('')}
             </tbody>
           </table>
         </div>
 
         <!-- Visualizzazione Mobile: Card Responsive Senza Scorrimento Orizzontale -->
         <div class="record-mobile-view">
-          ${list.map((s, idx) => `
-            <div class="match-card" style="padding:12px;background:var(--bg-surface-elevated);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
+          ${list.map((s, idx) => {
+            const isFav = typeof fcmHomeConfigManager !== 'undefined' && (fcmHomeConfigManager.isFavoriteTeam(s.teamId) || fcmHomeConfigManager.isFavoriteTeam(s.teamName));
+            return `
+            <div class="match-card ${isFav ? 'match-card-favorite' : ''}" style="padding:12px;background:var(--bg-surface-elevated);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
               <!-- Riga Header: Posizione, Squadra e Badge Stato -->
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;">
                 <div style="display:flex;align-items:center;gap:8px;min-width:0;">
@@ -476,8 +520,8 @@ const recordStoriciView = {
                     #${idx + 1}
                   </span>
                   <img src="img/sq/${encodeURI(s.teamName)}.png" onerror="if(!this.dataset.tried){this.dataset.tried='1';this.src='img/sq/${encodeURI(s.teamName)}.gif';}else{this.onerror=null;this.src='img/sq/undefined.svg';}" style="height:24px;width:auto;flex-shrink:0;" alt="" />
-                  <a href="#confronti?fsq=${s.teamId}" style="color:var(--text-primary);text-decoration:none;font-weight:800;font-size:0.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="Apri confronti storici">
-                    ${s.teamName}
+                  <a href="#confronti?fsq=${s.teamId}" style="color:${isFav ? 'var(--accent-gold)' : 'var(--text-primary)'};text-decoration:none;font-weight:800;font-size:0.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="Apri confronti storici">
+                    ${isFav ? '<span class="fav-team-star" title="Squadra del Cuore">⭐</span> ' : ''}${s.teamName}
                   </a>
                 </div>
                 ${s.chiusa
@@ -495,9 +539,7 @@ const recordStoriciView = {
                 <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:6px 10px;text-align:center;">
                   <div style="font-size:0.68rem;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Parziali</div>
                   <div style="font-size:0.95rem;font-weight:800;margin-top:4px;">
-                    ${s.parziale1 > 0 ? `<span style="color:var(--accent-emerald);">${s.parziale1}V</span> ` : ''}
-                    ${s.parziale2 > 0 ? `<span style="color:var(--accent-cyan);">${s.parziale2}N</span>` : ''}
-                    ${s.parziale1 === 0 && s.parziale2 === 0 ? '<span style="color:var(--text-muted);">-</span>' : ''}
+                    ${this.formatStreakParziali(s, this.currentTipo)}
                   </div>
                 </div>
               </div>
@@ -517,7 +559,8 @@ const recordStoriciView = {
                 </div>
               </div>
             </div>
-          `).join('')}
+          `;
+          }).join('')}
         </div>
       </div>
     `;

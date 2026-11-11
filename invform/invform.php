@@ -15,8 +15,8 @@ require 'PHPMailer/SMTP.php';
 require 'PHPMailer/Exception.php';
 require 'TelegramBotPHP/Telegram.php';
 require 'invform.inc.php';
-if (file_exists(__DIR__ . '/admin_config.inc.php')) {
-	require_once __DIR__ . '/admin_config.inc.php';
+if (file_exists(dirname(__DIR__) . '/inc/admin_config.inc.php')) {
+	require_once dirname(__DIR__) . '/inc/admin_config.inc.php';
 }
 
 use PHPMailer\PHPMailer\PHPMailer;

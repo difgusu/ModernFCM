@@ -1,6 +1,8 @@
 <?php
 // Prob Form Extract by difgusu per ModernFCM - Estrazione diretta DOM (DOMDocument & DOMXPath)
 
+require_once __DIR__ . '/admin_security.inc.php';
+
 // --- CONFIGURAZIONE ---
 $baseDir = dirname(__DIR__);
 $output = $baseDir . "/js/ProbFGDati.js";
@@ -14,8 +16,7 @@ function file_get_contents_curl($url) {
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+    fcm_apply_curl_ssl($ch);
     curl_setopt($ch, CURLOPT_TIMEOUT, 15);
     curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
     
@@ -36,14 +37,12 @@ $force = (isset($_GET['force']) && ($_GET['force'] == '1' || $_GET['force'] === 
 
 if (!file_exists($output) || (time() - filemtime($output) > 3600) || $force) {
     
-    if (file_exists(__DIR__ . "/liveVU_associazioni.php")) {
-        include(__DIR__ . "/liveVU_associazioni.php");
-    } elseif (file_exists($baseDir . "/inc/liveVU_associazioni.php")) {
-        include($baseDir . "/inc/liveVU_associazioni.php");
-    } elseif (file_exists($baseDir . "/liveVU_associazioni.php")) {
-        include($baseDir . "/liveVU_associazioni.php");
+    if (file_exists(__DIR__ . "/data/liveVU_associazioni.php")) {
+        include(__DIR__ . "/data/liveVU_associazioni.php");
+    } elseif (file_exists($baseDir . "/inc/data/liveVU_associazioni.php")) {
+        include($baseDir . "/inc/data/liveVU_associazioni.php");
     } else {
-        die("Errore critico: manca liveVU_associazioni.php");
+        die("Errore critico: manca inc/data/liveVU_associazioni.php");
     }
 
     $fantagazzetta = 'https://www.fantacalcio.it/probabili-formazioni-serie-a';
@@ -189,15 +188,16 @@ if (!file_exists($output) || (time() - filemtime($output) > 3600) || $force) {
     $buf .= "function Ppc(Giocatore,Percentuale,Stato) {\r\nthis.Giocatore = Giocatore\r\nthis.Percentuale = Percentuale\r\nthis.Stato = Stato\r\n}\r\nvar arrPercento = new Array()\r\na=arrPercento\r\n";
 
     foreach ($probabili as $pr) {
-        $buf .= "a[" . $pr['id'] . "] = new Ppc(\"" . addslashes($pr['nome']) . "\"," . $pr['percent'] . "," . $pr['status'] . ");\n";
+        $percNum = is_numeric(trim((string)$pr['percent'])) ? (float)trim((string)$pr['percent']) : 0;
+        $buf .= "a[" . (int)$pr['id'] . "] = new Ppc(" . json_encode((string)$pr['nome'], JSON_UNESCAPED_UNICODE) . "," . $percNum . "," . (int)$pr['status'] . ");\n";
     }
 
     $buf .= "\r\nfunction Ind(ID,Giocatore,Motivo,Rientro,Stato) {\r\nthis.ID = ID\r\nthis.Giocatore = Giocatore\r\nthis.Motivo = Motivo\r\nthis.Rientro = Rientro\r\nthis.Stato = Stato\r\n}\r\nvar arrIndisponibili = new Array()\r\na=arrIndisponibili\r\n";
 
     foreach ($indisponibili as $in) {
-        $mot = addslashes(html_entity_decode($in['motivo'], ENT_QUOTES | ENT_XML1, 'UTF-8'));
-        $rie = addslashes(html_entity_decode($in['rientro'], ENT_QUOTES | ENT_XML1, 'UTF-8'));
-        $buf .= "a[" . $in['id'] . "] = new Ind(" . $in['id'] . ",\"" . addslashes($in['nome']) . "\",\"" . $mot . "\",\"" . $rie . "\"," . $in['status'] . ");\n";
+        $mot = html_entity_decode($in['motivo'], ENT_QUOTES | ENT_HTML5 | ENT_XML1, 'UTF-8');
+        $rie = html_entity_decode($in['rientro'], ENT_QUOTES | ENT_HTML5 | ENT_XML1, 'UTF-8');
+        $buf .= "a[" . (int)$in['id'] . "] = new Ind(" . (int)$in['id'] . "," . json_encode((string)$in['nome'], JSON_UNESCAPED_UNICODE) . "," . json_encode($mot, JSON_UNESCAPED_UNICODE) . "," . json_encode($rie, JSON_UNESCAPED_UNICODE) . "," . (int)$in['status'] . ");\n";
     }
 
     $tmpOut = $output . '.' . uniqid('tmp', true);
