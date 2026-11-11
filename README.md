@@ -11,8 +11,8 @@ Sviluppata per rinnovare l'interfaccia classica dei siti generati da FCM, Modern
 - 🌓 **Tema Chiaro / Scuro / Sistema**: selettore rapido a 3 stati (Chiaro, Scuro, Sistema) posizionato in testa al drawer laterale con auto-rilevamento della modalità del dispositivo, salvataggio preferenze in `localStorage` e valore predefinito configurabile da ini.
 - ⚡ **Architettura SPA Ultra-Rapida**: caricamento istantaneo delle viste senza ricaricamento dell'intera pagina (`#home`, `#classifica`, `#calendario`, `#rose`, `#formazioni`, `#risultati`, `#calcolo`, `#probabili`, `#statistiche`, `#storico`, ecc.).
 - 🏟️ **Campo Grafico Formazioni**: visualizzazione grafica con maglie, schieramento a tutto campo, panchina e riserve.
-- 🔴 **Live Fantapazz & Voti Ufficiosi**:
-  - Voti in tempo reale (Fantapazz e Fantamaster) con gol, bonus, malus ed eventi di giornata.
+- 🔴 **Diretta Live (Fantacalcio.it, Fantapazz, FantaMaster) & Voti Ufficiosi**:
+  - Voti in tempo reale (Fantacalcio.it, Fantapazz e Fantamaster) con gol, bonus, malus ed eventi di giornata.
   - Voti Ufficiosi (PianetaFanta / fonti multiple: Gazzetta, Corriere, Tuttosport, Medie ponderate).
   - Ricalcolo automatico del punteggio delle partite di Lega minuto per minuto.
 - 🧮 **Calcolo Risultati Manuale & Live (`#calcolo`)**:
@@ -29,7 +29,9 @@ Sviluppata per rinnovare l'interfaccia classica dei siti generati da FCM, Modern
   - Risoluzione assistita dei casi dubbi e possibilità di selezionare direttamente i calciatori non ancora assegnati (organizzati per squadra di Serie A).
   - Garanzia di **univocità stretta (1-a-1)**: nessun calciatore esterno può essere assegnato più volte, con blocco preventivo dei duplicati e risoluzione automatica delle collisioni.
 - 🚑 **Probabili Formazioni, Indisponibili & Squalificati (`#probabili`)**:
-  - Estrazione automatica e visualizzazione delle probabili formazioni Sky Sport, percentuali di titolarità, ballottaggi, infortunati e tempi di rientro con cache intelligente (`inc/probform_extract.php` -> `js/ProbFGDati.js`).
+  - Estrazione automatica e visualizzazione delle probabili formazioni Fantacalcio.it e Sky Sport, percentuali di titolarità, ballottaggi, infortunati e tempi di rientro con cache intelligente (`inc/probform_extract.php` -> `js/ProbFGDati.js`).
+- 🗓️ **Sincronizzazione Automatica Calendario e Orari Serie A**:
+  - Aggiornamento automatico di date e orari dei match di Serie A (`inc/aggiorna_dataA.php` -> `js/DataA.js`) a partire dai dati locali di FCM (`fcmSerieADati.js`) con fallback remoto automatico.
 - 📊 **Statistiche Avanzate & Grafici**: andamento posizioni in classifica, media punti, Top & Flop di giornata e stagionali, schede dettagliate calciatore con quotazioni e andamento voti.
 - 🛡️ **Modularità Intelligente**: ogni modulo o pagina avanzata può essere attivato o disattivato a piacere dal file di configurazione `ModernFCM.ini` o via `js/fcmVariabili.js`. Se i file o i dati del plugin non sono presenti, la voce di menu scompare automaticamente senza errori.
 - 📂 **Architettura Backend Ordinata (`inc/`)**: tutti i file e gli script di servizio per il calcolo, le estrazioni live, i cron e le associazioni risiedono in modo pulito e sicuro nella cartella `inc/`.
@@ -66,12 +68,12 @@ Di seguito l'elenco dei plugin collegati ai rispettivi moduli, come configurati 
 | **Se Avessi Avuto... (Incroci)**| *Sempre attivo (nativo)* | *Modulo integrato nativo* (calcolo istantaneo) | Runtime JS / Client | File standard `fcmCalendarioDati.js`, `fcmRisultatiDati*.js` |
 | **Guestbook di Lega** | `ModGuestbook` | Script integrato `gbook182` | Server PHP | Cartella `gbook182/` |
 | **Contatore Visite** | `ModCounter` | Script integrato `fkounter5` | Server PHP | Cartella `fkounter5/` |
+| **Live Fantacalcio.it** | `ModLiveFantacalcio` | *Modulo integrato* (API Fantacalcio.it) | Runtime PHP | `inc/live_extractFC.php`, `inc/data/liveVU_associazioni.php` |
 | **Live Fantapazz** | `ModLiveFantapazz` | *Modulo integrato* (API Fantapazz) | Runtime PHP | `inc/live_extractFP.php`, `inc/data/liveVU_associazioni.php` |
 | **Live FantaMaster** | `ModLiveFantaMaster` | *Modulo integrato* (API FantaMaster) | Runtime PHP | `inc/live_extractFM.php`, `inc/data/liveVU_associazioni.php` |
 | **Voti Ufficiosi PianetaFanta**| `ModLiveVU` | *Modulo integrato* (API PianetaFanta) | Runtime PHP | `inc/live_extractVU.php`, `inc/data/liveVU_associazioni.php` |
 | **Indisponibili & Squalificati**| `ModIndisponibili` | *Modulo integrato* (Fantacalcio.it) | Runtime PHP | API / Cache locale |
 | **Probabili Formazioni** | `ModProbabiliSky` | *Modulo integrato* (Sky Sport) | Runtime PHP | `inc/probform_extract.php`, `js/ProbFGDati.js` |
-| **Impostazioni Calcolo & Associazioni** | `ModCalcolo` | *Pannello Amministratore Integrato* | Runtime PHP | `inc/impostazioni.php`, cartella `inc/` |
 | **Mercato Libero a Buste Chiuse** | `ModMercatoLibero` | *Modulo integrato* (`mercato/`) | Runtime PHP | `mercato/` (`index.php`, `admin.php`, `api.php`), dati in `mercato/data/` |
 | **Homepage, Tema ed Editoriale AI** | *Sempre attivi (nativi)* | *Pannello Amministratore Integrato* (+ chiave API Google Gemini opzionale) | Runtime PHP | `inc/homepage_admin_save.php`, `inc/theme_admin_save.php`, `inc/api_ai_news.php` |
 
@@ -86,7 +88,7 @@ ModernFCM include un motore completo per il **Calcolo Manuale e Live dei Risulta
 
 ### Funzionalità del Calcolo:
 1. **Fonti Voti Flessibili**:
-   - Voti in tempo reale da **Fantapazz Live** e **FantaMaster**.
+   - Voti in tempo reale da **Fantacalcio.it**, **Fantapazz Live** e **FantaMaster**.
    - Voti Ufficiosi da **PianetaFanta.it** (con supporto a redazioni singole o medie).
    - Modalità offline con inserimento manuale o file voti generati.
 2. **Motore Regolamentare FCM**:
@@ -107,11 +109,11 @@ Il pannello (modale in `#calcolo` o pagina standalone, route `#impostazioni`) è
 
 | Scheda | Funzione |
 | :--- | :--- |
-| **Calcolo** | Variabili di `js/fcmCalcoloRisultatiVariabili.js` con backup `.bak`. |
+| **Parametri Calcolo Risultati** | Variabili di `js/fcmCalcoloRisultatiVariabili.js` con backup automatico `.bak`. |
 | **Associazioni Live** | Matching calciatori 1-a-1 con tutte le fonti esterne (`inc/data/liveVU_associazioni.php`). |
-| **Ranking** | Regole personalizzate del ranking storico (`inc/inc_ranking_storico_view.php`). |
-| **Homepage** | Layout, widget e sponsor di lega, editoriale AI (vedi sotto). |
-| **Tema** | Personalizzazione dei colori/token grafici del sito (`inc/theme_admin_save.php`, `inc/theme_loader.php`) con backup e ripristino del tema di fabbrica *ModernFCM Classic*. |
+| **Ranking & Storico** | Regole personalizzate del ranking storico e configurazione dei siti storici legacy (`inc/inc_ranking_storico_view.php`, `inc/storico_admin_save.php`). |
+| **Personalizzazione Home** | Layout, widget predefiniti e personalizzati, sponsor di lega ed editoriale AI (vedi sotto). |
+| **Personalizzazione Tema** | Palette colori/token Chiaro e Scuro, font e dimensione testo, auto-hide header, propagazione tema alle pagine integrate e ripristino del tema di fabbrica *ModernFCM Classic* (`inc/theme_admin_save.php`, `inc/theme_loader.php`). |
 
 ---
 
@@ -183,15 +185,15 @@ Per garantire la massima sicurezza su hosting condivisi e VPS:
    - Questa stessa password protegge anche il pannello a schede, la gestione del Mercato Libero e i salvataggi di homepage, tema e archivio storico.
    - Questo file è separato e **non viene sovrascritto** durante le esportazioni periodiche di Fantacalcio Manager.
 2. **Protezione Apache (`.htaccess`) ed equivalente Nginx**:
-   - ModernFCM include una configurazione Apache (`.htaccess` in root, in `inc/data/.htaccess` e in `mercato/data/.htaccess`) che blocca l'accesso HTTP diretto a file sensibili (`.ini`, `.bak`, `.log`, `.tmp`, `.key`, `.sqlite`, `.db`, `inc/admin_config.inc.php`, `inc/data/*` incluse le configurazioni AI/homepage/tema/storico, `invform/invform.inc.php`, `mercato/data/*.json`) mantenendo accessibili i file `sqlite/*.json` letti dal frontend, e disabilita il directory listing (`Options -Indexes`).
+   - ModernFCM include una configurazione Apache (`.htaccess` in root, `inc/data/.htaccess`, `inc/cache_ai/.htaccess` e `mercato/data/.htaccess`) che blocca l'accesso HTTP diretto a file sensibili (`.ini`, `.bak`, `.log`, `.tmp`, `.key`, `.sqlite`, `.db`, `.csv`, `inc/admin_config.inc.php`, `inc/admin_security.inc.php`, `inc/data/ai_config.json`, script `.php` in `inc/data/`, `inc/cache_ai/*`, `invform/invform.inc.php`, `mercato/data/*`), mantenendo invece accessibili in lettura al frontend le configurazioni pubbliche (`inc/data/homepage_config.json`, `inc/data/theme_config.json`, `inc/data/storico_config.json`) e i file `sqlite/*.json`, oltre a disabilitare il directory listing (`Options -Indexes`).
    - Se utilizzi **Nginx**, aggiungi al blocco `server {}` regole equivalenti:
      ```nginx
      autoindex off;
 
-     location ~* \.(ini|log|bak|tmp|sqlite|db|key)$ {
+     location ~* \.(ini|log|bak|tmp|sqlite|db|key|csv)$ {
          deny all;
      }
-     location ~ ^/(inc/(admin_config\.inc\.php|admin_security\.inc\.php|data/)|invform/invform\.inc\.php|mercato/data/) {
+     location ~ ^/(inc/(admin_config\.inc\.php|admin_security\.inc\.php|cache_ai/|data/(ai_config\.json|.*\.php$))|invform/invform\.inc\.php|mercato/data/) {
          deny all;
      }
      ```
@@ -222,7 +224,7 @@ Per garantire la massima sicurezza su hosting condivisi e VPS:
    - Nella scheda delle variabili della skin potrai configurare:
      - **WebmasterNome** e **WebmasterEmail**.
      - **DefaultTheme**: `system` (predefinito), `light` oppure `dark`.
-     - **Abilitazione Moduli**: abilita (`Si`) o disabilita (`No`) i vari moduli opzionali (`ModEtaRose`, `ModStoricoAvanzato`, `ModInvioFormazione`, `ModLiveFantapazz`, `ModLiveFantaMaster`, `ModLiveVU`, `ModIndisponibili`, `ModProbabiliSky`, `ModGuestbook`, `ModCounter`, `ModMercatoLibero`).
+     - **Abilitazione Moduli**: abilita (`Si`) o disabilita (`No`) i vari moduli opzionali (`ModEtaRose`, `ModStoricoAvanzato`, `ModInvioFormazione`, `ModLiveFantacalcio`, `ModLiveFantapazz`, `ModLiveFantaMaster`, `ModLiveVU`, `ModIndisponibili`, `ModProbabiliSky`, `ModGuestbook`, `ModCounter`, `ModMercatoLibero`).
 3. Esegui la normale procedura di generazione del sito internet da FCM
 
 ### 4. Upload sul Server Web
@@ -232,10 +234,11 @@ Assicurati che i permessi di scrittura siano attivi sulle cartelle che richiedon
 - `invform/`
 - `inc/` *(necessaria solo se `inc/cache_ai/` deve essere auto-creata)*
 - `inc/data/` *(associazioni live, cache listoni, listone Fantapazz e configurazioni JSON di AI, homepage, tema e storico con relativi `.bak`)*
+- `inc/cache_ai/` *(cache editoriale AI)*
 - `js/`
-- `gbook182/` e `fkounter5/` *(se guestbook e contatore visite sono abilitati)*.
-- `mercato/data/` *(sessioni, offerte e report del Mercato Libero)*
-- `inc/cache_ai/` *(cache editoriale AI)*.
+- `img/sponsor/` *(upload loghi sponsor dal pannello admin Homepage)*
+- `gbook182/` e `fkounter5/` *(se guestbook e contatore visite sono abilitati)*
+- `mercato/data/` *(sessioni, offerte e report del Mercato Libero)*.
 
 ---
 
