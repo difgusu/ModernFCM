@@ -394,7 +394,7 @@ function Convert-JetToSqlite([string]$accessPath, [string]$sqliteDestination, [s
     }
 
     $conn = $null
-    $tempSql = [System.IO.Path]::GetTempFileName()
+    $tempSql = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "fcm_sql_" + [System.Guid]::NewGuid().ToString("N") + ".sql")
     $hadErrors = $false
     try {
         $conn = Open-FcmConnection $workPath
@@ -470,8 +470,18 @@ function Convert-JetToSqlite([string]$accessPath, [string]$sqliteDestination, [s
         $writer.WriteLine("COMMIT;")
         $writer.Close()
 
-        # Esecuzione importazione tramite SQLite CLI
-        $sqliteOutput = & $sqliteCli $sqliteDestination ".read `"$tempSql`"" 2>&1
+        # Esecuzione importazione tramite SQLite CLI (usa il solo nome file SQL per evitare
+        # che gli spazi nel percorso %TEMP% dell'utente vengano spezzati dal parser CLI di sqlite3)
+        $fullSqliteDest = [System.IO.Path]::GetFullPath($sqliteDestination)
+        $tempSqlDir = Split-Path -Parent $tempSql
+        $tempSqlLeaf = Split-Path -Leaf $tempSql
+        Push-Location -LiteralPath $tempSqlDir
+        try {
+            $sqliteOutput = & $sqliteCli $fullSqliteDest ".read $tempSqlLeaf" 2>&1
+        }
+        finally {
+            Pop-Location
+        }
         if ($LASTEXITCODE -ne 0 -or ($sqliteOutput -match "(?i)error")) {
             $hadErrors = $true
             & $logCallback "Errore SQLite CLI su '$sqliteDestination': $sqliteOutput" $true
