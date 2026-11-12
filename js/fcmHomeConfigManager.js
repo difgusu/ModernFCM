@@ -802,7 +802,7 @@ const fcmHomeConfigManager = {
 
     const escapeHtml = str => String(str || '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
     const badgeColor = custom.badgeColor || 'primary';
-    const badgeHtml = custom.badge ? `<span class="badge badge-${badgeColor}">${escapeHtml(custom.badge)}</span>` : '';
+    const badgeHtml = custom.badge ? `<span class="badge badge-${escapeHtml(badgeColor)}">${escapeHtml(custom.badge)}</span>` : '';
     const iconSvg = this.getCustomWidgetIcon(custom);
     const safeBtnLink = this.sanitizeUrl(custom.btnLink, true);
     const safeLink = this.sanitizeUrl(custom.link, true);
@@ -821,7 +821,7 @@ const fcmHomeConfigManager = {
               ${badgeHtml}
             </div>
             <div class="custom-widget-body" style="font-size:0.92rem;line-height:1.5;color:var(--text-secondary);margin-top:6px;">
-              ${custom.contentHtml || escapeHtml(custom.content || '')}
+              ${escapeHtml(custom.content || '')}
             </div>
             ${custom.btnText && safeBtnLink ? `
               <div style="margin-top:14px;">

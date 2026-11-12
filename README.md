@@ -139,6 +139,7 @@ Il pannello (modale in `#calcolo` o pagina standalone, route `#impostazioni`) è
 - **Siti storici legacy**: la scheda admin gestisce le cartelle dei vecchi siti HTML (`inc/storico_admin_save.php`); i link compaiono solo se configurati.
 - Se gli archivi SQLite non sono presenti il modulo si disattiva con messaggio di cortesia, senza errori.
 - Il plugin `plugin/fcm_sqlite_exporter/` è portabile, con interfaccia grafica, selezione rapida delle stagioni, aggiornamento della sola stagione corrente, log persistente e gestione anti-lock dei file `.fcm` aperti (vedi il suo `README.md`).
+- I database `.sqlite` vengono letti solo dal server e non devono essere scaricabili dal web (vedi *Sicurezza*). L'esportatore non vi copia le colonne con recapiti e credenziali delle squadre (telefoni, e-mail, password): se hai database generati con una versione precedente del plugin, riesporta tutte le stagioni per ripulirli.
 
 ---
 
@@ -148,6 +149,10 @@ Modulo opzionale (`ModMercatoLibero`) per gestire il mercato a buste chiuse dire
 - **Squadre**: login, offerte per i calciatori liberi con controllo di crediti disponibili, crediti già impegnati, slot di ruolo saturi e calcolo del taglio/rimborso secondo le percentuali di lega.
 - **Buste cifrate**: le offerte sono cifrate (`mercato/inc/crypto.php`) e visibili solo in fase di risoluzione.
 - **Admin**: creazione/modifica sessioni, apertura/chiusura, impostazioni regolamentari, **simulazione** e **assegnazione finale** (idempotente) con crediti extra registrati per sessione, report testuale completo e *scheda operazioni da applicare in FCM* copiabile.
+- **Registro delle azioni dell'amministratore**: simulazioni, report consultati prima dell'assegnazione finale, assegnazioni finali, creazione, modifica (date comprese), apertura/chiusura manuale ed eliminazione delle sessioni e modifiche alle impostazioni vengono annotate in `mercato/data/registro_admin.txt`, un file a cui il modulo aggiunge soltanto righe. Il registro è mostrato in sola lettura alle squadre che accedono al mercato e nel pannello admin. Se il file non è scrivibile l'azione viene rifiutata: nulla avviene senza lasciare traccia.
+- **Simulazione e segretezza**: l'opzione «Consenti la simulazione dell'asta all'amministratore» non può essere cambiata finché una sessione non ancora assegnata in via definitiva contiene buste (prima va eseguita l'assegnazione finale oppure eliminata la sessione). Con la simulazione disattivata gli importi non sono consultabili dal pannello fino all'assegnazione finale; chi gestisce l'hosting può comunque leggere i file sul server.
+- **Sessioni**: il nome può avere al massimo 100 caratteri e le date di apertura e chiusura devono essere date assolute (giorno e ora), come quelle inserite dal modulo del pannello.
+- **File in `mercato/data/`**: oltre ai file già esistenti il modulo crea `registro_admin.txt` (il registro) e `assegnazione.lock` (lock usato durante l'assegnazione finale). L'intera cartella è negata via HTTP dal suo `.htaccess`, che il modulo ricrea se manca.
 - Se il modulo è disattivato le pagine mostrano un avviso e la voce di menu scompare.
 
 ---
@@ -181,22 +186,65 @@ Per garantire la massima sicurezza su hosting condivisi e VPS:
      // File: inc/admin_config.inc.php
      $adminPassword = 'LaTuaPasswordSegreta';
      ```
+   - **Scegli una password lunga e unica**, non usata altrove: il pannello è raggiungibile da Internet. `LaTuaPasswordSegreta` è solo un segnaposto: come il valore iniziale `[PASSWORD]` **non viene accettato**, e finché resta nel file l'accesso amministratore è disabilitato.
+   - **Hash al posto della password in chiaro (consigliato)**: `$adminPassword` può contenere l'hash della password generato con `password_hash()`. Per ottenerlo, da un terminale con PHP installato:
+     ```bash
+     php -r "echo password_hash('LaTuaPassword', PASSWORD_DEFAULT), PHP_EOL;"
+     ```
+     Incolla il risultato nel file lasciando gli **apici singoli** (l'hash contiene il carattere `$`); per accedere si continua a digitare la password, non l'hash:
+     ```php
+     $adminPassword = '$2y$10$...';
+     ```
+   - **Limite ai tentativi di accesso**: dopo 8 password sbagliate in 15 minuti, i dispositivi che non hanno mai fatto un accesso riuscito restano bloccati per 15 minuti (il browser da cui l'admin è già entrato ha un contatore separato, quindi chi sbaglia apposta non può tagliarlo fuori). Lo stesso limite protegge, ciascuna con un contatore proprio, le password delle squadre nell'invio formazione e nel mercato, la password amministratore del guestbook (`$settings['apass']` in `gbook182/settings.php`) e, se la protezione è attiva (`$cnf__passwd_protect`), quella delle statistiche del contatore visite. Lo stato è salvato in `inc/data/throttle/`: per sbloccare subito un accesso cancella i file di quella cartella **tranne `secret.php`**. Se `inc/data/` non è scrivibile il limite non è attivo.
    - La configurazione dell'Editoriale AI (`apiKey`, `model`, `defaultTone`) è salvata separatamente in `inc/data/ai_config.json` tramite l'apposita scheda admin (non va esposta pubblicamente).
    - Questa stessa password protegge anche il pannello a schede, la gestione del Mercato Libero e i salvataggi di homepage, tema e archivio storico.
+   - Solo chi ha fatto l'accesso come amministratore vede, nel pannello *Ultimi accessi* delle statistiche del contatore visite (`fkounter5/stats.php`), gli indirizzi IP completi e gli hostname dei visitatori: per tutti gli altri l'IP è mascherato (es. `93.45.*.*`) e l'hostname non viene mostrato.
    - Questo file è separato e **non viene sovrascritto** durante le esportazioni periodiche di Fantacalcio Manager.
 2. **Protezione Apache (`.htaccess`) ed equivalente Nginx**:
-   - ModernFCM include una configurazione Apache (`.htaccess` in root, `inc/data/.htaccess`, `inc/cache_ai/.htaccess` e `mercato/data/.htaccess`) che blocca l'accesso HTTP diretto a file sensibili (`.ini`, `.bak`, `.log`, `.tmp`, `.key`, `.sqlite`, `.db`, `.csv`, `inc/admin_config.inc.php`, `inc/admin_security.inc.php`, `inc/data/ai_config.json`, script `.php` in `inc/data/`, `inc/cache_ai/*`, `invform/invform.inc.php`, `mercato/data/*`), mantenendo invece accessibili in lettura al frontend le configurazioni pubbliche (`inc/data/homepage_config.json`, `inc/data/theme_config.json`, `inc/data/storico_config.json`) e i file `sqlite/*.json`, oltre a disabilitare il directory listing (`Options -Indexes`).
-   - Se utilizzi **Nginx**, aggiungi al blocco `server {}` regole equivalenti:
+   - ModernFCM include una configurazione Apache (`.htaccess` in root, `inc/data/.htaccess`, `inc/cache_ai/.htaccess` e `mercato/data/.htaccess`) che disabilita il directory listing (`Options -Indexes`) e blocca l'accesso HTTP diretto a:
+     - **file sensibili per estensione** (senza distinzione tra maiuscole e minuscole): `.ini`, `.env`, `.key`, `.sql`, `.sqlite`, `.db`, `.dat`, `.log`, copie di backup (`.bak`, `.old`, `.orig`, `.save`, `.swp`, `~`), temporanei (`.tmp`), script ed eseguibili (`.sh`, `.exe`, `.ps1`, `.bat`);
+     - **file sensibili per nome**: tutti i file solo-include `*.inc.php` (compresi `inc/admin_config.inc.php`, `inc/admin_security.inc.php` e `invform/invform.inc.php`), `inc/data/ai_config.json`, i dati del guestbook (`entries.txt`, `banned_ip.txt`), il log `error_log` (anche ruotato o rinominato, es. `error_log.1`), la configurazione e il log dell'esportatore SQLite;
+     - **cartelle**: `mercato/data/*`, `inc/cache_ai/*`, `gbook182/apptmp/`, `plugin/`, `fkounter5/tool/`, `fkounter5/docs/` e tutto ciò che inizia con un punto (`.git`, `.env`, ...) tranne `.well-known`;
+     - script `.php` e file `.csv` in `inc/data/` (compresa `inc/data/throttle/`);
+     - script PHP nelle cartelle di immagini e upload (`img/`) e, fuori dalla cartella dei documenti `doc/`, archivi compressi (`.zip`, `.tar`, `.gz`, `.tgz`, `.bz2`, `.xz`, `.7z`, `.rar`) e archivi di lega di FCM (`.fcm`, `.fca`, `.mdb`);
+     - richieste con un percorso aggiunto dopo il nome di uno script (PATH_INFO, es. `/index.php/altro`).
+   - Restano accessibili in lettura al frontend le configurazioni pubbliche (`inc/data/homepage_config.json`, `inc/data/theme_config.json`, `inc/data/storico_config.json`) e i file `sqlite/*.json`. I file `.json`, `.txt` e `.csv` **non** sono bloccati in generale.
+   - Lo stesso `.htaccess` aggiunge a tutte le risposte gli header `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `Content-Security-Policy: frame-ancestors 'self'` (le pagine del sito non possono essere incorporate in un frame da altri siti) e `Strict-Transport-Security` (per 180 giorni il browser userà solo HTTPS).
+   - Le regole su cartelle, file nascosti, `img/`, archivi e PATH_INFO richiedono `mod_rewrite`, gli header `mod_headers`. Su **OpenLiteSpeed**, che dagli `.htaccess` applica solo le regole di riscrittura, i blocchi per estensione e per nome vanno replicati nella configurazione del virtual host.
+   - Se utilizzi **Nginx** i file `.htaccess` **non hanno alcun effetto**: senza le regole seguenti chiavi, password, buste del mercato e dati dei visitatori sono scaricabili da chiunque. Aggiungile al blocco `server {}` **prima** di ogni altra `location` con espressione regolare (Nginx applica la prima che corrisponde); non sono ancorate alla radice, quindi valgono anche se il sito è in una sottocartella:
      ```nginx
      autoindex off;
 
-     location ~* \.(ini|log|bak|tmp|sqlite|db|key|csv)$ {
-         deny all;
-     }
-     location ~ ^/(inc/(admin_config\.inc\.php|admin_security\.inc\.php|cache_ai/|data/(ai_config\.json|.*\.php$))|invform/invform\.inc\.php|mercato/data/) {
-         deny all;
-     }
+     # Header di sicurezza. Una location che dichiara altri add_header non eredita
+     # questi: in quel caso vanno ripetuti al suo interno.
+     add_header X-Content-Type-Options "nosniff" always;
+     add_header X-Frame-Options "SAMEORIGIN" always;
+     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+     add_header Content-Security-Policy "frame-ancestors 'self'" always;
+     add_header Strict-Transport-Security "max-age=15552000" always;
+
+     # File e cartelle nascosti (.git, .env, ...), tranne .well-known
+     location ~ /\.(?!well-known(/|$)) { deny all; }
+
+     # Cartelle di dati, strumenti e documentazione che nessuna pagina richiede
+     location ~* /(mercato/data|inc/cache_ai|gbook182/apptmp|plugin|fkounter5/(tool|docs))(/|$) { deny all; }
+
+     # Script e listoni in inc/data (compresa inc/data/throttle/)
+     location ~* /inc/data/.*\.(php|csv)$ { deny all; }
+
+     # Nessuno script PHP nelle cartelle di immagini e upload
+     location ~* /img/.*\.(php\d*|phtml|phar|pht)(\.|/|$) { deny all; }
+
+     # File sensibili per estensione
+     location ~* "(\.(ini|bak|dat|log|sql|sh|exe|key|sqlite|db|env|old|orig|save|swp|ps1|bat)|\.tmp[0-9a-f.]*|\.(sqlite|db)-(journal|wal|shm)|~)$" { deny all; }
+
+     # File sensibili per nome
+     location ~* "((\.inc\.php|(banned_ip|entries)\.txt|ai_config\.json)[^/]*|/error_log(?![a-z])[^/]*|/config_sqlite\.json|/exporter_log\.txt)$" { deny all; }
+
+     # Archivi compressi e archivi di lega di FCM: scaricabili solo dalla cartella dei documenti di lega (doc/)
+     location ~* "^(?!.*/doc/[^/]+$).*\.(zip|tar|gz|tgz|bz2|xz|7z|rar|fcm|fca|mdb)$" { deny all; }
      ```
+     Nel blocco che passa gli script a PHP usa `location ~ \.php$` con `try_files $uri =404;` e non usare `fastcgi_split_path_info`: così vengono eseguiti solo file `.php` esistenti e le richieste con PATH_INFO ricevono un 404. Il reindirizzamento da HTTP a HTTPS va fatto nel `server` in ascolto sulla porta 80 (`return 301 https://$host$request_uri;`).
 
 ---
 
@@ -230,15 +278,24 @@ Per garantire la massima sicurezza su hosting condivisi e VPS:
 ### 4. Upload sul Server Web
 Carica l'intero contenuto generato via FTP (o tramite il modulo di upload di FCM) nella cartella root del tuo spazio web (es. `public_html/` o cartella della lega).
 
+**Non caricare sul server** ciò che serve solo sul PC o durante lo sviluppo:
+- la cartella `plugin/` *(plugin ed eseguibili per FCM, con `config_sqlite.json` ed `exporter_log.txt` dell'esportatore: dopo aver copiato i plugin nella cartella di FCM puoi eliminarla dalla cartella della skin, così non finisce nel sito generato)*;
+- `fkounter5/tool/` *(strumento di migrazione dei dati del vecchio contatore)*;
+- copie di backup e archivi *(`*.bak`, `*.old`, `*.zip`, cartelle di backup, archivi di lega `.fcm`: contengono anche recapiti e password delle squadre)*;
+- cartelle di test o di lavoro *(`tests/`, `scratch/`)*.
+
+Le regole del paragrafo *Sicurezza* negano comunque l'accesso a `plugin/` e `fkounter5/tool/`, ma è più sicuro che sul server non ci siano affatto.
+
 Assicurati che i permessi di scrittura siano attivi sulle cartelle che richiedono salvataggio dati:
-- `invform/`
 - `inc/` *(necessaria solo se `inc/cache_ai/` deve essere auto-creata)*
 - `inc/data/` *(associazioni live, cache listoni, listone Fantapazz e configurazioni JSON di AI, homepage, tema e storico con relativi `.bak`)*
 - `inc/cache_ai/` *(cache editoriale AI)*
 - `js/`
 - `img/sponsor/` *(upload loghi sponsor dal pannello admin Homepage)*
 - `gbook182/` e `fkounter5/` *(se guestbook e contatore visite sono abilitati)*
-- `mercato/data/` *(sessioni, offerte e report del Mercato Libero)*.
+- `mercato/data/` *(sessioni, offerte, report e registro delle azioni dell'amministratore del Mercato Libero)*.
+
+Per limitare lo spam il **guestbook** accetta un solo messaggio ogni 10 secondi (in tutto, non per visitatore; serve `inc/data/` scrivibile) e rifiuta i nuovi messaggi quando il file `gbook182/entries.txt` raggiunge la dimensione fissata dalla nuova impostazione `$settings['max_logsize']` di `gbook182/settings.php` (4096 KB se non la cambi, `0` = nessun limite): in quel caso alza la soglia oppure elimina i messaggi più vecchi.
 
 ---
 

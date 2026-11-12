@@ -6,9 +6,12 @@
  */
 
 require_once __DIR__ . '/admin_security.inc.php';
-fcm_ensure_session();
+// La sessione si apre solo se il browser ne ha già una: la lettura pubblica non ne crea di nuove
+$hasAdminSession = fcm_admin_session_active();
 
 header('Content-Type: application/json; charset=utf-8');
+// Senza sessione PHP mancherebbero le sue intestazioni anti-cache: la risposta non va memorizzata
+header('Cache-Control: no-store, no-cache, must-revalidate');
 
 $baseDir = dirname(__DIR__);
 $configPath = $baseDir . '/inc/data/homepage_config.json';
@@ -22,7 +25,7 @@ if (file_exists($adminConfigFile)) {
 }
 
 $isPasswordConfigured = fcm_is_password_configured($adminPassword);
-$isAdminLogged = $isPasswordConfigured && !empty($_SESSION['pn_admin_logged']);
+$isAdminLogged = $isPasswordConfigured && $hasAdminSession;
 $hasInlinePasswordAuth = false;
 
 // Lettura e buffering input JSON
@@ -32,13 +35,20 @@ $inputJson = !empty($rawInput) ? json_decode($rawInput, true) : null;
 // Consenti autenticazione immediata tramite parametro 'admin_pwd' o 'password' se passato via POST o JSON
 if (!$isAdminLogged && $isPasswordConfigured) {
     $submittedPwd = $_POST['admin_pwd'] ?? ($inputJson['password'] ?? ($inputJson['admin_pwd'] ?? ''));
-    if ($submittedPwd !== '' && fcm_verify_password((string)$submittedPwd, $adminPassword)) {
-        if (!headers_sent() && session_status() === PHP_SESSION_ACTIVE) {
-            @session_regenerate_id(true);
+    if (is_scalar($submittedPwd) && (string)$submittedPwd !== '') {
+        // Verifica con limite ai tentativi, lo stesso contatore di tutti i punti di login admin
+        $loginAttempt = fcm_admin_login_attempt((string)$submittedPwd, $adminPassword);
+        if ($loginAttempt['ok']) {
+            fcm_admin_session_grant();
+            $isAdminLogged = true;
+            $hasInlinePasswordAuth = true;
+        } elseif ($loginAttempt['retry_after'] > 0) {
+            // Troppi errori recenti: finché dura il blocco la password non viene nemmeno verificata
+            http_response_code(429);
+            header('Retry-After: ' . (int)$loginAttempt['retry_after']);
+            echo json_encode(['success' => false, 'error' => fcm_throttle_message($loginAttempt['retry_after'])]);
+            exit;
         }
-        $_SESSION['pn_admin_logged'] = true;
-        $isAdminLogged = true;
-        $hasInlinePasswordAuth = true;
     }
 }
 
@@ -104,33 +114,57 @@ function fcm_get_default_homepage_config() {
     ];
 }
 
-$action = isset($_REQUEST['action']) ? trim($_REQUEST['action']) : '';
+/**
+ * Normalizza i campi di un widget personalizzato che il sito pubblico inserisce nell'HTML
+ */
+function fcm_sanitize_custom_widget($widget) {
+    // Il colore del badge diventa una classe CSS: valgono solo le scelte offerte dal pannello
+    if (isset($widget['badgeColor']) && !in_array($widget['badgeColor'], ['primary', 'success', 'warning', 'danger', 'info'], true)) {
+        $widget['badgeColor'] = 'primary';
+    }
+    // L'HTML libero è previsto solo nei widget di tipo embed (campo embedHtml)
+    unset($widget['contentHtml']);
+    return $widget;
+}
 
-// 1. Azione pubblica consentita: recupero configurazione (in sola lettura o auto-creazione default)
+$action = (isset($_REQUEST['action']) && is_string($_REQUEST['action'])) ? trim($_REQUEST['action']) : '';
+
+// 1. Azione pubblica consentita: recupero configurazione (in sola lettura; l'auto-creazione del default è riservata all'admin)
 if ($action === 'get_config') {
     $config = null;
-    if (file_exists($configPath)) {
+    $configExists = file_exists($configPath);
+    if ($configExists) {
         $raw = file_get_contents($configPath);
         $json = json_decode($raw, true);
-        if ($json && isset($json['columns']) && is_array($json['columns']['main']) && !empty($json['columns']['main'])) {
+        // Una colonna principale vuota è una scelta che il salvataggio accetta, non un file da rigenerare
+        if (is_array($json) && isset($json['columns']['main']) && is_array($json['columns']['main'])) {
             $config = $json;
         }
     }
 
-    // Se non esiste sul disco o è vuoto/invalido, crea automaticamente con la visualizzazione di default
+    // Se non esiste sul disco o è invalido, risponde con la visualizzazione di default
     if (!$config) {
         $config = fcm_get_default_homepage_config();
-        fcm_write_file_atomic(
-            $configPath,
-            json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            0644
-        );
+        // Il default generato qui non è un ripristino deciso dall'admin: con un layoutResetAt nuovo a
+        // ogni lettura i visitatori perderebbero ogni volta la personalizzazione della loro home
+        $config['layoutResetAt'] = 0;
+        // Solo l'admin crea o rigenera il file: la lettura pubblica non scrive mai su disco
+        if ($isAdminLogged) {
+            if ($configExists) {
+                @copy($configPath, $backupPath);
+            }
+            fcm_write_file_atomic(
+                $configPath,
+                json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                0644
+            );
+        }
     }
 
     echo json_encode([
         'success' => true,
         'isAdmin' => $isAdminLogged,
-        'csrfToken' => fcm_csrf_token(),
+        'csrfToken' => (session_status() === PHP_SESSION_ACTIVE) ? fcm_csrf_token() : '',
         'config' => $config
     ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
@@ -154,11 +188,11 @@ if ($action === 'save_config') {
     }
     $payload = $inputJson;
 
-    if (!$payload && isset($_POST['config'])) {
+    if (!$payload && isset($_POST['config']) && is_string($_POST['config'])) {
         $payload = json_decode($_POST['config'], true);
     }
 
-    if (!$payload || !isset($payload['columns']) || !is_array($payload['columns']['main']) || !is_array($payload['columns']['side'])) {
+    if (!is_array($payload) || !isset($payload['columns']['main'], $payload['columns']['side']) || !is_array($payload['columns']['main']) || !is_array($payload['columns']['side'])) {
         echo json_encode([
             'success' => false,
             'error' => 'Dati di configurazione non validi'
@@ -191,6 +225,17 @@ if ($action === 'save_config') {
     } else {
         $payload['sponsors'] = [];
     }
+
+    // Normalizzazione widget personalizzati
+    $cleanWidgets = [];
+    if (isset($payload['customWidgets']) && is_array($payload['customWidgets'])) {
+        foreach ($payload['customWidgets'] as $cw) {
+            if (is_array($cw)) {
+                $cleanWidgets[] = fcm_sanitize_custom_widget($cw);
+            }
+        }
+    }
+    $payload['customWidgets'] = $cleanWidgets;
 
     // Crea copia di backup
     if (file_exists($configPath)) {
@@ -335,7 +380,7 @@ if ($action === 'save_sponsors') {
     if (!$hasInlinePasswordAuth) {
         fcm_require_csrf($inputJson);
     }
-    $rawSponsors = isset($_POST['sponsors']) ? json_decode($_POST['sponsors'], true) : (is_array($inputJson) && isset($inputJson['sponsors']) ? $inputJson['sponsors'] : $inputJson);
+    $rawSponsors = (isset($_POST['sponsors']) && is_string($_POST['sponsors'])) ? json_decode($_POST['sponsors'], true) : (is_array($inputJson) && isset($inputJson['sponsors']) ? $inputJson['sponsors'] : $inputJson);
 
     if (!is_array($rawSponsors)) {
         $rawSponsors = [];
@@ -399,12 +444,13 @@ if ($action === 'save_custom_widget') {
     if (!$hasInlinePasswordAuth) {
         fcm_require_csrf($inputJson);
     }
-    $widgetRaw = isset($_POST['widget']) ? json_decode($_POST['widget'], true) : $inputJson;
+    $widgetRaw = (isset($_POST['widget']) && is_string($_POST['widget'])) ? json_decode($_POST['widget'], true) : $inputJson;
 
-    if (!$widgetRaw || empty($widgetRaw['title'])) {
+    if (!is_array($widgetRaw) || empty($widgetRaw['title'])) {
         echo json_encode(['success' => false, 'error' => 'Dati del widget mancanti o incompleti']);
         exit;
     }
+    $widgetRaw = fcm_sanitize_custom_widget($widgetRaw);
 
     $targetCol = (isset($widgetRaw['column']) && $widgetRaw['column'] === 'side') ? 'side' : 'main';
 

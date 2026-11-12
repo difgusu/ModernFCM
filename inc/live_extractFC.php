@@ -9,6 +9,14 @@
 
 require_once __DIR__ . '/admin_security.inc.php';
 
+// Orari delle giornate di Serie A (js/DataA.js): servono a riconoscere una giornata gia' iniziata
+if (file_exists(__DIR__ . '/aggiorna_dataA.php')) {
+    if (!defined('FCM_AGGIORNA_DATAA_HELPERS_ONLY')) {
+        define('FCM_AGGIORNA_DATAA_HELPERS_ONLY', true);
+    }
+    require_once __DIR__ . '/aggiorna_dataA.php';
+}
+
 if (!defined('FC_LIVE_PAGE_URL')) {
     define('FC_LIVE_PAGE_URL', 'https://www.fantacalcio.it/live-serie-a');
 }
@@ -835,6 +843,64 @@ function fc_http_request($url, $method = 'GET', $jsonBody = null, $timeout = 12)
     );
 }
 
+// Le funzioni fcm_live_* che seguono sono ripetute identiche negli altri endpoint dei dati live
+// (inc/live_extract*.php, inc/probform_extract.php): ogni modifica va riportata in tutte le copie.
+if (!function_exists('fcm_live_modulo_attivo')) {
+    /**
+     * TRUE se il modulo risulta attivo in js/fcmVariabili.js. Stessa regola del menu del sito e
+     * del client: attivo se la variabile manca oppure vale Si, 1 o true.
+     */
+    function fcm_live_modulo_attivo($nomeVariabile) {
+        $raw = @file_get_contents(dirname(__DIR__) . '/js/fcmVariabili.js');
+        if (!is_string($raw) || !preg_match_all('/^[ \t]*var\s+' . preg_quote($nomeVariabile, '/') . '\s*=\s*["\']?([^"\'\r\n;]*)/m', $raw, $m)) {
+            return true;
+        }
+        return in_array(strtolower(trim(end($m[1]))), array('si', '1', 'true'), true);
+    }
+}
+
+if (!function_exists('fcm_live_giornata_richiesta')) {
+    /**
+     * Giornata di Serie A chiesta dal client: vale solo se e' un intero tra 1 e 38 in forma
+     * canonica (niente zeri iniziali, decimali o array). NULL se manca o non e' valida.
+     */
+    function fcm_live_giornata_richiesta(array $nomiParametro) {
+        foreach ($nomiParametro as $nome) {
+            if (!empty($_GET[$nome])) {
+                $g = filter_var($_GET[$nome], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1, 'max_range' => 38)));
+                return ($g === false) ? null : $g;
+            }
+        }
+        return null;
+    }
+}
+
+if (!function_exists('fcm_live_giornata_corrente')) {
+    /**
+     * Giornata di Serie A corrente per la lega: la prima che nel calendario FCM ha ancora incontri
+     * da calcolare, cioe' quella che il sito mostra in home e nel live. NULL se il calendario
+     * manca, non e' leggibile o non ha piu' incontri da calcolare.
+     */
+    function fcm_live_giornata_corrente() {
+        $raw = @file_get_contents(dirname(__DIR__) . '/js/fcmCalendarioDati.js');
+        // new I(ID, IncAcc, IDTipo, Giocato, IDFantagiornata, Fantagiornata, IDCompetizione,
+        //       Competizione, IDGirone, Girone, GiornataDiA, ...): i tre nomi possono contenere virgole
+        $nome = '(?:"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|[^,()]*)';
+        $re = '/new\s+I\(\s*[^,()]*,[^,()]*,\s*(\d+)\s*,\s*(\d+)\s*,[^,()]*,\s*' . $nome . '\s*,[^,()]*,\s*' . $nome
+            . '\s*,[^,()]*,\s*' . $nome . '\s*,\s*(\d+)\s*[,)]/';
+        $corrente = null;
+        if (is_string($raw) && preg_match_all($re, $raw, $incontri, PREG_SET_ORDER)) {
+            foreach ($incontri as $inc) {
+                // tipo 2 = turno di riposo; giocato 1 = incontro gia' calcolato
+                if ((int)$inc[1] !== 2 && (int)$inc[2] !== 1 && ($corrente === null || (int)$inc[3] < $corrente)) {
+                    $corrente = (int)$inc[3];
+                }
+            }
+        }
+        return ($corrente !== null && $corrente >= 1 && $corrente <= 38) ? $corrente : null;
+    }
+}
+
 /* ============================================================================
  * ESECUZIONE PRINCIPALE (SOLO SE INVOCATO DIRETTAMENTE, NON IN TEST INCLUDE)
  * ============================================================================ */
@@ -857,39 +923,122 @@ if (!defined('LIVE_EXTRACT_FC_NO_AUTO_RUN')) {
         || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
         || (php_sapi_name() === 'cli');
 
-    $rawGio = !empty($_GET['Gio']) ? $_GET['Gio'] : (!empty($_GET['cGio']) ? $_GET['cGio'] : (!empty($_GET['day']) ? $_GET['day'] : null));
-    $requestedGio = ($rawGio !== null && is_numeric($rawGio) && (int)$rawGio > 0) ? (int)$rawGio : null;
-    $forceRefresh = !empty($_GET['force']) && (string)$_GET['force'] !== '0';
+    $isCli = (php_sapi_name() === 'cli');
 
-    // Controllo rapido cache locale se la giornata coincide ed e' ancora fresca
-    if (!$forceRefresh && $requestedGio !== null && file_exists(FC_VOTI_META_FILE) && file_exists(FC_VOTI_OUTPUT_FILE)) {
-        $cachedMeta = @json_decode(@file_get_contents(FC_VOTI_META_FILE), true);
-        if (is_array($cachedMeta) && isset($cachedMeta['giornataFC']) && (int)$cachedMeta['giornataFC'] === $requestedGio && isset($cachedMeta['timestamp'])) {
-            $cacheTtl = !empty($cachedMeta['hasMatchLive']) ? 45 : 600;
-            $age = time() - (int)$cachedMeta['timestamp'];
-            if ($age >= 0 && $age < $cacheTtl && isset($cachedMeta['count']) && (int)$cachedMeta['count'] > 0) {
-                if ($isAjax) {
-                    if (!headers_sent()) {
-                        header('Content-Type: application/json; charset=utf-8');
-                        header('Cache-Control: no-cache, no-store, must-revalidate');
-                    }
-                    echo json_encode(array(
-                        'success' => true,
-                        'cached' => true,
-                        'count' => (int)$cachedMeta['count'],
-                        'source' => 'fantacalcio',
-                        'method' => isset($cachedMeta['method']) ? $cachedMeta['method'] : 'cache',
-                        'giornataFC' => (int)$cachedMeta['giornataFC'],
-                        'hasMatchLive' => !empty($cachedMeta['hasMatchLive']),
-                        'lastUpdated' => isset($cachedMeta['lastUpdated']) ? $cachedMeta['lastUpdated'] : date('d/m/Y H:i:s'),
-                        'updated' => isset($cachedMeta['updated']) ? $cachedMeta['updated'] : date('H:i:s'),
-                        'timestamp' => (int)$cachedMeta['timestamp'],
-                        'message' => 'Voti Fantacalcio.it caricati dalla cache locale (' . (int)$cachedMeta['count'] . ' giocatori)'
-                    ));
-                    exit;
-                }
+    // Modulo disattivato nelle variabili del sito: l'endpoint non scarica e non scrive nulla
+    if (!$isCli && !fcm_live_modulo_attivo('ModLiveFantacalcio')) {
+        if ($isAjax) {
+            if (!headers_sent()) {
+                http_response_code(403);
+                header('Content-Type: application/json; charset=utf-8');
             }
+            echo json_encode(array('success' => false, 'error' => 'Modulo Live Fantacalcio.it disattivato'));
+            exit;
         }
+        return;
+    }
+
+    // Admin riconosciuto dalla sessione gia' aperta: per i visitatori anonimi non se ne crea una nuova
+    $isAdmin = !$isCli && fcm_admin_session_active(true);
+
+    // force vale solo da riga di comando e per l'admin autenticato
+    $forceRefresh = ($isCli || $isAdmin) && !empty($_GET['force']) && is_scalar($_GET['force']);
+
+    // I visitatori possono far scaricare solo la giornata corrente della lega o, vedi sotto, una
+    // successiva appena iniziata: sono le sole che possono finire nel file condiviso letto da tutti.
+    // Senza giornata (o con una giornata non valida) vale quella corrente.
+    $requestedGio = fcm_live_giornata_richiesta(array('Gio', 'cGio', 'day'));
+    $giornataLega = fcm_live_giornata_corrente();
+    if ($requestedGio === null && !$isCli) {
+        $requestedGio = $giornataLega;
+    }
+    $altraGiornata = false;
+    if (!$isCli && !$isAdmin) {
+        if ($giornataLega === null) {
+            // Giornata della lega non determinabile (calendario assente o tutto gia' calcolato): non
+            // si scarica quella scelta dal visitatore ma la giornata live di Fantacalcio.it
+            $requestedGio = null;
+        } elseif ($requestedGio !== $giornataLega) {
+            // Vale anche una giornata successiva iniziata di recente secondo js/DataA.js: capita quando
+            // la lega non ha ancora calcolato una giornata e in Serie A si gioca gia' la seguente
+            $altraGiornata = !($requestedGio > $giornataLega && function_exists('fcm_dataA_giornate_recenti')
+                && in_array($requestedGio, fcm_dataA_giornate_recenti(dirname(__DIR__)), true));
+        }
+    }
+
+    $cachedMeta = null;
+    if (file_exists(FC_VOTI_META_FILE) && file_exists(FC_VOTI_OUTPUT_FILE)) {
+        $cachedMeta = @json_decode(@file_get_contents(FC_VOTI_META_FILE), true);
+        if (!is_array($cachedMeta) || !isset($cachedMeta['giornataFC']) || !isset($cachedMeta['timestamp'])) {
+            $cachedMeta = null;
+        }
+    }
+
+    // Per un'altra giornata si risponde solo con lo stato dei dati gia' salvati
+    $usaCache = $altraGiornata;
+    if (!$usaCache && !$forceRefresh) {
+        // Controllo rapido cache locale se la giornata coincide ed e' ancora fresca
+        // Senza giornata (lega non determinabile) i visitatori usano comunque i dati salvati, se freschi
+        if ($cachedMeta !== null && ($requestedGio !== null ? (int)$cachedMeta['giornataFC'] === $requestedGio : !$isCli) && isset($cachedMeta['count']) && (int)$cachedMeta['count'] > 0) {
+            $cacheTtl = (!empty($cachedMeta['hasMatchLive']) || !empty($cachedMeta['hasPendingMatches'])) ? 45 : 600;
+            $age = time() - (int)$cachedMeta['timestamp'];
+            $usaCache = ($age >= 0 && $age < $cacheTtl);
+        }
+        // Limite condiviso tra tutti i visitatori: da Fantacalcio.it si scarica al massimo una volta
+        // ogni 30 secondi (il client aggiorna ogni 60); nel frattempo valgono i dati gia' salvati
+        // La giornata successiva gia' in campo ha un turno suo: non toglie l'aggiornamento a quella della lega
+        $chiaveCooldown = ($giornataLega !== null && $requestedGio !== null && $requestedGio !== $giornataLega) ? 'live_fc_succ' : 'live_fc';
+        if (!$usaCache && !$isCli && !fcm_cooldown_acquire($chiaveCooldown, 30)) {
+            $usaCache = true;
+        }
+    }
+
+    if ($usaCache) {
+        if ($isAjax) {
+            if (!headers_sent()) {
+                header('Content-Type: application/json; charset=utf-8');
+                header('Cache-Control: no-cache, no-store, must-revalidate');
+            }
+            if ($cachedMeta !== null) {
+                $cachedCount = isset($cachedMeta['count']) ? (int)$cachedMeta['count'] : 0;
+                // giornataFC e' quella dei dati salvati: se non e' quella chiesta il client li ignora
+                echo json_encode(array(
+                    'success' => true,
+                    'cached' => true,
+                    // il client propone "Forza Aggiornamento" solo a chi puo' davvero forzare
+                    'canForce' => ($isCli || $isAdmin),
+                    'count' => $cachedCount,
+                    'source' => 'fantacalcio',
+                    'method' => isset($cachedMeta['method']) ? $cachedMeta['method'] : 'cache',
+                    'giornataFC' => (int)$cachedMeta['giornataFC'],
+                    'hasMatchLive' => !empty($cachedMeta['hasMatchLive']),
+                    'lastUpdated' => isset($cachedMeta['lastUpdated']) ? $cachedMeta['lastUpdated'] : date('d/m/Y H:i:s'),
+                    'updated' => isset($cachedMeta['updated']) ? $cachedMeta['updated'] : date('H:i:s'),
+                    'timestamp' => (int)$cachedMeta['timestamp'],
+                    'message' => 'Voti Fantacalcio.it caricati dalla cache locale (' . $cachedCount . ' giocatori)'
+                ));
+            } else {
+                echo json_encode(array(
+                    'success' => false,
+                    'cached' => false,
+                    'count' => 0,
+                    'source' => 'fantacalcio',
+                    'method' => '',
+                    'giornataFC' => $requestedGio,
+                    'hasMatchLive' => false,
+                    // rifiuto per la giornata, non un errore della fonte: il client lo presenta come avviso
+                    'altraGiornata' => $altraGiornata,
+                    'error' => $altraGiornata
+                        ? 'Voti Fantacalcio.it disponibili solo per la giornata in corso'
+                        : 'Voti Fantacalcio.it non ancora disponibili: riprova tra qualche secondo',
+                    'timestamp' => time(),
+                    'lastUpdated' => date('d/m/Y H:i:s'),
+                    'updated' => date('H:i:s')
+                ));
+            }
+            exit;
+        }
+        return;
     }
 
     // Caricamento associazioni unificate
@@ -1033,6 +1182,10 @@ if (!defined('LIVE_EXTRACT_FC_NO_AUTO_RUN')) {
                 'method' => $methodUsed,
                 'giornataFC' => $giornataFC,
                 'hasMatchLive' => $hasMatchLive,
+                // Partite ancora da giocare (o voti presi dalla pagina SSR mentre la giornata e' quella
+                // live): la cache resta breve, cosi' il fischio d'inizio successivo si vede senza force
+                'hasPendingMatches' => in_array('', $partiteStato, true)
+                    || ($methodUsed === 'ssr' && $liveMatchweek > 0 && $giornataFC === $liveMatchweek),
                 'count' => $votiCount,
                 'timestamp' => time(),
                 'lastUpdated' => date('d/m/Y H:i:s'),

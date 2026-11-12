@@ -22,7 +22,7 @@ if (!defined('IN_SCRIPT')) {
 		echo '<span class="gbook_submitted_by">'.$lang['t19'].' '.$url.'</a></span><br class="clear" />';
 	}
 
-	if ($email)
+	if ($email && empty($settings['hide_emails']))
 	{
 		echo '<span class="gbook_submitted_by">'.$lang['t20'].' '.$email.'</span><br class="clear" />';
 	}

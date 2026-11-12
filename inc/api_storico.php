@@ -45,6 +45,10 @@ if (file_exists($fcmVarFile)) {
 }
 
 $action = $_GET['action'] ?? 'stagioni';
+if (!is_string($action)) {
+    // Un parametro array (action[]=...) è un'azione non valida, non un avviso PHP a schermo
+    $action = '';
+}
 $sqliteBase = realpath(__DIR__ . '/../sqlite');
 
 if (!$sqliteBase || !is_dir($sqliteBase)) {
@@ -1557,8 +1561,9 @@ function handleApiAction($action, $sqliteBase, $isCli = false) {
     if (!$isCli && php_sapi_name() !== 'cli') {
         $wantsRefresh = isset($_GET['refresh']) && $_GET['refresh'] === '1';
         if ($action === 'genera_cache' || $wantsRefresh) {
-            fcm_ensure_session();
-            if (empty($_SESSION['pn_admin_logged'])) {
+            // Nessuna sessione nuova per i visitatori anonimi; quella dell'admin viene rilasciata
+            // subito, perché la rigenerazione è lenta e bloccherebbe le sue altre richieste
+            if (!fcm_admin_session_active(true)) {
                 http_response_code(403);
                 echo json_encode(['error' => 'Accesso amministratore richiesto per aggiornare la cache'], JSON_UNESCAPED_UNICODE);
                 return null;

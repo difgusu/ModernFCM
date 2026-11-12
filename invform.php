@@ -2,9 +2,8 @@
 error_reporting(0);
 ini_set('display_errors', 0);
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+require_once __DIR__ . '/inc/admin_security.inc.php';
+fcm_ensure_session();
 
 if (file_exists(__DIR__ . '/inc/getprossima.php')) {
     require_once __DIR__ . '/inc/getprossima.php';
@@ -30,23 +29,27 @@ if (isset($_GET['action']) && $_GET['action'] === 'logout') {
     exit;
 }
 
-$isPasswordConfigured = !empty($adminPassword) && $adminPassword !== '[PASSWORD]';
+$isPasswordConfigured = fcm_is_password_configured(isset($adminPassword) ? $adminPassword : null);
 $loginError = '';
+
+// Indirizzo della pagina di servizio per il redirect dopo il login e per il form: percorso fisso e
+// parametri ricodificati, perché PHP_SELF e REQUEST_URI contengono anche il percorso aggiuntivo
+// (PATH_INFO) scelto da chi ha costruito il link
+$adminQuery = array_diff_key($_GET, ['admin' => 1, 'action' => 1]);
+$adminSelfUrl = 'invform.php?admin=1' . (!empty($adminQuery) ? '&' . http_build_query($adminQuery, '', '&') : '');
 
 // Gestione Login Amministratore POST
 if ($isAdminMode && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['admin_login_pwd'])) {
     if (!$isPasswordConfigured) {
         $loginError = 'Accesso disabilitato: password amministratore non configurata in admin_config.inc.php.';
     } else {
-        $submittedPwd = (string)$_POST['admin_login_pwd'];
-        if (hash_equals((string)$adminPassword, $submittedPwd)) {
-            $_SESSION['pn_admin_logged'] = true;
-            $redir = basename($_SERVER['PHP_SELF'] ?? 'invform.php');
-            if (!empty($_SERVER['QUERY_STRING'])) {
-                $redir .= '?' . $_SERVER['QUERY_STRING'];
-            }
-            header("Location: $redir");
+        $loginAttempt = fcm_admin_login_attempt(is_string($_POST['admin_login_pwd']) ? $_POST['admin_login_pwd'] : '', $adminPassword);
+        if ($loginAttempt['ok']) {
+            fcm_admin_session_grant();
+            header('Location: ' . $adminSelfUrl);
             exit;
+        } elseif ($loginAttempt['locked'] || $loginAttempt['retry_after'] > 0) {
+            $loginError = fcm_throttle_message($loginAttempt['retry_after']);
         } else {
             $loginError = 'Password amministratore errata. Riprova.';
         }
@@ -153,6 +156,10 @@ $pname = $isAdminMode ? "invform_prec" : "invform";
 
     <script type="text/javascript">
         window.pname = "<?php echo $pname; ?>";
+        <?php if ($isAdminMode && $isAdminLogged): ?>
+        // Token anti-CSRF che la pagina allega ai salvataggi in modalità amministratore
+        window.PN_CSRF_TOKEN = <?php echo json_encode(fcm_csrf_token()); ?>;
+        <?php endif; ?>
         // Sincronizzazione immediata tema Dark / Light da localStorage o frame padre (anti-flicker) e modalità iframe
         (function() {
             var defaultPref = <?php echo json_encode($fcmDefaultThemePref); ?>;
@@ -173,6 +180,8 @@ $pname = $isAdminMode ? "invform_prec" : "invform";
             document.documentElement.setAttribute('data-theme', resolved);
             document.documentElement.setAttribute('data-theme-preference', savedTheme);
             window.addEventListener('message', function(e) {
+                // Il cambio di tema arriva solo dalla pagina del sito che incornicia questa
+                if (e.origin !== window.location.origin) return;
                 if (e.data && e.data.type === 'pn_theme_change' && (e.data.theme === 'light' || e.data.theme === 'dark')) {
                     document.documentElement.setAttribute('data-theme', e.data.theme);
                 }
@@ -187,7 +196,6 @@ $pname = $isAdminMode ? "invform_prec" : "invform";
     <script src="js/fcmCompetizioniDati.js?<?php echo filemtime('js/fcmCompetizioniDati.js');?>" type="text/javascript"></script>
     <script src="js/fcmCalendarioDati.js?<?php echo filemtime('js/fcmCalendarioDati.js');?>" type="text/javascript"></script>
     <script src="js/fcmFantasquadreDati.js?<?php echo filemtime('js/fcmFantasquadreDati.js');?>" type="text/javascript"></script>
-    <script src="js/javacrypt.js" type="text/javascript"></script>
     <script src="js/fcmDataLoader.js?<?php echo filemtime('js/fcmDataLoader.js');?>" type="text/javascript"></script>
 
     <?php 
@@ -374,7 +382,7 @@ $pname = $isAdminMode ? "invform_prec" : "invform";
         </div>
         <?php endif; ?>
 
-        <form method="post" action="<?php echo htmlspecialchars($_SERVER['REQUEST_URI'] ?? ''); ?>">
+        <form method="post" action="<?php echo htmlspecialchars($adminSelfUrl, ENT_QUOTES, 'UTF-8'); ?>">
             <div style="margin-bottom: 20px;">
                 <label for="admin_login_pwd" style="display: block; font-size: 0.82rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">Password Amministrazione:</label>
                 <input type="password" id="admin_login_pwd" name="admin_login_pwd" class="inv-password-input" placeholder="Inserisci password admin..." required autofocus style="width: 100%; box-sizing: border-box; padding: 10px 14px; font-size: 0.95rem; border-radius: 8px;">

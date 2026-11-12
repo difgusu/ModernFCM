@@ -367,6 +367,20 @@ function Find-SqliteCliPath {
     return ""
 }
 
+# Colonne che non devono finire nei database pubblicati sul sito: recapiti personali e
+# credenziali (dal campo Telef2 della fantasquadra il plugin di invio formazione legge la
+# password della squadra). Il sito non legge nessuna di queste colonne.
+# I modelli seguono l'operatore -like (senza distinzione tra maiuscole e minuscole) e
+# valgono per tutte le tabelle degli archivi .fcm e .fca.
+$script:ReservedColumnPatterns = @('Telef*', '*Mail*', '*Passw*', '*Pwd*')
+
+function Test-ReservedColumn([string]$columnName) {
+    foreach ($pattern in $script:ReservedColumnPatterns) {
+        if ($columnName -like $pattern) { return $true }
+    }
+    return $false
+}
+
 # Converte un file Access (.fcm o .fca) in database SQLite.
 # Crea automaticamente una copia shadow temporanea in %TEMP% con FileShare.ReadWrite:
 # questo garantisce l'estrazione completa di TUTTE le tabelle (incluse 'Statistiche')
@@ -421,19 +435,37 @@ function Convert-JetToSqlite([string]$accessPath, [string]$sqliteDestination, [s
                 $fCount = $rs.Fields.Count
                 $colDefs = [System.Collections.ArrayList]::new()
                 $colNames = [System.Collections.ArrayList]::new()
+                # Indici dei campi da esportare: le colonne riservate restano fuori sia dallo
+                # schema (CREATE TABLE) sia dai dati (INSERT)
+                $colIndexes = [System.Collections.ArrayList]::new()
+                $skippedCols = [System.Collections.ArrayList]::new()
+                # Nei nomi SQLite i doppi apici vanno raddoppiati, come gli apici nei valori
+                $tblSql = '"' + ([string]$tbl).Replace('"', '""') + '"'
 
                 for ($i = 0; $i -lt $fCount; $i++) {
                     $fld = $rs.Fields.Item($i)
-                    [void]$colNames.Add("""$($fld.Name)""")
-                    [void]$colDefs.Add("""$($fld.Name)"" $(Get-SqliteType $fld.Type)")
+                    if (Test-ReservedColumn $fld.Name) {
+                        [void]$skippedCols.Add($fld.Name)
+                    }
+                    else {
+                        $colSql = '"' + ([string]$fld.Name).Replace('"', '""') + '"'
+                        [void]$colIndexes.Add($i)
+                        [void]$colNames.Add($colSql)
+                        [void]$colDefs.Add("$colSql $(Get-SqliteType $fld.Type)")
+                    }
                 }
-                $writer.WriteLine("CREATE TABLE ""$tbl"" ($($colDefs -join ', '));")
+                if ($colIndexes.Count -eq 0) {
+                    $rs.Close()
+                    & $logCallback "  -> Tabella '$tbl': non esportata (contiene solo colonne riservate)" $false
+                    continue
+                }
+                $writer.WriteLine("CREATE TABLE $tblSql ($($colDefs -join ', '));")
                 $colsJoined = $colNames -join ', '
 
                 $tRecs = 0
                 while (-not $rs.EOF) {
                     $vals = [System.Collections.ArrayList]::new()
-                    for ($i = 0; $i -lt $fCount; $i++) {
+                    foreach ($i in $colIndexes) {
                         $val = $rs.Fields.Item($i).Value
                         
                         if ($null -eq $val -or $val -is [System.DBNull]) {
@@ -454,13 +486,16 @@ function Convert-JetToSqlite([string]$accessPath, [string]$sqliteDestination, [s
                             [void]$vals.Add("'$escaped'")
                         }
                     }
-                    $writer.WriteLine("INSERT INTO ""$tbl"" ($colsJoined) VALUES ($($vals -join ', '));")
+                    $writer.WriteLine("INSERT INTO $tblSql ($colsJoined) VALUES ($($vals -join ', '));")
                     $tRecs++
                     $rs.MoveNext()
                 }
                 $rs.Close()
                 $totalRecs += $tRecs
                 & $logCallback "  -> Tabella '$tbl': $tRecs record estratti" $false
+                if ($skippedCols.Count -gt 0) {
+                    & $logCallback "     Colonne riservate non esportate: $($skippedCols -join ', ')" $false
+                }
             }
             catch {
                 $hadErrors = $true

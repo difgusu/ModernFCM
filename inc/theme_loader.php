@@ -82,9 +82,9 @@ if (!defined('FCM_THEME_LOADER_INCLUDED')) {
             if ($raw) {
                 $decoded = json_decode($raw, true);
                 if (is_array($decoded) && isset($decoded['tokens']) && is_array($decoded['tokens'])) {
-                    if (!isset($decoded['tokens']['ui']) || !is_array($decoded['tokens']['ui'])) {
-                        $decoded['tokens']['ui'] = [];
-                    }
+                    // Il file può arrivare da versioni precedenti o da modifiche a mano: i token
+                    // finiscono in un blocco <style>, quindi restano solo variabili e valori validi
+                    $decoded['tokens'] = fcm_filter_theme_tokens($decoded['tokens']);
                     if (empty($decoded['tokens']['ui']['--font-size-base'])) {
                         $decoded['tokens']['ui']['--font-size-base'] = '15px';
                     }
@@ -99,13 +99,81 @@ if (!defined('FCM_THEME_LOADER_INCLUDED')) {
     }
 
     /**
-     * Sanitizza un valore CSS per prevenire CSS injection
+     * Sanitizza un valore CSS per prevenire CSS injection.
+     * Restituisce una stringa vuota se il valore non può stare in sicurezza in una dichiarazione.
      */
     function fcm_sanitize_css_val($val) {
-        $val = trim((string)$val);
+        if (!is_scalar($val)) {
+            return '';
+        }
         // Rimuove caratteri pericolosi per iniezioni di blocchi CSS
-        $val = str_replace(['{', '}', ';', '<', '>'], '', $val);
-        return $val;
+        $val = trim(str_replace(['{', '}', ';', '<', '>'], '', (string)$val));
+        if ($val === '' || strlen($val) > 300) {
+            return '';
+        }
+        // Solo i caratteri che servono a colori, misure e famiglie di font, con gli apici sempre
+        // chiusi e le parentesi solo fuori dagli apici: restano fuori backslash (escape CSS), "@"
+        // (at-rule), ":" (schemi URL), "*" (commenti) e caratteri di controllo
+        $chars = 'A-Za-z0-9 #%.,\/+_-';
+        if (!preg_match('/^(?:[()' . $chars . ']|\'[' . $chars . ']*\'|"[' . $chars . ']*")+\z/', $val)) {
+            return '';
+        }
+        // Solo funzioni di colore e di calcolo: url(), image-set(), expression() e simili
+        // caricherebbero risorse esterne o codice
+        $allowedFunctions = [
+            'rgb', 'rgba', 'hsl', 'hsla', 'hwb', 'lab', 'lch', 'oklab', 'oklch', 'color', 'color-mix', 'light-dark',
+            'var', 'calc', 'min', 'max', 'clamp',
+            'linear-gradient', 'radial-gradient', 'conic-gradient',
+            'repeating-linear-gradient', 'repeating-radial-gradient', 'repeating-conic-gradient'
+        ];
+        preg_match_all('/([a-z0-9_-]*)\(/i', $val, $functions);
+        foreach ($functions[1] as $fn) {
+            if ($fn !== '' && !in_array(strtolower($fn), $allowedFunctions, true)) {
+                return '';
+            }
+        }
+        // Parentesi bilanciate: una parentesi rimasta aperta inghiottirebbe le regole successive
+        $depth = 0;
+        $len = strlen($val);
+        for ($i = 0; $i < $len; $i++) {
+            if ($val[$i] === '(') {
+                $depth++;
+            } elseif ($val[$i] === ')' && --$depth < 0) {
+                return '';
+            }
+        }
+        return $depth === 0 ? $val : '';
+    }
+
+    /**
+     * TRUE se $prop è una variabile CSS del tema prevista per quel gruppo: deve avere la forma di
+     * una custom property ed essere tra i default. I nomi finiscono in un blocco <style>.
+     */
+    function fcm_is_theme_token($group, $prop) {
+        if (!is_string($prop) || !preg_match('/^--[a-z0-9-]{1,40}\z/', $prop)) {
+            return false;
+        }
+        $defaults = fcm_get_default_theme_config();
+        return isset($defaults['tokens'][$group][$prop]);
+    }
+
+    /**
+     * Tiene dei token di un tema solo le variabili previste con un valore CSS valido
+     */
+    function fcm_filter_theme_tokens($tokens) {
+        $clean = [];
+        foreach (['dark', 'light', 'accents', 'roles', 'ui'] as $group) {
+            if (!isset($tokens[$group]) || !is_array($tokens[$group])) {
+                continue;
+            }
+            foreach ($tokens[$group] as $prop => $val) {
+                $val = fcm_sanitize_css_val($val);
+                if ($val !== '' && fcm_is_theme_token($group, $prop)) {
+                    $clean[$group][$prop] = $val;
+                }
+            }
+        }
+        return $clean;
     }
 
     /**
@@ -122,6 +190,7 @@ if (!defined('FCM_THEME_LOADER_INCLUDED')) {
             return '';
         }
 
+        // Token già filtrati da fcm_get_active_theme_config(): solo variabili previste e valori validi
         $tokens = $config['tokens'];
         $rootRules = [];
         $lightRules = [];

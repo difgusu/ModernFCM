@@ -4,7 +4,27 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/crypto.php';
 require_once __DIR__ . '/fcm_parser.php';
 
-function mercato_resolve_session($idSessione, $isFinal = false) {
+function mercato_resolve_session($idSessione, $isFinal = false, $origine = 'simulazione') {
+    if (!$isFinal) {
+        return mercato_resolve_session_run($idSessione, false, $origine);
+    }
+
+    // Assegnazione finale: il controllo su 'elaborata' e tutte le scritture avvengono tenendo un
+    // unico lock esclusivo, così due richieste concorrenti non possono applicare due volte i crediti.
+    $lock = mercato_ensure_data_dir() ? @fopen(MERCATO_DATA_DIR . '/assegnazione.lock', 'c') : false;
+    if (!$lock || !flock($lock, LOCK_EX)) {
+        if ($lock) fclose($lock);
+        throw new Exception("Impossibile avviare l'assegnazione finale: riprova tra qualche istante.");
+    }
+    try {
+        return mercato_resolve_session_run($idSessione, true, $origine);
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
+
+function mercato_resolve_session_run($idSessione, $isFinal, $origine) {
     $sessione = mercato_db_get_session($idSessione);
     if (!$sessione) throw new Exception("Sessione non trovata.");
 
@@ -22,6 +42,36 @@ function mercato_resolve_session($idSessione, $isFinal = false) {
 
     // 1. Estrazione e decifratura di tutte le buste della sessione
     $rawBuste = mercato_db_get_bids($idSessione);
+
+    // Prima di decifrare le buste l'operazione viene annotata nel registro visibile alle squadre:
+    // se l'annotazione fallisce ci si ferma qui e nessun importo viene letto.
+    $etichetta = mercato_registro_sessione($sessione);
+    if ($isFinal) {
+        $voce = "Assegnazione finale della sessione {$etichetta}";
+        $chiusura = strtotime((string)($sessione['data_chiusura'] ?? ''));
+        if ($chiusura !== false && time() <= $chiusura) {
+            $voce .= " eseguita prima della data di chiusura prevista (" . mercato_registro_data($sessione['data_chiusura']) . ")";
+        }
+        mercato_registro_annota('finale', $voce . '.', $idSessione);
+    } else {
+        // La voce afferma che l'amministratore ha visto degli importi solo se tra le buste appena
+        // lette, che sono proprio quelle che stanno per essere decifrate, ce ne sono di ancora
+        // segrete (buste presenti, sessione non ancora assegnata). Negli altri casi l'azione prende
+        // il suffisso «_senza_segreti»: nelle pagine vale come azione di routine e non entra nel
+        // riepilogo. Il numero di buste non viene scritto: il registro è letto da tutte le squadre,
+        // che non devono poter dedurre quante offerte hanno fatto le altre.
+        $azione = ($origine === 'report') ? 'report' : 'simulazione';
+        $voce = ($origine === 'report')
+            ? "Report della sessione {$etichetta} consultato prima dell'assegnazione finale"
+            : "Simulazione dell'asta sulla sessione {$etichetta}";
+        if (!$rawBuste) {
+            mercato_registro_annota($azione . '_senza_segreti', $voce . ": la sessione non contiene buste, nessun importo visibile.", $idSessione);
+        } elseif (!empty($sessione['elaborata'])) {
+            mercato_registro_annota($azione . '_senza_segreti', $voce . ": la sessione è già stata assegnata in via definitiva, nessun importo ancora segreto.", $idSessione);
+        } else {
+            mercato_registro_annota($azione, $voce . ": l'amministratore ha visto gli importi delle buste.", $idSessione);
+        }
+    }
 
     $busteDecifrate = [];
     foreach ($rawBuste as $b) {
@@ -206,12 +256,23 @@ function mercato_resolve_session($idSessione, $isFinal = false) {
             mercato_db_add_extra_saldo($a['id_squadra'], $diff, $idSessione, $desc);
         }
 
-        mercato_db_save_session([
+        $chiusa = mercato_db_save_session([
             'id'         => $idSessione,
             'attiva'     => 0,
             'elaborata'  => 1,
             'report_txt' => $reportTxt
         ]);
+        if (!$chiusa) {
+            // Senza la chiusura registrata gli importi non vanno restituiti (l'asta sarebbe ancora
+            // aperta): si tolgono i crediti appena scritti e l'assegnazione resta da ripetere.
+            mercato_db_delete_extra_saldo_by_session($idSessione);
+            try {
+                mercato_registro_annota('finale', "Assegnazione finale della sessione " . mercato_registro_sessione($sessione) . " non completata: crediti annullati, sessione ancora da assegnare.", $idSessione);
+            } catch (Exception $eRegistro) {
+                // l'errore principale è la chiusura non registrata, segnalato qui sotto
+            }
+            throw new Exception("Impossibile registrare la chiusura della sessione: assegnazione finale non eseguita, riprova.");
+        }
 
         $dir = MERCATO_REPORTS_DIR;
         if (!is_dir($dir)) @mkdir($dir, 0755, true);
@@ -256,7 +317,7 @@ function mercato_get_session_report($idSessione) {
     }
 
     try {
-        $res = mercato_resolve_session($idSessione, false);
+        $res = mercato_resolve_session($idSessione, false, empty($session['elaborata']) ? 'report' : 'simulazione');
         return $res['report_txt'] ?? '';
     } catch (Exception $e) {
         return "Impossibile recuperare il report: " . $e->getMessage();

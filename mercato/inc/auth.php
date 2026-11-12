@@ -20,25 +20,27 @@ function mercato_get_admin_password() {
     return $adminPassword;
 }
 
+/**
+ * Esito di un login non riuscito: se è scattato il limite ai tentativi il messaggio dice solo
+ * quanto attendere ('retry_after' in secondi), altrimenti resta l'errore indicato.
+ */
+function mercato_login_failure($attempt, $error) {
+    $retryAfter = (int)($attempt['retry_after'] ?? 0);
+    if ($retryAfter > 0) {
+        return ['success' => false, 'error' => fcm_throttle_message($retryAfter), 'retry_after' => $retryAfter];
+    }
+    return ['success' => false, 'error' => $error];
+}
+
 function mercato_login_team($idSquadra, $password) {
     $passwords = mercato_get_team_credentials();
     $idSquadra = (int)$idSquadra;
     
-    if (!isset($passwords[$idSquadra])) {
-        return ['success' => false, 'error' => 'Squadra non trovata o senza password configurata.'];
-    }
+    $hash = (is_array($passwords) && isset($passwords[$idSquadra]) && is_string($passwords[$idSquadra])) ? $passwords[$idSquadra] : '';
 
-    $hash = $passwords[$idSquadra];
-    $isValid = false;
-    if (function_exists('password_verify') && password_verify($password, $hash)) {
-        $isValid = true;
-    } elseif (hash_equals((string)$hash, (string)crypt($password, $hash))) {
-        $isValid = true;
-    } elseif (hash_equals((string)$hash, (string)$password)) { // fallback testo in chiaro se non ancora hashata
-        $isValid = true;
-    }
-
-    if ($isValid) {
+    // Squadra inesistente, senza password o con password sbagliata: stesso esito e stesso messaggio
+    $attempt = fcm_team_login_attempt($idSquadra, $password, $hash);
+    if (!empty($attempt['ok'])) {
         if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
             @session_regenerate_id(true);
         }
@@ -51,16 +53,17 @@ function mercato_login_team($idSquadra, $password) {
         return ['success' => true];
     }
 
-    return ['success' => false, 'error' => 'Password non corretta.'];
+    return mercato_login_failure($attempt, 'Squadra o password non corrette.');
 }
 
 function mercato_login_admin($password) {
     $adminPwd = mercato_get_admin_password();
-    if (empty($adminPwd) || $adminPwd === '[PASSWORD]') {
+    if (!fcm_is_password_configured($adminPwd)) {
         return ['success' => false, 'error' => 'Password amministratore non ancora impostata in inc/admin_config.inc.php.'];
     }
 
-    if (hash_equals((string)$adminPwd, (string)$password)) {
+    $attempt = fcm_admin_login_attempt($password, $adminPwd);
+    if (!empty($attempt['ok'])) {
         if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
             @session_regenerate_id(true);
         }
@@ -68,7 +71,7 @@ function mercato_login_admin($password) {
         return ['success' => true];
     }
 
-    return ['success' => false, 'error' => 'Password amministratore errata.'];
+    return mercato_login_failure($attempt, 'Password amministratore errata.');
 }
 
 function mercato_is_team_logged() {
@@ -84,6 +87,10 @@ function mercato_logout() {
     unset($_SESSION['mercato_team_name']);
     unset($_SESSION['mercato_divisione']);
     unset($_SESSION['mercato_admin_logged']);
+    // Il vecchio ID di sessione non deve restare valido dopo l'uscita
+    if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+        @session_regenerate_id(true);
+    }
 }
 
 function mercato_get_logged_team_id() {

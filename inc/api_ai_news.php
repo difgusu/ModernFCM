@@ -6,21 +6,19 @@
  */
 
 require_once __DIR__ . '/admin_security.inc.php';
-fcm_ensure_session();
+// La sessione si apre solo se il browser ne ha già una: le letture pubbliche (es. l'elenco per la
+// home) non ne creano una per ogni visitatore
+$hasAdminSession = fcm_admin_session_active();
 
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
+// Senza sessione PHP mancherebbero le sue intestazioni anti-cache: la risposta non va memorizzata
+header('Cache-Control: no-store, no-cache, must-revalidate');
 
 $baseDir = dirname(__DIR__);
 $adminConfigFile = $baseDir . '/inc/admin_config.inc.php';
 $aiConfigFile = $baseDir . '/inc/data/ai_config.json';
 $cacheDir = $baseDir . '/inc/cache_ai';
-
-// Inizializza cartella cache se non presente
-if (!is_dir($cacheDir)) {
-    @mkdir($cacheDir, 0755, true);
-    @file_put_contents($cacheDir . '/.htaccess', "Options -Indexes\n");
-}
 
 // Caricamento password amministratore
 $adminPassword = '';
@@ -48,7 +46,7 @@ if (file_exists($aiConfigFile)) {
 }
 
 $isPasswordConfigured = fcm_is_password_configured($adminPassword);
-$isAdminLogged = $isPasswordConfigured && !empty($_SESSION['pn_admin_logged']);
+$isAdminLogged = $isPasswordConfigured && $hasAdminSession;
 $hasInlinePasswordAuth = false;
 
 // Lettura e buffering input JSON o POST/GET
@@ -58,31 +56,55 @@ $inputJson = !empty($rawInput) ? json_decode($rawInput, true) : null;
 // Controllo autenticazione immediata tramite parametro admin_pwd / password
 if (!$isAdminLogged && $isPasswordConfigured) {
     $providedPwd = $_POST['admin_pwd'] ?? $_POST['password'] ?? ($inputJson['admin_pwd'] ?? ($inputJson['password'] ?? ''));
-    if ($providedPwd !== '' && fcm_verify_password((string)$providedPwd, $adminPassword)) {
-        if (!headers_sent() && session_status() === PHP_SESSION_ACTIVE) {
-            @session_regenerate_id(true);
+    if (is_scalar($providedPwd) && (string)$providedPwd !== '') {
+        // Verifica con limite ai tentativi, lo stesso contatore di tutti i punti di login admin
+        $loginAttempt = fcm_admin_login_attempt((string)$providedPwd, $adminPassword);
+        if ($loginAttempt['ok']) {
+            fcm_admin_session_grant();
+            $isAdminLogged = true;
+            $hasInlinePasswordAuth = true;
+        } elseif ($loginAttempt['retry_after'] > 0) {
+            // Troppi errori recenti: finché dura il blocco la password non viene nemmeno verificata
+            http_response_code(429);
+            header('Retry-After: ' . (int)$loginAttempt['retry_after']);
+            echo json_encode(['success' => false, 'error' => fcm_throttle_message($loginAttempt['retry_after'])]);
+            exit;
         }
-        $_SESSION['pn_admin_logged'] = true;
-        $isAdminLogged = true;
-        $hasInlinePasswordAuth = true;
     }
+}
+
+// Inizializza cartella cache se non presente. Lo fa solo l'admin (le letture pubbliche non scrivono su
+// disco) e la cartella nasce chiusa via HTTP: gli editoriali si leggono solo tramite questo script
+if ($isAdminLogged && !is_dir($cacheDir)) {
+    @mkdir($cacheDir, 0755, true);
+    @file_put_contents(
+        $cacheDir . '/.htaccess',
+        "Options -Indexes\n<IfModule mod_authz_core.c>\n  Require all denied\n</IfModule>\n"
+        . "<IfModule !mod_authz_core.c>\n  Order allow,deny\n  Deny from all\n</IfModule>\n"
+    );
 }
 
 // Azione richiesta
 $action = $_GET['action'] ?? ($inputJson['action'] ?? ($_POST['action'] ?? 'get'));
 
 /**
+ * Valore testuale di un parametro: NULL se manca o se arriva un array al posto di una stringa
+ */
+function fcm_ai_text($value) {
+    return is_scalar($value) ? trim((string)$value) : null;
+}
+
+/**
  * Funzione helper per eseguire chiamate HTTP POST sicure (cURL o stream)
  */
-function fcm_ai_http_post($url, $payloadJson, $timeout = 25) {
+function fcm_ai_http_post($url, $payloadJson, $timeout = 25, array $extraHeaders = []) {
+    $headers = array_merge(['Content-Type: application/json; charset=utf-8'], $extraHeaders);
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $payloadJson);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Content-Type: application/json; charset=utf-8'
-        ]);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
         fcm_apply_curl_ssl($ch);
         
@@ -103,9 +125,11 @@ function fcm_ai_http_post($url, $payloadJson, $timeout = 25) {
     $context = stream_context_create([
         'http' => [
             'method' => 'POST',
-            'header' => "Content-Type: application/json; charset=utf-8\r\n",
+            'header' => implode("\r\n", $headers) . "\r\n",
             'content' => $payloadJson,
             'timeout' => $timeout,
+            // Nessun redirect: gli header (chiave API compresa) non devono arrivare ad altri host
+            'follow_location' => 0,
             'ignore_errors' => true
         ]
     ]);
@@ -126,7 +150,7 @@ switch ($action) {
             'model' => !empty($geminiModel) ? $geminiModel : 'gemini-3.8-flash',
             'defaultTone' => !empty($aiDefaultTone) ? $aiDefaultTone : 'ironico',
             'isAdmin' => (bool)$isAdminLogged,
-            'csrfToken' => fcm_csrf_token()
+            'csrfToken' => (session_status() === PHP_SESSION_ACTIVE) ? fcm_csrf_token() : ''
         ]);
         exit;
     }
@@ -214,9 +238,9 @@ switch ($action) {
             fcm_require_csrf($inputJson);
         }
 
-        $newApiKey = isset($inputJson['apiKey']) ? trim($inputJson['apiKey']) : (isset($_POST['apiKey']) ? trim($_POST['apiKey']) : null);
-        $newModel = isset($inputJson['model']) ? trim($inputJson['model']) : (isset($_POST['model']) ? trim($_POST['model']) : null);
-        $newTone = isset($inputJson['defaultTone']) ? trim($inputJson['defaultTone']) : (isset($_POST['defaultTone']) ? trim($_POST['defaultTone']) : null);
+        $newApiKey = fcm_ai_text($inputJson['apiKey'] ?? ($_POST['apiKey'] ?? null));
+        $newModel = fcm_ai_text($inputJson['model'] ?? ($_POST['model'] ?? null));
+        $newTone = fcm_ai_text($inputJson['defaultTone'] ?? ($_POST['defaultTone'] ?? null));
 
         if ($newApiKey === null && $newModel === null && $newTone === null) {
             echo json_encode(['success' => false, 'error' => 'Nessun parametro valido fornito.']);
@@ -273,11 +297,17 @@ switch ($action) {
             echo json_encode(['success' => false, 'error' => 'Chiave API Google Gemini non configurata. Inseriscila nelle impostazioni.']);
             exit;
         }
+        // La chiave viaggia in un header HTTP: niente spazi né caratteri di controllo (a-capo compresi)
+        if (!preg_match('/^[\x21-\x7e]+\z/', $geminiApiKey)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Chiave API Google Gemini non valida. Reinseriscila nelle impostazioni.']);
+            exit;
+        }
 
         $giornata = isset($inputJson['giornata']) ? intval($inputJson['giornata']) : 0;
-        $systemPrompt = isset($inputJson['systemPrompt']) ? trim($inputJson['systemPrompt']) : '';
+        $systemPrompt = (string)fcm_ai_text($inputJson['systemPrompt'] ?? null);
         $dataSummary = isset($inputJson['dataSummary']) ? $inputJson['dataSummary'] : null;
-        $requestedModel = isset($inputJson['model']) && !empty($inputJson['model']) ? trim($inputJson['model']) : ($geminiModel ?: 'gemini-3.8-flash');
+        $requestedModel = fcm_ai_text($inputJson['model'] ?? null) ?: ($geminiModel ?: 'gemini-3.8-flash');
         // Se il client ha inviato un vecchio modello deprecato (gemini-2.5 o gemini-1.5), migra silenziosamente a gemini-3.8-flash
         if ($requestedModel === 'gemini-2.5-flash' || $requestedModel === 'gemini-1.5-flash') {
             $requestedModel = 'gemini-3.8-flash';
@@ -321,7 +351,9 @@ switch ($action) {
             . "  }\n"
             . "}";
 
-        $geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/{$requestedModel}:generateContent?key=" . urlencode($geminiApiKey);
+        // La chiave va nell'header x-goog-api-key: nell'URL finirebbe nei log di server e proxy
+        $geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/{$requestedModel}:generateContent";
+        $geminiHeaders = ['x-goog-api-key: ' . $geminiApiKey];
 
         $geminiPayload = [
             'contents' => [
@@ -339,7 +371,7 @@ switch ($action) {
             ]
         ];
 
-        $callResult = fcm_ai_http_post($geminiUrl, json_encode($geminiPayload), 30);
+        $callResult = fcm_ai_http_post($geminiUrl, json_encode($geminiPayload), 30, $geminiHeaders);
 
         if (isset($callResult['error'])) {
             http_response_code(502);
@@ -355,8 +387,8 @@ switch ($action) {
             $errMsg = $respData['error']['message'] ?? '';
             if ($requestedModel !== 'gemini-3.8-flash' && (stripos($errMsg, 'no longer available') !== false || stripos($errMsg, 'not found') !== false)) {
                 $requestedModel = 'gemini-3.8-flash';
-                $geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/{$requestedModel}:generateContent?key=" . urlencode($geminiApiKey);
-                $retryResult = fcm_ai_http_post($geminiUrl, json_encode($geminiPayload), 30);
+                $geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/{$requestedModel}:generateContent";
+                $retryResult = fcm_ai_http_post($geminiUrl, json_encode($geminiPayload), 30, $geminiHeaders);
                 if (!isset($retryResult['error'])) {
                     $rawResponse = $retryResult['response'];
                     $respData = json_decode($rawResponse, true);

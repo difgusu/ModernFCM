@@ -265,6 +265,42 @@ if (!function_exists('fcm_update_dataA_js_content')) {
     }
 }
 
+if (!function_exists('fcm_dataA_giornate_recenti')) {
+    /**
+     * Giornate di Serie A che secondo gli orari di js/DataA.js (ora italiana) sono iniziate da non
+     * piu' di $maxDays giorni: quella in corso e le ultime giocate. Il limite esclude gli orari
+     * rimasti da una stagione precedente. Restituisce i numeri di giornata: nessuno se il file
+     * manca o non contiene orari leggibili.
+     */
+    function fcm_dataA_giornate_recenti($baseDir, $now = null, $maxDays = 30) {
+        $raw = @file_get_contents(rtrim((string)$baseDir, "/\\") . '/js/DataA.js');
+        if (!is_string($raw) || !preg_match_all('/^[ \t]*dataGiornata\[(\d+)\]\s*=\s*(["\'])([^"\'\r\n]+)\2/m', $raw, $righe, PREG_SET_ORDER)) {
+            return [];
+        }
+        $now = ($now !== null) ? (int)$now : time();
+        $oldest = $now - max(1, (int)$maxDays) * 86400;
+        $romeTz = new DateTimeZone('Europe/Rome');
+        $recenti = [];
+        foreach ($righe as $riga) {
+            // Solo orari nel formato scritto dal sito ('F j Y H:i', o senza ora): un testo libero come
+            // 'now' o 'today' non deve far risultare iniziata una giornata
+            $testo = trim($riga[3]);
+            $dt = DateTimeImmutable::createFromFormat('!F j Y H:i', $testo, $romeTz);
+            if ($dt === false) {
+                $dt = DateTimeImmutable::createFromFormat('!F j Y', $testo, $romeTz);
+            }
+            if ($dt === false) {
+                continue;
+            }
+            $inizio = $dt->getTimestamp();
+            if ($inizio <= $now && $inizio >= $oldest) {
+                $recenti[(int)$riga[1]] = true;
+            }
+        }
+        return array_keys($recenti);
+    }
+}
+
 if (!function_exists('fcm_sync_dataA')) {
     function fcm_sync_dataA($baseDir, array $options = []) {
         $baseDir = rtrim((string)$baseDir, "/\\");
@@ -273,6 +309,7 @@ if (!function_exists('fcm_sync_dataA')) {
         $ttl = isset($options['ttl']) ? max(60, (int)$options['ttl']) : 21600;
         $timeout = isset($options['timeout']) ? max(1, (int)$options['timeout']) : 8;
         $remoteForceCooldown = isset($options['remoteForceCooldown']) ? max(0, (int)$options['remoteForceCooldown']) : 0;
+        $remoteCooldown = isset($options['remoteCooldown']) ? max(0, (int)$options['remoteCooldown']) : 0;
         $now = isset($options['now']) ? (int)$options['now'] : time();
         $fetcher = (isset($options['fetcher']) && is_callable($options['fetcher'])) ? $options['fetcher'] : 'fcm_fetch_johndoe_orari';
 
@@ -357,6 +394,19 @@ if (!function_exists('fcm_sync_dataA')) {
                 }
             }
 
+            // Limite condiviso tra tutte le richieste: anche se i metadati mancano o non si possono
+            // scrivere, il servizio esterno non viene contattato a ogni richiesta
+            if ($remoteCooldown > 0 && !fcm_cooldown_acquire('dataA', $remoteCooldown)) {
+                return [
+                    'updated'     => false,
+                    'status'      => 'cooldown',
+                    'source'      => is_array($meta) ? ($meta['source'] ?? null) : null,
+                    'anno'        => $anno,
+                    'count'       => is_array($meta) ? (int)($meta['count'] ?? 0) : 0,
+                    'needsRemote' => false,
+                ];
+            }
+
             $schedule = ($fetcher === 'fcm_fetch_johndoe_orari')
                 ? fcm_fetch_johndoe_orari($anno, $timeout)
                 : (array)call_user_func($fetcher, $anno, $timeout);
@@ -428,13 +478,15 @@ if (!defined('FCM_AGGIORNA_DATAA_HELPERS_ONLY')) {
     if (empty($_GET) && getenv('QUERY_STRING')) {
         parse_str((string)getenv('QUERY_STRING'), $_GET);
     }
-    $force = (isset($_GET['force']) && ($_GET['force'] == '1' || $_GET['force'] === 'true'))
+    // La forzatura vale solo da riga di comando e per l'admin autenticato
+    $force = (isset($_GET['force']) && ($_GET['force'] == '1' || $_GET['force'] === 'true') && (PHP_SAPI === 'cli' || fcm_admin_session_active(true)))
         || (PHP_SAPI === 'cli' && in_array('--force', $argv ?? [], true));
 
     $res = fcm_sync_dataA(dirname(__DIR__), [
         'force'               => $force,
         'remote'              => true,
         'remoteForceCooldown' => (PHP_SAPI === 'cli' ? 0 : 60),
+        'remoteCooldown'      => (PHP_SAPI === 'cli' ? 0 : 60),
     ]);
 
     if (PHP_SAPI !== 'cli' && !headers_sent()) {

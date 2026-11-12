@@ -18,6 +18,7 @@ require 'invform.inc.php';
 if (file_exists(dirname(__DIR__) . '/inc/admin_config.inc.php')) {
 	require_once dirname(__DIR__) . '/inc/admin_config.inc.php';
 }
+require_once dirname(__DIR__) . '/inc/admin_security.inc.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 
@@ -25,6 +26,30 @@ use PHPMailer\PHPMailer\PHPMailer;
  * @global string FIRMA
  */
 const FIRMA = '<p><b>invform.php versione 2.4.0</b><br /><span class="t-xs">Copyright &copy; 2005-2023 johndoe</span></p>';
+
+/**
+ * Limiti di un invio, larghi rispetto a ciò che la pagina spedisce davvero: una formazione per
+ * ogni incontro della squadra nella giornata, una riga per ogni giocatore della rosa, al massimo
+ * due e-mail per formazione (completa e ridotta) e un solo messaggio Telegram.
+ * Le lunghezze dei testi sono in byte.
+ */
+const MAX_FORMAZIONI = 10;
+const MAX_RIGHE_FORMAZIONE = 100;
+const MAX_EMAIL_FORMAZIONE = 2;
+const MAX_BYTE_OGGETTO = 500;
+const MAX_BYTE_CORPO = 20000;
+const MAX_BYTE_TELEGRAM = 4096;
+
+/**
+ * Secondi che devono passare tra due invii della stessa squadra
+ */
+const SECONDI_TRA_INVII = 10;
+
+/**
+ * Invii che una squadra può fare in un'ora: ben più delle correzioni che servono a ridosso di una
+ * scadenza, ma una sola squadra non può consumare in pochi minuti la quota del servizio di posta
+ */
+const MAX_INVII_ORA = 12;
 
 /**
  * Script principale
@@ -47,6 +72,10 @@ if (!empty($rawInput) && ($rawInput[0] === '{' || $rawInput[0] === '[')) {
 }
 
 $azione = isset($_REQUEST['azione']) ? $_REQUEST['azione'] : '';
+if ($azione === 'inviaFormazione') {
+	// L'invio salva dati e spedisce messaggi: solo POST, così non basta far aprire un link
+	fcm_require_post();
+}
 if ($azione == 'ottieneTermine') {
 	restituisceTermine();
 } elseif ($isAjax) {
@@ -61,6 +90,8 @@ if ($azione == 'ottieneTermine') {
 		exit;
 	}
 } else {
+	// La pagina parte solo alla fine: i controlli d'accesso devono poter ancora impostare cookie
+	ob_start();
 	print <<<EOT
 <!DOCTYPE html>
 <html lang="it">
@@ -173,7 +204,9 @@ function inviaFormazione($asJson = false)
 	// Supporto per payload JSON diretto o classico application/x-www-form-urlencoded / multipart
 	$jsonPayload = $GLOBALS['_PN_JSON_BODY'] ?? null;
 
-	$pnameVal = isset($jsonPayload['pname']) ? trim($jsonPayload['pname']) : (isset($_REQUEST['pname']) ? trim($_REQUEST['pname']) : 'invform');
+	// Un parametro inviato come array (pname[]=...) non deve provocare un errore fatale
+	$pnameRaw = isset($jsonPayload['pname']) ? $jsonPayload['pname'] : ($_REQUEST['pname'] ?? 'invform');
+	$pnameVal = is_string($pnameRaw) ? trim($pnameRaw) : '';
 	$isAdmin = ($pnameVal === "invform_prec");
 	if (!$isAdmin && $pnameVal !== "invform") {
 		$hasErrors = true;
@@ -197,33 +230,42 @@ function inviaFormazione($asJson = false)
 
 	$idSquadra = isset($jsonPayload['idSquadra']) ? intval($jsonPayload['idSquadra']) : (isset($_REQUEST['idSquadra']) ? intval($_REQUEST['idSquadra']) : 0);
 	$giornataDiA = isset($jsonPayload['giornataDiA']) ? intval($jsonPayload['giornataDiA']) : (isset($_REQUEST['giornataDiA']) ? intval($_REQUEST['giornataDiA']) : 0);
-	$password = isset($jsonPayload['password']) ? (string)$jsonPayload['password'] : (isset($_REQUEST['password']) ? (string)$_REQUEST['password'] : '');
-	$adminPwdInput = isset($jsonPayload['admin_password']) ? (string)$jsonPayload['admin_password'] : (isset($_REQUEST['admin_password']) ? (string)$_REQUEST['admin_password'] : '');
-	
+	// Le password si leggono solo dal corpo della richiesta: nella query string resterebbero nei log del server
+	$password = (isset($jsonPayload['password']) && is_scalar($jsonPayload['password'])) ? (string)$jsonPayload['password'] : ((isset($_POST['password']) && is_scalar($_POST['password'])) ? (string)$_POST['password'] : '');
+	$adminPwdInput = (isset($jsonPayload['admin_password']) && is_scalar($jsonPayload['admin_password'])) ? (string)$jsonPayload['admin_password'] : ((isset($_POST['admin_password']) && is_scalar($_POST['admin_password'])) ? (string)$_POST['admin_password'] : '');
+
 	if (isset($jsonPayload['formazioni'])) {
-		$formazioni = is_array($jsonPayload['formazioni']) ? $jsonPayload['formazioni'] : json_decode($jsonPayload['formazioni'], true);
+		$formazioni = is_array($jsonPayload['formazioni']) ? $jsonPayload['formazioni'] : (is_string($jsonPayload['formazioni']) ? json_decode($jsonPayload['formazioni'], true) : NULL);
 	} else {
-		$formazioni = isset($_REQUEST['formazioni']) ? json_decode($_REQUEST['formazioni'], TRUE) : NULL;
+		$formazioni = (isset($_REQUEST['formazioni']) && is_string($_REQUEST['formazioni'])) ? json_decode($_REQUEST['formazioni'], TRUE) : NULL;
 	}
 
 	try {
 		if ($isAdmin) {
-			if (session_status() === PHP_SESSION_NONE) {
-				session_start();
-			}
-			if (empty($adminPassword) || $adminPassword === '[PASSWORD]') {
+			if (!fcm_is_password_configured($adminPassword)) {
 				throw new Exception('Accesso amministratore disabilitato: password non configurata in admin_config.inc.php.');
 			}
-			$sessionAuth = !empty($_SESSION['pn_admin_logged']);
-			$postAuth = ($adminPwdInput !== '' && hash_equals((string)$adminPassword, $adminPwdInput));
-
-			if (!$sessionAuth && !$postAuth) {
-				throw new Exception('Accesso amministratore non autorizzato: password amministratore mancante o errata.');
+			// Con la sola sessione serve il token CSRF: il cookie viaggia anche nelle richieste preparate da altri siti
+			$autorizzato = fcm_admin_session_active() && fcm_verify_csrf(null, $jsonPayload);
+			if (!$autorizzato && $adminPwdInput !== '') {
+				$tentativo = fcm_admin_login_attempt($adminPwdInput, $adminPassword);
+				if ($tentativo['locked'] || $tentativo['retry_after'] > 0) {
+					http_response_code(429);
+					throw new Exception(fcm_throttle_message($tentativo['retry_after']));
+				}
+				$autorizzato = $tentativo['ok'];
+			}
+			if (!$autorizzato) {
+				throw new Exception('Accesso amministratore non autorizzato: sessione scaduta (ricarica la pagina) oppure password amministratore mancante o errata.');
 			}
 		} else {
 			$hashTarget = (isset($passwords[$idSquadra]) && is_string($passwords[$idSquadra])) ? $passwords[$idSquadra] : '';
-			$crypted = ($hashTarget !== '') ? crypt($password, $hashTarget) : '';
-			if ($idSquadra <= 0 || $hashTarget === '' || !hash_equals($hashTarget, $crypted)) {
+			$tentativo = fcm_team_login_attempt($idSquadra, $password, $hashTarget);
+			if ($tentativo['locked'] || $tentativo['retry_after'] > 0) {
+				http_response_code(429);
+				throw new Exception(fcm_throttle_message($tentativo['retry_after']));
+			}
+			if (!$tentativo['ok']) {
 				throw new Exception('Password non valida');
 			}
 		}
@@ -243,6 +285,29 @@ function inviaFormazione($asJson = false)
 			}
 		}
 
+		// Tutto l'invio viene controllato prima di salvare o spedire qualcosa: se un dato non è valido non parte nulla
+		$formazioni = controllaFormazioni($formazioni, $idSquadra, $giornataDiA, $isAdmin);
+
+		if (!$isAdmin && !fcm_cooldown_acquire('invform_' . $idSquadra, SECONDI_TRA_INVII)) {
+			http_response_code(429);
+			throw new Exception('Hai appena inviato una formazione: attendi ' . SECONDI_TRA_INVII . ' secondi prima di inviarne un\'altra.');
+		}
+		if (!$isAdmin) {
+			// Tetto sull'ora: ogni invio occupa per un'ora uno dei gettoni della squadra
+			$gettone = 1;
+			while ($gettone <= MAX_INVII_ORA && !fcm_cooldown_acquire('invform_ora_' . $idSquadra . '_' . $gettone, 3600))
+				$gettone++;
+			if ($gettone > MAX_INVII_ORA) {
+				http_response_code(429);
+				throw new Exception('Troppi invii nell\'ultima ora per questa squadra (al massimo ' . MAX_INVII_ORA . '): riprova più tardi.');
+			}
+		}
+
+		// I testi di e-mail e Telegram li compone il browser: nel log resta chi ha fatto l'invio
+		error_log(sprintf('[ModernFCM] invio formazione accettato: squadra=%d giornata=%d incontri=%s accesso=%s ip=%s',
+			$idSquadra, $giornataDiA, implode(',', array_keys($formazioni)), $isAdmin ? 'amministratore' : 'squadra',
+			isset($_SERVER['REMOTE_ADDR']) ? (string)$_SERVER['REMOTE_ADDR'] : '-'));
+
 		$mailer = NULL;
 		foreach ($formazioni as $f) {
 			print('<p><b>' . html($f['descrizione']) . "</b>\n");
@@ -250,7 +315,7 @@ function inviaFormazione($asJson = false)
 				foreach ($f['datiEMail'] as $m) {
 					$nomi = []; $indirizzi = [];
 					foreach ($destinatariEMail as $id => $d) {
-						if (!in_array($id, $m['destinatari'])) continue;
+						if (!in_array($id, $m['destinatari'], true)) continue;
 						$i = PHPMailer::parseAddresses($d['indirizzo'], true, PHPMailer::CHARSET_UTF8);
 						if (!empty($i)) {
 							$indirizzi = array_merge($indirizzi, $i);
@@ -307,11 +372,336 @@ function inviaFormazione($asJson = false)
 }
 
 /**
+ * Controlla per intero le formazioni ricevute, prima che qualcosa venga salvato o spedito:
+ * se un dato non è valido viene rifiutato tutto l'invio.
+ *
+ * @param array $formazioni formazioni ricevute dal client
+ * @param integer $idSquadra id della fantasquadra autenticata
+ * @param integer $giornataDiA giornata di A
+ * @param bool $isAdmin modalità amministratore (solo salvataggio sul sito)
+ * @throws Exception se un dato non è valido
+ * @return array formazioni controllate, con i destinatari delle e-mail decisi dal server
+ */
+function controllaFormazioni($formazioni, $idSquadra, $giornataDiA, $isAdmin)
+{
+	global $inviaEMail, $salvaSuSito, $inoltraATelegram;
+
+	if (count($formazioni) > MAX_FORMAZIONI)
+		throw new Exception('Troppe formazioni in un solo invio');
+
+	// Senza le rose e le opzioni che jdPI pubblica per la pagina d'invio nemmeno la pagina può
+	// comporre una formazione: in quello stato l'invio non avrebbe nulla su cui essere controllato
+	if (preg_match('/\bnew\s+ifG\s*\(/', leggeDatiSito('fcmInvioFormazioneDati.js')) !== 1)
+		throw new Exception('Rose e opzioni di invio non disponibili sul sito: riprova tra qualche minuto');
+
+	$controllate = [];
+	$messaggiTelegram = 0;
+	foreach ($formazioni as $f) {
+		$idIncontro = (is_array($f) && isset($f['idIncontro'])) ? $f['idIncontro'] : 0;
+		if (is_string($idIncontro) && preg_match('/\A[1-9][0-9]{0,8}\z/', $idIncontro))
+			$idIncontro = (int)$idIncontro;
+		if (!is_int($idIncontro) || $idIncontro <= 0 || isset($controllate[$idIncontro]))
+			throw new Exception('Incontro non valido');
+
+		// L'incontro deve essere della squadra e della giornata dichiarata, quella su cui è stato
+		// verificato il termine d'invio (NULL: riga del calendario in un formato non atteso,
+		// controllo saltato)
+		$incontro = ottieneIncontro($idIncontro);
+		if ($incontro === false || ($incontro !== null && ($incontro['giornataDiA'] !== $giornataDiA
+			|| ($incontro['casa'] !== $idSquadra && $incontro['fuori'] !== $idSquadra))))
+			throw new Exception('Incontro non previsto per la squadra in questa giornata: ricarica la pagina e riprova');
+
+		$descrizione = isset($f['descrizione']) ? $f['descrizione'] : '';
+		if (!is_string($descrizione) || strlen($descrizione) > MAX_BYTE_OGGETTO)
+			throw new Exception('Descrizione della formazione non valida');
+		$c = ['idIncontro' => $idIncontro, 'descrizione' => $descrizione];
+
+		if ($inviaEMail && isset($f['datiEMail']) && !$isAdmin) {
+			if (!is_array($f['datiEMail']) || count($f['datiEMail']) > MAX_EMAIL_FORMAZIONE)
+				throw new Exception('Messaggi e-mail non validi');
+			$c['datiEMail'] = [];
+			foreach ($f['datiEMail'] as $m) {
+				if (!is_array($m) || !isset($m['oggetto'], $m['corpo']) || !is_string($m['oggetto']) || !is_string($m['corpo']))
+					throw new Exception('Messaggi e-mail non validi');
+				$completa = controllaTestoEMail($m['oggetto'], $m['corpo'], $idSquadra, $giornataDiA, $idIncontro);
+				// Al massimo una e-mail completa e una ridotta per formazione
+				if (isset($c['datiEMail'][(int)$completa]))
+					throw new Exception('Messaggi e-mail non validi');
+				$c['datiEMail'][(int)$completa] = [
+					'oggetto' => $m['oggetto'],
+					'corpo' => $m['corpo'],
+					'destinatari' => ottieneDestinatari($completa, $idSquadra, $incontro, isset($m['destinatari']) ? $m['destinatari'] : [])
+				];
+			}
+		}
+		if ($salvaSuSito && isset($f['datiSalvataggio'])) {
+			$errore = controllaRigheFormazione($f['datiSalvataggio'], $idSquadra, $idIncontro);
+			if ($errore !== '')
+				throw new Exception($errore);
+			$c['datiSalvataggio'] = array_values($f['datiSalvataggio']);
+		}
+		if ($inoltraATelegram && isset($f['datiTelegram']) && !$isAdmin) {
+			if (!is_string($f['datiTelegram']) || strlen($f['datiTelegram']) > MAX_BYTE_TELEGRAM || ++$messaggiTelegram > 1)
+				throw new Exception('Messaggio Telegram non valido');
+			$c['datiTelegram'] = $f['datiTelegram'];
+		}
+		$controllate[$idIncontro] = $c;
+	}
+	return $controllate;
+}
+
+/**
+ * Controlla oggetto e corpo di una e-mail, che arrivano già composti dal client.
+ * I codici con cui FCM importa la formazione ([MessaggioFrmFCM:N] nell'oggetto, [IDSQUADRA],
+ * [GIORNATADIA] e [IDINCONTRO] nel corpo) devono comparire una sola volta, scritti esattamente
+ * come li scrive la pagina e con i valori dell'invio autenticato, oppure mancare tutti (e-mail
+ * ridotta): altrimenti una squadra potrebbe far importare una formazione a nome di un'altra o
+ * per una giornata già chiusa.
+ *
+ * @param string $oggetto oggetto della e-mail
+ * @param string $corpo corpo della e-mail
+ * @param integer $idSquadra id della fantasquadra autenticata
+ * @param integer $giornataDiA giornata di A
+ * @param integer $idIncontro id dell'incontro
+ * @throws Exception se il testo non è valido
+ * @return bool TRUE per la e-mail completa (con i codici FCM), FALSE per quella ridotta
+ */
+function controllaTestoEMail($oggetto, $corpo, $idSquadra, $giornataDiA, $idIncontro)
+{
+	if (strlen($oggetto) > MAX_BYTE_OGGETTO || strlen($corpo) > MAX_BYTE_CORPO)
+		throw new Exception('Testo della e-mail troppo lungo');
+
+	// I codici si cercano ignorando maiuscole, spazi, a-capo e caratteri invisibili, perché chi
+	// importa il messaggio potrebbe ignorarli a sua volta
+	$compatta = function ($testo) {
+		$testo = preg_replace('/[\s\p{Z}\p{C}\p{M}]+/u', '', $testo);
+		return is_string($testo) ? strtoupper($testo) : null;
+	};
+	$o = $compatta($oggetto);
+	$c = $compatta($corpo);
+	if ($o === null || $c === null)
+		throw new Exception('Testo della e-mail non valido');
+
+	$codiceOggetto = '/MESSAGGIOFRMFCM/';
+	$codiciCorpo = '/\[(?:IDSQUADRA|GIORNATADIA|IDINCONTRO)(?![A-Z])|(?:IDSQUADRA|GIORNATADIA|IDINCONTRO)[\]=]/';
+	$trovati = [preg_match_all($codiceOggetto, $o), preg_match_all($codiciCorpo, $c)];
+	if ($trovati === [0, 0] && preg_match($codiceOggetto, $c) === 0 && preg_match($codiciCorpo, $o) === 0)
+		return false;
+
+	// E-mail completa: un solo codice nell'oggetto e, nel corpo, i tre codici d'identità uno di
+	// seguito all'altro come li scrive la pagina. Così ogni valore è chiuso subito dal terminatore
+	// e dal codice successivo, e nessun lettore può interpretarlo in modo diverso
+	$blocco = "[IDSQUADRA]=$idSquadra\\\n[GIORNATADIA]=$giornataDiA\\\n[IDINCONTRO]=$idIncontro\\\n[FRMCODE]=";
+	if ($trovati === [1, 3] && preg_match($codiceOggetto, $c) === 0 && preg_match($codiciCorpo, $o) === 0
+		&& substr_count($oggetto, "[MessaggioFrmFCM:$giornataDiA]") === 1
+		&& substr_count(str_replace("\r\n", "\n", $corpo), $blocco) === 1)
+		return true;
+
+	throw new Exception('I codici FCM della e-mail non corrispondono alla squadra, alla giornata o all\'incontro dell\'invio (le comunicazioni non possono contenere quei codici)');
+}
+
+/**
+ * Decide i destinatari di una e-mail con la stessa regola che la pagina d'invio applica nel
+ * browser (opzioni scelte in jdPI), perché l'elenco inviato dal client non è affidabile.
+ * Se le opzioni o la riga dell'incontro non sono nel formato atteso resta valido l'elenco
+ * ricevuto, tolto il presidente di lega dalle e-mail ridotte.
+ *
+ * @param bool $completa TRUE per la e-mail completa, FALSE per quella ridotta
+ * @param integer $idSquadra id della fantasquadra autenticata
+ * @param array|null $incontro incontro restituito da ottieneIncontro()
+ * @param mixed $richiesti id dei destinatari indicati dal client
+ * @throws Exception se l'elenco ricevuto non è valido
+ * @return integer[] id dei destinatari (chiavi di $destinatariEMail)
+ */
+function ottieneDestinatari($completa, $idSquadra, $incontro, $richiesti)
+{
+	global $destinatariEMail;
+
+	$opzioni = ottieneOpzioniDestinatari();
+	if ($opzioni === null || $incontro === null) {
+		if (!is_array($richiesti))
+			throw new Exception('Destinatari della e-mail non validi');
+		// 0 è il presidente di lega, che in ogni configurazione riceve solo la e-mail completa
+		return array_values(array_filter($richiesti, function ($id) use ($completa) {
+			return is_int($id) && ($id !== 0 || $completa);
+		}));
+	}
+
+	list($alPresidente, $allAvversario, $aTutte, $allaSquadra) = $opzioni['destinatari'];
+	$idAvversario = ($incontro['casa'] === $idSquadra) ? $incontro['fuori'] : $incontro['casa'];
+	$destinatari = [];
+	foreach (array_keys(is_array($destinatariEMail) ? $destinatariEMail : []) as $id) {
+		if ($id === 0) {
+			// 0 è il presidente di lega, che riceve solo la e-mail completa
+			$ammesso = $completa && $alPresidente;
+		} else {
+			$ammesso = ($completa !== $opzioni['ridotta'])
+				&& ($aTutte || ($allAvversario && $id === $idAvversario) || ($allaSquadra && $id === $idSquadra))
+				&& ($id !== $opzioni['idPresidente'] || !$alPresidente);
+		}
+		if ($ammesso)
+			$destinatari[] = $id;
+	}
+	return $destinatari;
+}
+
+/**
+ * Controlla le righe di una formazione destinate al file JavaScript delle formazioni.
+ * Ogni riga deve avere esattamente la forma prodotta dalla pagina d'invio
+ * (idIncontro,idSquadra,idLega,xg<id giocatore>,xa<id squadra di A>,ruolo,posizione,rigorista)
+ * e riguardare la squadra e l'incontro dell'invio: nel file gli identificatori restano senza
+ * virgolette, quindi un testo diverso verrebbe eseguito dal browser di chi consulta le formazioni
+ * e una riga altrui finirebbe nella formazione di un'altra squadra.
+ *
+ * @param mixed $righe righe ricevute
+ * @param integer $idSquadra id della fantasquadra per cui si salva
+ * @param integer $idIncontro id dell'incontro
+ * @return string messaggio d'errore ('' se le righe sono valide)
+ */
+function controllaRigheFormazione($righe, $idSquadra, $idIncontro)
+{
+	if (!is_array($righe) || empty($righe))
+		return 'Dati formazione vuoti o non validi';
+	if (count($righe) > MAX_RIGHE_FORMAZIONE)
+		return 'Troppe righe nella formazione';
+
+	// NULL: rose non leggibili, resta il solo controllo sulla forma
+	$rosa = ottieneRosa($idSquadra);
+	// Lega della squadra nell'incontro, scelta come la sceglie la pagina: chi mostra le formazioni
+	// le distingue anche per lega (NULL: non leggibile dal calendario, controllo saltato)
+	$idLega = null;
+	$incontro = ottieneIncontro($idIncontro);
+	if (is_array($incontro)) {
+		$idLega = ($incontro['casa'] === $idSquadra) ? $incontro['legaCasa'] : $incontro['legaFuori'];
+		if ($idLega === null)
+			controlloSaltato('lega della squadra');
+	}
+	// Numeri come li scrive la pagina: sole cifre, senza segno, spazi o zeri iniziali
+	$n = '(0|[1-9][0-9]{0,8})';
+	foreach ($righe as $r) {
+		if (!is_string($r) || !preg_match("/\\A$n,$n,$n,xg$n,xa$n,([1-4]),(?:-1|0|[1-9][0-9]?),(?:0|[1-9][0-9]?)\\z/", $r, $c))
+			return 'Formato dati riga formazione non valido';
+		if ((int)$c[1] !== $idIncontro || (int)$c[2] !== $idSquadra || ($idLega !== null && (int)$c[3] !== $idLega))
+			return 'Riga di formazione riferita a un\'altra squadra o a un altro incontro';
+		if ($rosa !== null && (!isset($rosa[(int)$c[4]]) || $rosa[(int)$c[4]] !== [(int)$c[6], (int)$c[5]]))
+			return 'Riga di formazione con un giocatore che non risulta nella rosa della squadra: ricarica la pagina e riprova';
+	}
+	return '';
+}
+
+/**
+ * Legge le opzioni sui destinatari delle e-mail che jdPI scrive per la pagina d'invio
+ *
+ * @return array|null ['destinatari' => bool[] (al presidente, all'avversario, a tutte le squadre,
+ *	alla squadra stessa), 'ridotta' => bool, 'idPresidente' => int] oppure NULL se non sono leggibili
+ */
+function ottieneOpzioniDestinatari()
+{
+	$js = leggeDatiSito('fcmInvioFormazioneDati.js');
+	// var destinatariEMail=[1,0,0,1]; var eMailRidotta=0; var idPresidente=3;
+	$n = '\s*(-?[0-9]+)\s*';
+	if (!preg_match('/\bvar\s+destinatariEMail\s*=\s*\[' . "$n,$n,$n,$n" . '\]/', $js, $d)
+		|| !preg_match('/\bvar\s+eMailRidotta\s*=' . $n . ';/', $js, $r)
+		|| !preg_match('/\bvar\s+idPresidente\s*=' . $n . ';/', $js, $p))
+		return controlloSaltato('destinatari delle e-mail');
+	return [
+		'destinatari' => [(int)$d[1] !== 0, (int)$d[2] !== 0, (int)$d[3] !== 0, (int)$d[4] !== 0],
+		'ridotta' => (int)$r[1] !== 0,
+		'idPresidente' => (int)$p[1]
+	];
+}
+
+/**
+ * Rosa di una squadra secondo i dati che jdPI genera per la pagina d'invio, gli stessi da cui
+ * la pagina costruisce le righe della formazione
+ *
+ * @param integer $idSquadra id della fantasquadra
+ * @return array|null [id giocatore => [ruolo, id squadra di A]] oppure NULL se le rose non sono leggibili
+ */
+function ottieneRosa($idSquadra)
+{
+	// a[n]=new ifG(idSquadra, idGiocatore, ruolo, idSquadraDiA, "dati");
+	if (!preg_match_all('/\bnew\s+ifG\s*\(\s*([0-9]+)\s*,\s*([0-9]+)\s*,\s*([0-9]+)\s*,\s*([0-9]+)\s*,/', leggeDatiSito('fcmInvioFormazioneDati.js'), $m, PREG_SET_ORDER))
+		return controlloSaltato('rosa della squadra');
+	$rosa = [];
+	foreach ($m as $g) {
+		if ((int)$g[1] === $idSquadra)
+			$rosa[(int)$g[2]] = [(int)$g[3], (int)$g[4]];
+	}
+	return $rosa;
+}
+
+/**
+ * Cerca un incontro nel calendario pubblicato da FCM
+ *
+ * @param integer $idIncontro id dell'incontro
+ * @return array|false|null ['giornataDiA' => int, 'casa' => int, 'fuori' => int, 'legaCasa' =>
+ *	int|null, 'legaFuori' => int|null] (id delle due squadre e delle loro leghe, queste ultime
+ *	NULL se non sono leggibili); FALSE se l'incontro non è nel calendario, anche perché il
+ *	calendario manca o è vuoto; NULL se la riga dell'incontro non è nel formato atteso
+ */
+function ottieneIncontro($idIncontro)
+{
+	$js = leggeDatiSito('fcmCalendarioDati.js');
+	$inizio = '\bnew\s+I\s*\(\s*["\']?' . intval($idIncontro) . '["\']?\s*,';
+	if (preg_match("/$inizio/", $js) === 0)
+		return false;
+	// new I(ID, IncAcc, IDTipo, Giocato, IDFantagiornata, Fantagiornata, IDCompetizione, Competizione,
+	// IDGirone, Girone, GiornataDiA, IDCasa, IDFuori, IDLegaCasa, IDLegaFuori, ...): dopo l'ID si
+	// saltano nove argomenti, numeri oppure stringhe tra virgolette; le due leghe si leggono solo
+	// se sono numeri
+	$argomento = '(?>\s*"(?:[^"\\\\\r\n]|\\\\.)*"\s*|\s*\'(?:[^\'\\\\\r\n]|\\\\.)*\'\s*|[^,()"\'\r\n]*)';
+	$n = '\s*(-?[0-9]+)\s*';
+	if (preg_match("/$inizio(?:$argomento,){9}$n,$n,$n(?:,$n,$n)?" . '[,)]/', $js, $m) !== 1)
+		return controlloSaltato('incontro');
+	return ['giornataDiA' => (int)$m[1], 'casa' => (int)$m[2], 'fuori' => (int)$m[3],
+		'legaCasa' => isset($m[5]) ? (int)$m[4] : null, 'legaFuori' => isset($m[5]) ? (int)$m[5] : null];
+}
+
+/**
+ * Legge uno dei file di dati che FCM e jdPI pubblicano nella cartella js del sito
+ *
+ * @param string $nome nome del file
+ * @return string contenuto del file ('' se non è leggibile)
+ */
+function leggeDatiSito($nome)
+{
+	static $letti = [];
+	if (!isset($letti[$nome])) {
+		$contenuto = @file_get_contents(dirname(__DIR__) . '/js/' . $nome);
+		$letti[$nome] = is_string($contenuto) ? $contenuto : '';
+	}
+	return $letti[$nome];
+}
+
+/**
+ * Annota nel log, una volta per richiesta, che un controllo viene saltato perché i dati pubblicati
+ * da FCM o jdPI su cui si basa non sono nel formato atteso: meglio un controllo in meno che l'invio
+ * bloccato da un cambio di formato
+ *
+ * @param string $controllo che cosa non è stato possibile verificare
+ * @return null
+ */
+function controlloSaltato($controllo)
+{
+	static $annotati = [];
+	if (!isset($annotati[$controllo])) {
+		$annotati[$controllo] = true;
+		error_log("[ModernFCM] invio formazione: $controllo non verificabile, dati di FCM/jdPI in un formato non atteso");
+	}
+	return null;
+}
+
+/**
  * Restituisce come oggetto JavaScript i dati relativi al termine d'invio
  */
 function restituisceTermine()
 {
 	global $controllaOrarioInvio, $orariInizio, $anticipoInvio;
+
+	// La risposta è caricata come <script>: va dichiarata JavaScript anche quando è vuota, altrimenti
+	// con l'header X-Content-Type-Options: nosniff il browser la scarta segnalando un errore
+	header('Content-Type: application/javascript; charset=utf-8');
 
 	if ($controllaOrarioInvio) {
 		$giornataDiA = isset($_REQUEST['giornataDiA']) ? intval($_REQUEST['giornataDiA']) : 0;
@@ -365,6 +755,8 @@ function inviaEMail(&$mailer, $destinatari, $oggetto, $corpo)
 				case 'phpmail':
 				case 'smtp':
 					$mailer = new PHPMailer(true);
+					// Niente intestazione X-Mailer: rivelerebbe libreria e versione a chi riceve
+					$mailer->XMailer = ' ';
 					if ($servizioEMail == 'smtp') {
 						$mailer->IsSMTP();
 						$mailer->SMTPKeepAlive = true;
@@ -395,8 +787,27 @@ function inviaEMail(&$mailer, $destinatari, $oggetto, $corpo)
 		return '';
 	}
 	catch (Exception $e) {
-		return "Errore durante durante l'invio della e-mail ({$e->getMessage()})";
+		// I dettagli (risposte del server SMTP o del servizio di posta) vanno nel log del server
+		error_log('[ModernFCM] invio e-mail fallito: ' . $e->getMessage());
+		return "Errore durante l'invio della e-mail" . dettaglioErrore($e->getMessage());
 	}
+}
+
+/**
+ * Parte finale del messaggio per un errore di posta o di Telegram. Il dettaglio può contenere
+ * indirizzi, nomi di server e risposte dei servizi esterni: lo legge solo chi ha già, nello stesso
+ * browser, una sessione da amministratore, perché deve poter capire che cosa non funziona anche
+ * dove il log del server non è consultabile; agli altri si indica il log
+ *
+ * @param string $dettaglio messaggio d'errore originale
+ * @return string testo da accodare al messaggio per l'utente
+ */
+function dettaglioErrore($dettaglio)
+{
+	static $admin = null;
+	if ($admin === null)
+		$admin = fcm_admin_session_active(true);
+	return ' (' . (($admin && $dettaglio !== '') ? $dettaglio : 'dettagli nel log degli errori del server') . ')';
 }
 
 /**
@@ -424,15 +835,11 @@ function salvaSuSito($idSquadra, $giornataDiA, $idIncontro, $righeNuovaFormazion
 		return 'Dati formazione vuoti o non validi';
 	}
 
-	$righeSanificate = [];
-	foreach ($righeNuovaFormazione as $r) {
-		$rTrim = trim((string)$r);
-		// Valida strettamente il formato atteso: idIncontro,idSquadra,ruolo,giocatore,squadraA,ruolo,pos,rigorista
-		if (!preg_match('/^\d+,\d+,\d+,[a-zA-Z0-9_]+,[a-zA-Z0-9_]+,\d+,-?\d+,\d+$/', $rTrim)) {
-			return 'Formato dati riga formazione non valido';
-		}
-		$righeSanificate[] = $rTrim;
+	$errore = controllaRigheFormazione($righeNuovaFormazione, $idSquadra, $idIncontro);
+	if ($errore !== '') {
+		return $errore;
 	}
+	$righeSanificate = array_values($righeNuovaFormazione);
 
 	$filePath = "../js/fcmFormazioniDati$giornataDiA.js";
 	$backupPath = "../js/fcmFormazioniDati{$giornataDiA}.js.bak";
@@ -460,6 +867,8 @@ function salvaSuSito($idSquadra, $giornataDiA, $idIncontro, $righeNuovaFormazion
 		rewind($fp);
 		$righeStatiche = array();
 		$righeFormazioniEsistenti = array();
+		$righeSquadra = count($righeSanificate);
+		$righeScartate = 0;
 		while (($r = fgets($fp)) !== false) {
 			$rTrim = trim($r);
 			if (empty($rTrim))
@@ -467,8 +876,23 @@ function salvaSuSito($idSquadra, $giornataDiA, $idIncontro, $righeNuovaFormazion
 			if (!preg_match('/^a\[\d+\]\s*=\s*new\s+Z\((\d+),(\d+),([^)]+)\)/i', $rTrim, $m)) {
 				$righeStatiche[] = $rTrim;
 			} else if ($m[1] != $idIncontro || $m[2] != $idSquadra) {
+				// Il browser esegue queste righe come script: quelle già presenti si riscrivono solo se
+				// fatte di numeri e di identificatori xg<ID>/xa<ID>, così un valore anomalo rimasto nel
+				// file non continua a bloccare il caricamento delle righe successive
+				if (!preg_match('/^\s*-?\d+\s*,\s*xg\d+\s*,\s*xa\d+\s*,\s*-?\d+\s*,\s*-?\d+\s*,\s*-?\d+\s*$/', $m[3])) {
+					$righeScartate++;
+					continue;
+				}
 				$righeFormazioniEsistenti[] = "$m[1],$m[2],$m[3]";
+				if ($m[2] == $idSquadra)
+					$righeSquadra++;
 			}
+		}
+
+		// Tetto alle righe che una squadra può tenere nel file: senza, invii ripetuti per incontri
+		// diversi lo farebbero crescere senza limite
+		if ($righeSquadra > MAX_FORMAZIONI * MAX_RIGHE_FORMAZIONE) {
+			return 'Troppe righe di formazione già salvate per la squadra in questa giornata';
 		}
 
 		// Bufferizza prima tutto l'output per scrittura sicura e atomica
@@ -489,6 +913,8 @@ function salvaSuSito($idSquadra, $giornataDiA, $idIncontro, $righeNuovaFormazion
 			throw new Exception('Errore durante la scrittura del file delle formazioni');
 		}
 		fflush($fp);
+		if ($righeScartate > 0)
+			error_log("[ModernFCM] fcmFormazioniDati$giornataDiA.js: scartate $righeScartate righe non valide già presenti nel file");
 		return '';
 	}
 	catch (Exception $e) {
@@ -543,8 +969,13 @@ function inoltraATelegram($messaggio)
 
 	if (!isset($risp['ok']))
 		return 'Risposta Telegram non valida';
-	if ($risp['ok'] === false)
-		return isset($risp['description']) ? $risp['description'] : (isset($risp['curl_error']) ? $risp['curl_error'] : 'Errore sconosciuto Telegram');
+	if ($risp['ok'] === false) {
+		// I dettagli (risposta di Telegram o errore di rete) vanno nel log del server
+		$dettaglio = isset($risp['description']) ? $risp['description'] : (isset($risp['curl_error']) ? $risp['curl_error'] : '');
+		$dettaglio = is_string($dettaglio) ? $dettaglio : '';
+		error_log('[ModernFCM] inoltro a Telegram fallito: ' . $dettaglio);
+		return 'Errore durante l\'inoltro a Telegram' . dettaglioErrore($dettaglio);
+	}
 	return '';
 }
 

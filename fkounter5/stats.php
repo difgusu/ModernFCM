@@ -71,6 +71,7 @@ require("cnf.inc.php");
 require("dic.inc.php");
 require("cal.inc.php");
 require("lan.inc.php");
+require_once(__DIR__."/../inc/admin_security.inc.php");
 
 ############################################################################################
 # PARAMETRI IN INPUT
@@ -79,6 +80,10 @@ require("lan.inc.php");
 $par__id=(isset($par__id)&&preg_match("/^[a-z\d]+$/i",$par__id))?$par__id:FALSE;
 $par__passwd=(isset($par__passwd)&&($par__passwd!==""))?$par__passwd:FALSE;
 $par__panel=(isset($par__panel)&&preg_match("/^(0|1|2|3|4|5)+$/",$par__panel))?(int)$par__panel:0;
+
+// L'admin del sito va riconosciuto qui, prima di qualsiasi output (alcuni file di configurazione
+// ne producono): la sessione viene aperta solo se il browser ne manda già il cookie
+$aux__admin=fcm_admin_session_active(TRUE);
 
 ############################################################################################
 # ACQUISIZIONE DELLA CONFIGURAZIONE DI UN CONTATORE
@@ -103,7 +108,31 @@ settype($cnf__limit_view,"integer");
 # STAMPA DEL MASCHERINO DI ACCESSO
 ############################################################################################
 
-if(($par__id===FALSE)||($cnf__passwd_protect&&(md5($par__passwd)!==$cnf__userpass))){
+$aux__logged=FALSE;
+$aux__wait=FALSE;
+
+if(($par__id!==FALSE)&&$cnf__passwd_protect&&($cnf__userpass!=="")){
+ // Nel cookie non resta la password ma un valore derivato dal suo hash con un segreto del server:
+ // conoscere l'hash configurato non basta a ricostruirlo (solo se il segreto non è disponibile,
+ // perché inc/data/throttle non è scrivibile, il valore dipende dal solo hash)
+ $aux__secret=fcm_throttle_secret();
+ $aux__token=hash_hmac("sha256","stats|".$cnf__userpass,($aux__secret!=="")?$aux__secret:$cnf__userpass);
+ $aux__logged=is_string($par__passwd)&&hash_equals($aux__token,$par__passwd);
+
+ // La password conta solo se arriva dal form di accesso (un cookie vecchio non consuma tentativi)
+ // e viene verificata con il limite ai tentativi
+ if(!$aux__logged&&isset($_POST["passwd"])&&is_string($_POST["passwd"])&&($_POST["passwd"]!=="")){
+  $aux__try=fcm_login_attempt("fkounter",strtolower($par__id),function() use($cnf__userpass){
+   return hash_equals($cnf__userpass,md5($_POST["passwd"]));
+  });
+  $aux__logged=$aux__try["ok"];
+
+  if($aux__try["locked"]||($aux__try["retry_after"]>0))
+   $aux__wait=fcm_throttle_message($aux__try["retry_after"]);
+ }
+}
+
+if(($par__id===FALSE)||($cnf__passwd_protect&&!$aux__logged)){
  setcookie("passwd","");
 
  echo"<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\">";
@@ -131,7 +160,7 @@ if (file_exists(__DIR__ . '/../inc/theme_loader.php')) { require_once __DIR__ . 
  echo"<tr>";
  echo"<td align=\"center\" valign=\"top\">";
  echo"<div class=\"mask\">";
- echo"<form method=\"post\" action=\"".$_SERVER["PHP_SELF"]."\">";
+ echo"<form method=\"post\" action=\"stats.php\">";
  echo"<p>"._strlan_(LAN_MASK1,TRUE)."</p>";
  echo"<p><select name=\"id\" size=\"1\" class=\"counter\">";
 
@@ -143,6 +172,7 @@ if (file_exists(__DIR__ . '/../inc/theme_loader.php')) { require_once __DIR__ . 
  echo"</select></p>";
  echo"<p>"._strlan_(LAN_MASK2,TRUE)."</p>";
  echo"<p><input type=\"password\" name=\"passwd\" class=\"passwd\" /></p>";
+ echo (($aux__wait!==FALSE)?("<p><span class=\"hi\">".htmlspecialchars($aux__wait,ENT_QUOTES,"UTF-8")."</span></p>"):"");
  echo"<p><input type=\"submit\" value=\"&gt;&gt;\" class=\"enter\" /></p>";
  echo"</form>";
  echo"</div>";
@@ -157,7 +187,7 @@ if (file_exists(__DIR__ . '/../inc/theme_loader.php')) { require_once __DIR__ . 
  exit();
 }
 elseif($cnf__passwd_protect)
- setcookie("passwd",$par__passwd);
+ setcookie("passwd",$aux__token,array("secure"=>fcm_is_https(),"httponly"=>TRUE,"samesite"=>"Lax"));
 else
  setcookie("passwd","");
 
@@ -229,14 +259,14 @@ echo"<div class=\"stats-nav-wrapper\">";
 echo"<div class=\"stats-nav-bar\">";
 
 foreach(array(_strlan_(LAN_MENU1,TRUE)=>0,_strlan_(LAN_MENU2,TRUE)=>1,_strlan_(LAN_MENU3,TRUE)=>2,_strlan_(LAN_MENU4,TRUE)=>3,_strlan_(LAN_MENU5,TRUE)=>4,_strlan_(LAN_MENU6,TRUE)=>5) as $__name=>$__panel){
- echo"<form method=\"post\" action=\"".$_SERVER["PHP_SELF"]."\" class=\"stats-nav-form\">";
+ echo"<form method=\"post\" action=\"stats.php\" class=\"stats-nav-form\">";
  echo"<input type=\"hidden\" name=\"id\" value=\"".$par__id."\" />";
  echo"<input type=\"hidden\" name=\"panel\" value=\"".$__panel."\" />";
  echo ($par__panel===$__panel)?("<input type=\"submit\" value=\"".$__name."\" class=\"menu_hi\" />"):("<input type=\"submit\" value=\"".$__name."\" onmouseover=\"javascript:this.className=&quot;menu_up&quot;;\" onmouseout=\"javascript:this.className=&quot;menu&quot;;\" class=\"menu\" />");
  echo"</form>";
 }
 
-echo"<form method=\"post\" action=\"".$_SERVER["PHP_SELF"]."\" class=\"stats-nav-form\">";
+echo"<form method=\"post\" action=\"stats.php\" class=\"stats-nav-form\">";
 echo"<input type=\"submit\" value=\""._strlan_(LAN_MENU7,TRUE)."\" onmouseover=\"javascript:this.className=&quot;menuq_up&quot;;\" onmouseout=\"javascript:this.className=&quot;menuq&quot;;\" class=\"menuq\" />";
 echo"</form>";
 echo"</div>";
@@ -310,12 +340,14 @@ function _panel1_(){
  global $cnf__last_entries;
  global $dat__entry;
  global $inf__country;
+ global $aux__admin;
 
  echo"<p class=\"title\">"._strlan_(LAN101,FALSE,$cnf__last_entries)."</p>";
 
  foreach(array_reverse($dat__entry,TRUE) as $__entry=>$__data){
-  $__ip=($__data["ip"]!=="")?$__data["ip"]:("<span class=\"unknown\">"._strlan_(LAN_UNKNOWN_IP,TRUE)."</span>");
-  $__host=($__data["host"]!=="")?_strlan_($__data["host"],TRUE):FALSE;
+  // IP completo e hostname li vede solo l'admin del sito
+  $__ip=($__data["ip"]!=="")?htmlspecialchars(($aux__admin)?$__data["ip"]:_maskip_($__data["ip"]),ENT_QUOTES,"UTF-8"):("<span class=\"unknown\">"._strlan_(LAN_UNKNOWN_IP,TRUE)."</span>");
+  $__host=($aux__admin&&($__data["host"]!==""))?_strlan_($__data["host"],TRUE):FALSE;
   $__hostext=(preg_match("/\.([a-z]{2,4})$/i",$__data["host"],$__res)&&array_key_exists(strtolower($__res[1]),$inf__country))?strtolower($__res[1]):FALSE;
   $__cou2l=($__hostext!==FALSE)?strtoupper($__hostext):("<span class=\"unknown\">"._strlan_(LAN_UNKNOWN_COUNTRY,TRUE)."</span>");
   $__cou=($__hostext!==FALSE)?_strlan_($inf__country[$__hostext],TRUE):FALSE;
@@ -492,6 +524,13 @@ function _strcut_($__string,$__length){
  settype($__length,"integer");
 
  return (strlen($__string)>$__length)?(substr($__string,0,$__length-3)."..."):$__string;
+}
+
+function _maskip_($__ip){
+ settype($__ip,"string");
+
+ // Restano i primi due gruppi; un valore che non ha la forma attesa viene nascosto per intero
+ return (preg_match("/^(\d{1,3}\.\d{1,3})\.\d{1,3}\.\d{1,3}$/D",$__ip,$__res))?($__res[1].".*.*"):"*";
 }
 
 function _strdate_($__timestamp,$__type="d"){

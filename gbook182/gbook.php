@@ -38,11 +38,14 @@ if (empty($_GET) && !empty($_SERVER['QUERY_STRING'])) {
     $_REQUEST = array_merge($_REQUEST, $_GET);
 }
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && empty($_POST)) {
-    $rawInput = @file_get_contents('php://stdin');
+    // Si rilegge al massimo un corpo grande quanto un invio legittimo: uno più grande, che PHP
+    // ha scartato per post_max_size, non deve rientrare da qui
+    $rawMax = 65536;
+    $rawInput = @file_get_contents('php://stdin', false, null, 0, $rawMax + 1);
     if (empty($rawInput)) {
-        $rawInput = @file_get_contents('php://input');
+        $rawInput = @file_get_contents('php://input', false, null, 0, $rawMax + 1);
     }
-    if (!empty($rawInput)) {
+    if (!empty($rawInput) && strlen($rawInput) <= $rawMax) {
         parse_str($rawInput, $_POST);
         $_REQUEST = array_merge($_REQUEST, $_POST);
     }
@@ -58,6 +61,7 @@ if (!defined('ENT_XHTML')) {
 
 require('settings.php');
 require($settings['language']);
+require_once(__DIR__ . '/../inc/admin_security.inc.php');
 
 /**
  * Verifica sicura della password amministratore gbook
@@ -68,7 +72,17 @@ function gbook_check_admin_pass($inputPass)
     if (empty($settings['apass']) || $settings['apass'] === '[PASSWORD]') {
         return false;
     }
-    return hash_equals((string)$settings['apass'], (string)$inputPass);
+    $apass = (string)$settings['apass'];
+    $inputPass = (string)$inputPass;
+    // Limite ai tentativi, con un contatore proprio del guestbook
+    $try = fcm_login_attempt('gbook', 'admin', function () use ($apass, $inputPass) {
+        return hash_equals($apass, $inputPass);
+    });
+    if ($try['locked']) {
+        if (!headers_sent()) { http_response_code(429); }
+        problem(fcm_throttle_message($try['retry_after']));
+    }
+    return $try['ok'];
 }
 
 /* Set some variables that will be used later */
@@ -434,6 +448,27 @@ function processsmileys($text)
     return $text;
 }
 
+/**
+ * Numero di emoticon che processsmileys() inserirebbe nel testo, contate senza espanderle
+ */
+function gbook_count_smileys($text)
+{
+    global $settings;
+    require_once($settings['tpl_path'].'emoticons.php');
+
+    // Stessa normalizzazione di processsmileys(): ":-)" vale ":)", ";-p" vale ":p", ":-d" vale ":D"
+    $text = preg_replace_callback("/([\:\;])\-([\)opd])/i", function($m) {
+        $c = strtolower($m[2]);
+        return str_replace(array(';p',';D'), array(':p',':D'), $m[1].($c == 'd' ? 'D' : $c));
+    }, $text);
+
+    $count = 0;
+    foreach ($settings['emoticons'] as $code => $image) {
+        if (strlen($code)) { $count += substr_count($text, $code); }
+    }
+    return $count;
+}
+
 function doDelete()
 {
     global $settings, $lang;
@@ -473,12 +508,17 @@ function check_mail_url()
     $v = array('email' => '','url' => '');
     $char = array('.','@'); $repl = array('&#46;','&#64;');
 
-    $v['email'] = isset($_POST['email']) ? htmlspecialchars($_POST['email']) : '';
-    if (strlen($v['email']) > 0 && !(preg_match("/([\w\-]+\@[\w\-]+\.[\w\-]+)/",$v['email']))) { $v['email']='INVALID'; }
+    $v['email'] = (isset($_POST['email']) && is_string($_POST['email'])) ? trim($_POST['email']) : '';
+    if (strlen($v['email']) > 0) {
+        // Deve essere un indirizzo completo e ben formato, non un testo qualsiasi che ne contiene uno
+        $v['email'] = (gbook_strlen($v['email']) <= 100 && filter_var($v['email'], FILTER_VALIDATE_EMAIL) !== false) ? htmlspecialchars($v['email'], ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8') : 'INVALID';
+    }
     $v['email'] = str_replace($char,$repl,$v['email']);
 
     if ($settings['use_url']) {
-        $v['url'] = isset($_POST['url']) ? htmlspecialchars($_POST['url']) : '';
+        $v['url'] = (isset($_POST['url']) && is_string($_POST['url'])) ? trim($_POST['url']) : '';
+        // Anche qui la lunghezza si controlla prima dell'escape
+        $v['url'] = (gbook_strlen($v['url']) > 80) ? 'INVALID' : htmlspecialchars($v['url']);
         if ($v['url'] == 'http://' || $v['url'] == 'https://') {$v['url'] = '';}
         elseif (strlen($v['url']) > 0 && !(preg_match("/(http(s)?:\/\/+[\w\-]+\.[\w\-]+)/i",$v['url']))) { $v['url'] = 'INVALID'; }
     }
@@ -490,18 +530,39 @@ function addEntry()
     global $settings, $lang, $myfield;
     if ($settings['one_per_session'] && !empty($_SESSION['add'])) { problem($lang['e17'],0); }
 
-    $name = gbook_input($_POST[$myfield['name']] ?? '');
-    $from = gbook_input($_POST['from'] ?? '');
+    /* Campi esca del form: un browser li lascia vuoti o non li invia affatto, i bot li compilano */
+    if (!empty($_POST['name']) || isset($_POST['comments']) || !empty($_POST[$myfield['bait']])) { problem('Messaggio non accettato.',0); }
+
+    /* Le lunghezze si misurano sul testo inviato: ciò che supera il limite viene tagliato prima
+       dell'escape, così un testo enorme non viene né convertito né rimandato indietro nel form */
+    $name = gbook_input(gbook_limit($_POST[$myfield['name']] ?? '', 100, $namelen));
+    $from = gbook_input(gbook_limit($_POST['from'] ?? '', 100, $fromlen));
     $a = check_mail_url(); $email = $a['email']; $url = $a['url'];
-    $comments = gbook_input($_POST[$myfield['cmnt']] ?? '');
+    $comments = gbook_input(gbook_limit($_POST[$myfield['cmnt']] ?? '', intval($settings['max_comlen'] ?? 0), $count));
     $isprivate = (isset($_POST['private']) && $settings['use_private']) ? 1 : 0;
 
     $error_buffer = '';
     if (empty($name)) { $error_buffer .= $lang['e03'].'<br class="clear" />'; }
     if ($email=='INVALID') { $error_buffer .= $lang['e04'].'<br class="clear" />'; $email = ''; }
+    if ($url=='INVALID') { $error_buffer .= $lang['e05'].'<br class="clear" />'; $url = ''; }
     if (empty($comments)) { $error_buffer .= $lang['e06'].'<br class="clear" />'; }
 
+    /* Limiti di lunghezza (in caratteri del testo inviato) e di emoticon, contate prima di espanderle */
+    if ($namelen > 100) { $error_buffer .= $lang['t50'].' massimo 100 caratteri<br class="clear" />'; }
+    if ($fromlen > 100) { $error_buffer .= $lang['t51'].' massimo 100 caratteri<br class="clear" />'; }
+    if (!empty($settings['max_comlen']) && $count > $settings['max_comlen']) {
+        $error_buffer .= sprintf($lang['t73'],$settings['max_comlen'],$count).'<br class="clear" />';
+    } elseif ($settings['smileys'] == 1 && !isset($_POST['nosmileys']) && !empty($settings['max_smileys'])) {
+        $count = gbook_count_smileys($comments);
+        if ($count > $settings['max_smileys']) { $error_buffer .= sprintf($lang['t74'],$settings['max_smileys'],$count).'<br class="clear" />'; }
+    }
+
     if ($error_buffer) { printSign($name,$from,$email,$url,$comments,'','',$error_buffer); }
+
+    /* Un solo messaggio ogni pochi secondi in tutto il guestbook */
+    if (!fcm_cooldown_acquire('gbook_add', 10)) {
+        printSign($name,$from,$email,$url,$comments,'','','Un messaggio &egrave; appena stato aggiunto: se non era il tuo, attendi qualche secondo e riprova.');
+    }
 
     /* Everthing seems fine, let's add the message */
     $delimiter="\t";
@@ -520,7 +581,16 @@ function addEntry()
         $comments = processsmileys($comments);
     }
 
+    /* TAB e a-capo separano campi e messaggi nel file: non devono restare in nessun campo */
+    list($name,$from,$email,$url,$comments) = array_map('gbook_clean_field', array($name,$from,$email,$url,$comments));
+
     $addline = $name.$delimiter.$from.$delimiter.$email.$delimiter.$url.$delimiter.$comments.$delimiter.$added.$delimiter.$isprivate.$delimiter.'0'.$delimiter.$_SERVER['REMOTE_ADDR']."\n";
+
+    /* Il file dei messaggi viene riletto per intero a ogni pagina: non deve crescere senza limite */
+    $maxsize = isset($settings['max_logsize']) ? intval($settings['max_logsize']) : 4096;
+    if ($maxsize > 0 && (file_exists($settings['logfile']) ? filesize($settings['logfile']) : 0) + strlen($addline) > $maxsize * 1024) {
+        problem('Il guestbook ha raggiunto la dimensione massima e non accetta altri messaggi: avvisa l\'amministratore.',0);
+    }
 
     $links = file_exists($settings['logfile']) ? file_get_contents($settings['logfile']) : '';
     gbook_write_log($settings['logfile'], $addline . $links) or problem($lang['e13']);
@@ -615,6 +685,35 @@ function gbook_input($in, $error=0)
     return stripslashes($in);
 }
 
+/**
+ * Lunghezza in caratteri (non in byte) di un testo inviato, prima della conversione in entità HTML
+ */
+function gbook_strlen($in)
+{
+    $in = is_string($in) ? trim(str_replace("\r\n", "\n", $in)) : '';
+    return function_exists('mb_strlen') ? mb_strlen($in, 'UTF-8') : strlen($in);
+}
+
+/**
+ * Testo inviato, tagliato a $max caratteri se li supera (0 = nessun limite); in $len la lunghezza
+ * che aveva, misurata come gbook_strlen(). Va chiamata prima dell'escape
+ */
+function gbook_limit($in, $max, &$len)
+{
+    $len = gbook_strlen($in);
+    if ($max <= 0 || $len <= $max) { return $in; }
+    $in = trim(str_replace("\r\n", "\n", $in));
+    return function_exists('mb_substr') ? mb_substr($in, 0, $max, 'UTF-8') : substr($in, 0, $max);
+}
+
+/**
+ * Sostituisce con uno spazio i caratteri di controllo (TAB e a-capo compresi) di un campo
+ */
+function gbook_clean_field($in)
+{
+    return preg_replace('/[\x00-\x1F\x7F]+/', ' ', (string)$in);
+}
+
 function gbook_IP() { return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0'; }
 
 function gbook_CheckIP()
@@ -630,10 +729,14 @@ function gbook_CheckIP()
 
 function gbook_write_log($file, $content)
 {
-    $tmp = $file . '.' . uniqid('tmp', true);
+    // Il nome finisce in ".tmp": le regole del sito negano già quei file via HTTP
+    $tmp = $file . '.' . uniqid('tmp', true) . '.tmp';
     if (@file_put_contents($tmp, $content, LOCK_EX) !== false) {
-        return @rename($tmp, $file);
+        if (@rename($tmp, $file)) { return true; }
+        @unlink($tmp);
+        return false;
     }
+    @unlink($tmp);
     return (@file_put_contents($file, $content, LOCK_EX) !== false);
 }
 

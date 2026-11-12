@@ -98,6 +98,9 @@ $settings['max_comlen'] = 1000;
 // Maximum chars word length
 $settings['max_word'] = 75;
 
+// Dimensione massima del file dei messaggi (KB): oltre, i nuovi messaggi vengono rifiutati. 0 = nessun limite
+$settings['max_logsize'] = 4096;
+
 // Language file
 $settings['language'] = 'italiano.php';
 

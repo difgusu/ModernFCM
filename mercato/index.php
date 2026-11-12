@@ -9,9 +9,14 @@ $teamId = mercato_get_logged_team_id();
 $sessione = mercato_get_current_session();
 $settings = get_mercato_settings();
 $financials = $teamId ? mercato_get_team_financials($teamId, $sessione['id'] ?? null) : null;
-$chiamateAltri = ($sessione && !empty($settings['mostra_chiamate_altri']))
-    ? mercato_get_session_public_bids($sessione['id'], $teamId, $_SESSION['mercato_divisione'] ?? null)
+// Chiamate altrui solo per una squadra loggata e solo della sua divisione, come in api.php
+$chiamateAltri = ($teamId && $sessione && !empty($settings['mostra_chiamate_altri']))
+    ? mercato_get_session_public_bids($sessione['id'], $teamId, $_SESSION['mercato_divisione'] ?? 0)
     : [];
+// Registro delle azioni dell'amministratore: in sola lettura, solo per le squadre loggate
+$registro = $teamId ? mercato_registro_leggi() : [];
+$registroMostrato = mercato_registro_da_mostrare($registro);
+$registroRiepilogo = mercato_registro_riepilogo($registro);
 $fcmData = fcm_parse_all_data();
 $squadre = $fcmData['fantasquadre'];
 
@@ -327,6 +332,33 @@ function get_shirt_img_html($club, $size = 20) {
     <?php endif; ?>
   </div>
   <?php endif; ?>
+
+  <!-- Registro delle azioni sensibili dell'amministratore (sola lettura) -->
+  <div class="buste-box">
+    <h3 style="margin-top:0;">📜 Registro Azioni dell'Amministratore</h3>
+    <p class="registro-nota">
+      <?php if (!empty($settings['abilita_simulazione'])): ?>
+        La simulazione dell'asta è <strong>attiva</strong>: l'amministratore può vedere gli importi delle buste prima dell'assegnazione finale e ogni simulazione viene annotata qui.
+      <?php else: ?>
+        La simulazione dell'asta è <strong>disattivata</strong>: dal pannello di gestione gli importi delle buste non sono consultabili fino all'assegnazione finale.
+      <?php endif; ?>
+    </p>
+    <?php if ($registroRiepilogo !== ''): ?>
+    <p class="registro-nota" style="color:var(--m-text);"><strong><?= htmlspecialchars($registroRiepilogo) ?></strong></p>
+    <?php endif; ?>
+    <?php if (empty($registro)): ?>
+      <p class="registro-nota" style="margin-bottom:0;">Nessuna azione registrata.</p>
+    <?php else: ?>
+      <ul class="registro-list">
+        <?php foreach ($registroMostrato as $voce): ?>
+        <li><span class="registro-data"><?= htmlspecialchars(mercato_registro_data($voce['ts'])) ?></span><?= htmlspecialchars($voce['testo']) ?></li>
+        <?php endforeach; ?>
+      </ul>
+      <?php if (count($registroMostrato) < mercato_registro_totale()): ?>
+      <p class="registro-nota" style="margin-bottom:0;">Sono mostrate <?= count($registroMostrato) ?> azioni su <?= mercato_registro_totale() ?>: le <?= MERCATO_REGISTRO_MAX_ALTRE ?> più recenti tra simulazioni e report che hanno reso visibili degli importi, assegnazioni finali, modifiche a impostazioni e sessioni (date comprese) ed eliminazioni di sessioni, e le 200 più recenti delle altre azioni (aperture e chiusure manuali, creazione di sessioni, simulazioni e report che non hanno mostrato importi segreti). Il riepilogo conta invece tutto il registro.</p>
+      <?php endif; ?>
+    <?php endif; ?>
+  </div>
 
   <?php if ($sessione && $sessione['is_open']): ?>
   <!-- Controlli Filtro e Ricerca Calciatori Svincolati -->

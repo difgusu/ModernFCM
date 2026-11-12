@@ -1,6 +1,6 @@
 # Protezione cartella inc/data da accesso HTTP diretto e directory listing
 Options -Indexes
-<FilesMatch "(\.(php|csv|bak|tmp)|^ai_config\.json)$">
+<FilesMatch "(?i)(\.(php|csv|bak)$|\.tmp[0-9a-f.]*$|ai_config\.json)">
   <IfModule mod_authz_core.c>
     Require all denied
   </IfModule>

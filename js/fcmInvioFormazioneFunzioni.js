@@ -107,6 +107,23 @@ function InserisciContenutoDOM(html, preferredId) {
 	}
 }
 
+// Escape HTML per i testi che non provengono da FCM (contenuto di un elemento o valore di attributo)
+function EscapeHtml(str) {
+	return String(str === null || str === undefined ? "" : str)
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#39;");
+}
+
+// Riduce a testo semplice una stringa che può contenere entità HTML: una textarea non interpreta markup
+function DecodificaEntitaHtml(str) {
+	var txt = document.createElement("textarea");
+	txt.innerHTML = str;
+	return txt.value;
+}
+
 var arrRosa = [], arrFormazione = [];
 var coloreRuoli = ["", "G", "V", "R", "Blu"];
 var coloreDati = ["Rv", "CellaRvRosso", "CellaRvCiano", "CellaRvVerde"];
@@ -205,8 +222,8 @@ function OttieniIconaTitolaritaHTML(id) {
 		var dImg = (statoimg === 't' ? 'status_d_t.gif' : (statoimg === 'p' ? 'status_d_p.gif' : 'status_d.gif'));
 		var imgFile = isDubbio ? dImg : "status_i.gif";
 		var alt = isDubbio ? "In dubbio" : "Infortunato";
-		var motClean = (mot || alt).replace(/\\'/g, "'").replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-		var rieClean = (ind.Rientro || "").replace(/\\'/g, "'").replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+		var motClean = EscapeHtml((mot || alt).replace(/\\'/g, "'"));
+		var rieClean = EscapeHtml((ind.Rientro || "").replace(/\\'/g, "'"));
 		return "<img class='infortunio' data-id='" + id + "' data-rientro=\"" + rieClean + "\" data-motivo=\"" + motClean + "\" src=\"" + baseImg + imgFile + "\" alt=\"" + alt + "\" style='vertical-align:middle;cursor:pointer;' height='13' width='12'/>";
 	}
 
@@ -244,8 +261,8 @@ function OttieniIconaIndisponibileHTML(id) {
 		if (!motivo) motivo = "Infortunato";
 	}
 
-	var dataMotivo = (motivo || "").replace(/\\'/g, "'").replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-	var dataRientro = (rientro || "").replace(/\\'/g, "'").replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+	var dataMotivo = EscapeHtml((motivo || "").replace(/\\'/g, "'"));
+	var dataRientro = EscapeHtml((rientro || "").replace(/\\'/g, "'"));
 
 	return "<img class='infortunio' data-id=\"" + id + "\" src=\"" + iconSrc + "\" data-motivo=\"" + dataMotivo + "\" data-rientro=\"" + dataRientro + "\" alt=\"" + altText + "\" onclick='event.stopPropagation();' style='vertical-align:middle;cursor:pointer;margin-left:4px;display:inline-block;' width='13' height='12' />";
 }
@@ -1471,7 +1488,8 @@ function CostruisciContenutoTooltipGiocatore(idG) {
 		var rie = ind.Rientro || "";
 		var indLabel = (ind.Stato == 2 || mot.toLowerCase().indexOf("squalif") !== -1) ? "Squalificato" : (mot || "Indisponibile");
 		if (rie) indLabel += " (" + rie + ")";
-		indInfo = `<div class='tooltip-ind-alert'>⚠️ ${indLabel}</div>`;
+		// Motivo e Rientro arrivano da una fonte esterna: vanno mostrati come testo, mai come markup
+		indInfo = `<div class='tooltip-ind-alert'>⚠️ ${EscapeHtml(DecodificaEntitaHtml(indLabel))}</div>`;
 	}
 
 	var photoBoxHtml = (photoUrl && photoUrl !== "img/foto/misterx.gif")
@@ -3203,8 +3221,24 @@ ${riserveRigoristiHtml}`;
 /* ==========================================================================
    FORM CONTROLLI & TRASMISSIONE DATI VERSO invform/invform.php (100% INVARIATI)
    ========================================================================== */
+// Password ricordata su questo dispositivo solo su scelta esplicita dell'utente
+var CHIAVE_PW_RICORDATA = "pn_fsq_pw2_";
+
+// Le versioni precedenti salvavano la password in chiaro senza chiederlo (chiavi "pn_fsq_pw_<id>"):
+// quei valori vengono eliminati al caricamento della pagina
+(function () {
+	try {
+		var vecchie = [];
+		for (var i = 0; i < localStorage.length; i++) {
+			var k = localStorage.key(i);
+			if (k && k.indexOf("pn_fsq_pw_") === 0) vecchie.push(k);
+		}
+		for (var j = 0; j < vecchie.length; j++) localStorage.removeItem(vecchie[j]);
+	} catch (e) { }
+})();
+
 function GeneraControlliPerInvio(pname) {
-	var savedPwKey = "pn_fsq_pw_" + cFsq;
+	var savedPwKey = CHIAVE_PW_RICORDATA + cFsq;
 	var savedPw = "";
 	try { savedPw = localStorage.getItem(savedPwKey) || ""; } catch (e) { }
 
@@ -3228,12 +3262,12 @@ function GeneraControlliPerInvio(pname) {
       <div class='inv-password-wrap' style='display:flex;align-items:center;gap:8px;'>
         <span style='font-size:0.82rem;font-weight:700;'>Password Squadra:</span>
         <div style='position:relative;display:inline-flex;align-items:center;'>
-          <input type='password' id='fi_password' name='password' class='inv-password-input' placeholder='••••••' value='${savedPw}' style='padding-right:32px;'>
+          <input type='password' id='fi_password' name='password' class='inv-password-input' placeholder='••••••' autocomplete='current-password' style='padding-right:32px;'>
           <button type='button' onclick='ToggleShowPassword()' style='position:absolute;right:8px;background:none;border:none;cursor:pointer;color:var(--text-muted);' title='Mostra/Nascondi password'>👁️</button>
         </div>
       </div>
       <label style='font-size:0.72rem;color:var(--text-muted);display:inline-flex;align-items:center;gap:5px;cursor:pointer;'>
-        <input type='checkbox' id='chkRememberPw' checked style='cursor:pointer;'> Ricorda password su questo dispositivo
+        <input type='checkbox' id='chkRememberPw' style='cursor:pointer;'> Ricorda password su questo dispositivo
       </label>
     </div>
     <div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;'>
@@ -3307,6 +3341,22 @@ function GeneraControlliPerInvio(pname) {
 
 	InserisciContenutoDOM(html, "invControlliArea");
 
+	// La password ricordata entra nel campo come valore DOM: non passa mai dal parser HTML
+	var elPw = document.getElementById("fi_password");
+	var chkRemember = document.getElementById("chkRememberPw");
+	if (elPw && chkRemember) {
+		if (savedPw) {
+			elPw.value = savedPw;
+			chkRemember.checked = true;
+		}
+		// Togliendo la spunta la password salvata viene cancellata subito
+		chkRemember.addEventListener("change", function () {
+			if (!chkRemember.checked) {
+				try { localStorage.removeItem(savedPwKey); } catch (e) { }
+			}
+		});
+	}
+
 	setTimeout(function () {
 		VisualizzaTabellaFormazione();
 	}, 60);
@@ -3325,12 +3375,14 @@ function InviaFormazione() {
 	if (nSel === 0) { alert("Nessun incontro selezionato"); return false; }
 	if (!ControllaFormazione()) return false;
 
-	// Salva password se la spunta è attiva
+	// Salva la password solo se l'utente ha messo la spunta; senza spunta non deve restare salvata
 	try {
 		var chk = document.getElementById("chkRememberPw");
 		var pwVal = document.getElementById("fi_password").value;
 		if (chk && chk.checked && pwVal) {
-			localStorage.setItem("pn_fsq_pw_" + cFsq, pwVal);
+			localStorage.setItem(CHIAVE_PW_RICORDATA + cFsq, pwVal);
+		} else if (chk) {
+			localStorage.removeItem(CHIAVE_PW_RICORDATA + cFsq);
 		}
 	} catch (e) { }
 
@@ -3422,11 +3474,12 @@ function ApriModalEsitoInvio() {
 		}
 
 		try {
+			// Il destinatario è la pagina del sito che incornicia questa: stessa origine
 			window.parent.postMessage({
 				type: "pn_scroll_to_modal",
 				offset: screenCenterInIframe,
 				targetTop: screenCenterInIframe
-			}, "*");
+			}, window.location.origin);
 		} catch (e) { }
 	} else {
 		modal.style.position = "fixed";
@@ -3490,9 +3543,10 @@ function VisualizzaEsitoNelModal(response) {
 		if (modalBody) {
 			if (jsonData.html) {
 				modalBody.innerHTML = jsonData.html;
-			} else if (jsonData.message) {
+			} else if (jsonData.message || jsonData.error) {
 				var cls = isSuccess ? "inv-modal-alert-success" : "inv-modal-alert-danger";
-				modalBody.innerHTML = "<div class='" + cls + "'>" + (jsonData.message || "") + "</div>";
+				// "message" ed "error" sono testo semplice, non markup
+				modalBody.innerHTML = "<div class='" + cls + "'>" + EscapeHtml(jsonData.message || jsonData.error) + "</div>";
 			}
 		}
 		if (waBtn) {
@@ -3544,7 +3598,7 @@ function VisualizzaErroreNelModal(messaggio) {
 	if (modalHeaderTitle) modalHeaderTitle.textContent = "Errore durante l'Invio";
 
 	if (modalBody) {
-		modalBody.innerHTML = "<div class='inv-modal-alert-danger'><b>⚠️ Errore di comunicazione:</b><br>" + messaggio + "</div>";
+		modalBody.innerHTML = "<div class='inv-modal-alert-danger'><b>⚠️ Errore di comunicazione:</b><br>" + EscapeHtml(messaggio) + "</div>";
 	}
 	if (waBtn) {
 		waBtn.style.display = "none";
@@ -3556,21 +3610,32 @@ function InviaFormazioneAsync() {
 
 	var formEl = document.getElementById("formInvio");
 	var formData = new FormData(formEl);
+	var headers = {
+		"Accept": "application/json"
+	};
+
+	// In modalità admin l'invio è autorizzato dalla sessione: va accompagnato dal token anti-CSRF
+	// che la pagina espone in window.PN_CSRF_TOKEN
+	var elPname = document.getElementById("fi_pname");
+	var csrfToken = (typeof window.PN_CSRF_TOKEN === "string") ? window.PN_CSRF_TOKEN : "";
+	if (csrfToken && elPname && elPname.value === "invform_prec") {
+		headers["X-CSRF-Token"] = csrfToken;
+		formData.append("_csrf", csrfToken);
+	}
 
 	fetch(scriptServer, {
 		method: "POST",
-		headers: {
-			"Accept": "application/json"
-		},
+		headers: headers,
 		body: formData
 	})
 		.then(function (res) {
-			if (!res.ok) {
-				throw new Error("Il server ha risposto con codice HTTP " + res.status);
-			}
+			// Anche una risposta di errore (403, 429...) può portare in JSON il messaggio da mostrare
 			var contentType = res.headers.get("content-type") || "";
 			if (contentType.indexOf("application/json") !== -1) {
 				return res.json();
+			}
+			if (!res.ok) {
+				throw new Error("Il server ha risposto con codice HTTP " + res.status);
 			}
 			return res.text();
 		})

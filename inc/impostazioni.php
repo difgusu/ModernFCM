@@ -57,12 +57,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['admin_login_pwd']) |
             exit;
         }
     } else {
-        $submittedPwd = (string)(isset($_POST['pwd']) ? $_POST['pwd'] : (isset($_POST['admin_login_pwd']) ? $_POST['admin_login_pwd'] : ''));
-        if ($submittedPwd !== '' && fcm_verify_password($submittedPwd, $adminPassword)) {
-            if (!headers_sent() && session_status() === PHP_SESSION_ACTIVE) {
-                @session_regenerate_id(true);
-            }
-            $_SESSION['pn_admin_logged'] = true;
+        $submittedPwd = isset($_POST['pwd']) ? $_POST['pwd'] : (isset($_POST['admin_login_pwd']) ? $_POST['admin_login_pwd'] : '');
+        // Verifica con limite ai tentativi: va fatta prima di qualsiasi output perché può impostare un cookie
+        $loginAttempt = fcm_admin_login_attempt($submittedPwd, $adminPassword);
+        if ($loginAttempt['ok']) {
+            fcm_admin_session_grant();
             if ($isAjax) {
                 echo json_encode(['success' => true, 'csrfToken' => fcm_csrf_token()]);
                 exit;
@@ -70,7 +69,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['admin_login_pwd']) |
             header('Location: impostazioni.php');
             exit;
         } else {
-            $loginError = 'Password amministratore errata. Riprova.';
+            if ($loginAttempt['retry_after'] > 0) {
+                // Troppi errori recenti: finché dura il blocco la password non viene nemmeno verificata
+                http_response_code(429);
+                header('Retry-After: ' . (int)$loginAttempt['retry_after']);
+                $loginError = fcm_throttle_message($loginAttempt['retry_after']);
+            } else {
+                $loginError = 'Password amministratore errata. Riprova.';
+            }
             if ($isAjax) {
                 echo json_encode(['success' => false, 'error' => $loginError]);
                 exit;
@@ -946,6 +952,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 // 5e. Salvataggio Configurazione Cartelle Storiche Legacy
+if (!function_exists('fcmStoricoPathIsSafe')) {
+/**
+ * TRUE se $path è utilizzabile come cartella (o, con $isFile, come file di avvio) di un sito storico.
+ * Il valore finisce in un link del sito pubblico: solo percorsi relativi, senza schema (due punti),
+ * apici, virgolette, parentesi angolari, backslash o caratteri di controllo. Si può risalire di un
+ * solo livello con un "../" iniziale, come propone il pannello; il file di avvio è un semplice nome.
+ */
+function fcmStoricoPathIsSafe($path, $isFile = false) {
+    if (!is_string($path) || $path === '' || strlen($path) > 255 || !preg_match('//u', $path) || preg_match('/[\x00-\x1F\x7F"\'<>:\\\\]/', $path)) {
+        return false;
+    }
+    $segments = explode('/', $path);
+    // Il sito codifica ogni segmento del link: "?" e "#" nel file di avvio diventerebbero parte
+    // del nome e il link porterebbe a un file che non esiste
+    if ($isFile && (count($segments) > 1 || strpbrk($path, '?#') !== false)) {
+        return false;
+    }
+    foreach ($segments as $i => $segment) {
+        // Un segmento vuoto renderebbe il percorso assoluto ("/x", "//host", anche dopo un "./" iniziale,
+        // che il sito toglie); per i browser anche "%2e%2e" è un segmento ".."
+        if ($segment === '' || (rawurldecode($segment) === '..' && ($i > 0 || $isFile))) {
+            return false;
+        }
+    }
+    return true;
+}
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_storico_config') {
     header('Content-Type: application/json; charset=utf-8');
     if (!$isAdminLogged) {
@@ -965,14 +999,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     foreach ($seasonsIn as $sKey => $sVal) {
         $sId = (int)$sKey;
         if ($sId <= 0) continue;
-        $folder = trim((string)($sVal['folder'] ?? ''));
+        $folder = (isset($sVal['folder']) && is_string($sVal['folder'])) ? trim($sVal['folder']) : '';
         // Normalizza backslash in slash e rimuove eventuali slash finali, preservando esattamente il percorso relativo (es. ../Stagione_y)
         $folder = str_replace('\\', '/', $folder);
         $folder = rtrim($folder, '/');
 
-        $index = trim((string)($sVal['index'] ?? 'index.php'));
+        $index = (isset($sVal['index']) && is_string($sVal['index'])) ? trim($sVal['index']) : 'index.php';
         $index = str_replace(['..', '/', '\\'], '', $index);
         if (empty($index)) $index = 'index.php';
+
+        if (!empty($folder) && (!fcmStoricoPathIsSafe($folder) || !fcmStoricoPathIsSafe($index, true))) {
+            echo json_encode(['success' => false, 'error' => 'Cartella o file di avvio non validi per la stagione ' . $sId . '. Usa un percorso relativo alla cartella del sito (es. archivio/2013-14 oppure ../Stagione_y) senza due punti, apici, virgolette o parentesi angolari. Nel file di avvio non sono ammessi parametri (?) né ancore (#).']);
+            exit;
+        }
 
         if (!empty($folder)) {
             $cleanSeasons[(string)$sId] = [

@@ -342,7 +342,8 @@
       var rowClass = count === 1 ? 'pitch-row-single' : (count === 2 ? 'pitch-row-duo' : 'pitch-row-wide');
 
       pitchHtml += '<div class="pitch-row pitch-row-' + rep + ' ' + rowClass + '">';
-      for (var pos = 0; pos < count; pos++) {
+      // Il modulo arriva dalla pagina di Sky: il ciclo si ferma comunque quando i giocatori sono finiti
+      for (var pos = 0; pos < count && playerIdx < giocatori.length; pos++) {
         var g = giocatori[playerIdx++];
         if (!g) continue;
 
@@ -352,7 +353,7 @@
         pitchHtml += `
           <div class="pitch-player" data-link="${escapeHtml(g.link)}" data-name="${escapeHtml(g.nome)}" data-role="${ruolo}" data-goalkeeper="${portiere}">
             <div class="pitch-player-avatar ${portiere ? 'avatar-gk' : ''}">
-              <img src="img/sq/${slug}.png" class="pitch-jersey" onerror="this.style.display='none'">
+              <img src="img/sq/${escapeHtml(slug)}.png" class="pitch-jersey" onerror="this.style.display='none'">
               <span class="pitch-player-num">${escapeHtml(g.numero)}</span>
             </div>
             <div class="pitch-player-name" title="${escapeHtml(g.nome)}">${escapeHtml(g.nome)}</div>
@@ -427,9 +428,8 @@
           <a href="javascript:void(0)" 
              class="${isActive ? 'active' : ''}" 
              data-team="${escapeHtml(team)}" 
-             title="${escapeHtml(team)}" 
-             onclick="window.MostraSquadraProbabili('${escapeJs(team)}')">
-            <img src="img/sq/logo/${slug}.png" 
+             title="${escapeHtml(team)}">
+            <img src="img/sq/logo/${escapeHtml(slug)}.png"
                  alt="${escapeHtml(team)}" 
                  onerror="this.onerror=null; this.src='img/sq/0.gif';">
           </a>
@@ -516,6 +516,13 @@
         </div>
       </div>
     `;
+
+    // Il nome della squadra viene letto dall'attributo data-team: nessun valore esterno dentro codice JS inline
+    container.querySelectorAll('#probTeamButtonsList a[data-team]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        MostraSquadraProbabili(btn.getAttribute('data-team'));
+      });
+    });
 
     // Attacca o aggiorna gli event listener per il tooltip statistiche
     AttaccaListenersTooltip();
@@ -736,7 +743,8 @@
         var it = stats.find(function (s) {
           return labels[id] && labels[id].includes(s.titolo);
         });
-        return it ? it.valore : '0';
+        // Testo preso dalla pagina di Sky: va escapato prima di entrare nell'HTML del tooltip
+        return it ? escapeHtml(it.valore) : '0';
       };
 
       var content = `
@@ -854,7 +862,7 @@
   }
 
   /**
-   * Helper utility per escaping HTML e stringhe JS
+   * Helper utility per escaping HTML (testo e valori di attributo)
    */
   function escapeHtml(str) {
     if (!str) return '';
@@ -862,12 +870,8 @@
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
-  function escapeJs(str) {
-    if (!str) return '';
-    return String(str).replace(/'/g, "\\'").replace(/"/g, '\\"');
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   /**
