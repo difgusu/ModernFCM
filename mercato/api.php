@@ -289,7 +289,7 @@ try {
 
             // Nome e date finiscono nel registro mostrato alle squadre: testo UTF-8 valido e corto,
             // date solo assolute (come quelle del modulo), così il registro resta sempre leggibile
-            $nome = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $nome);
+            $nome = preg_replace('/[\p{Cc}\p{Cf}\x{2028}\x{2029}]+/u', ' ', $nome);
             if ($nome === null || preg_match_all('/./su', $nome) > 100) {
                 throw new Exception("Il nome della sessione deve essere un testo di al massimo 100 caratteri.");
             }
@@ -302,11 +302,11 @@ try {
             // Creazione e modifiche (date comprese) vengono prima annotate nel registro visibile alle squadre
             $esistente = $id ? mercato_db_get_session($id) : null;
             if (!$esistente) {
-                mercato_registro_annota('sessione', "Nuova sessione «{$nome}» creata: apertura " . mercato_registro_data($apertura) . ", chiusura " . mercato_registro_data($chiusura) . ".", $id);
+                mercato_registro_annota('sessione', "Nuova sessione «" . mercato_registro_frammento($nome, 60) . "» creata: apertura " . mercato_registro_data($apertura) . ", chiusura " . mercato_registro_data($chiusura) . ".", $id);
             } else {
                 $modifiche = [];
                 if ((string)($esistente['nome'] ?? '') !== $nome) {
-                    $modifiche[] = "nuovo nome «{$nome}»";
+                    $modifiche[] = "nuovo nome «" . mercato_registro_frammento($nome, 60) . "»";
                 }
                 if ((string)($esistente['data_apertura'] ?? '') !== $apertura) {
                     $modifiche[] = "apertura " . mercato_registro_data($esistente['data_apertura'] ?? '') . " → " . mercato_registro_data($apertura);
@@ -328,7 +328,9 @@ try {
             if (!$salvata) {
                 // La voce appena annotata descrive una modifica che non è avvenuta: lo si dice nel registro
                 try {
-                    mercato_registro_annota($esistente ? 'date' : 'sessione', "Salvataggio non riuscito: la modifica annotata sopra non è stata applicata.", $id);
+                    mercato_registro_annota($esistente ? 'date' : 'sessione', $esistente
+                        ? "Modifica della sessione " . mercato_registro_sessione($esistente) . " non applicata: salvataggio non riuscito."
+                        : "Creazione della sessione «" . mercato_registro_frammento($nome, 60) . "» non riuscita: salvataggio non riuscito.", $id);
                 } catch (Exception $eRegistro) {
                     // l'errore principale è il salvataggio, segnalato qui sotto
                 }
@@ -350,7 +352,16 @@ try {
                 mercato_registro_annota('stato', "Sessione " . mercato_registro_sessione($esistente) . ($attiva ? " riaperta" : " chiusa") . " manualmente.", $id);
             }
 
-            mercato_db_toggle_session($id, $attiva);
+            if (!mercato_db_toggle_session($id, $attiva)) {
+                if ($esistente && !empty($esistente['attiva']) !== !empty($attiva)) {
+                    try {
+                        mercato_registro_annota('stato', ($attiva ? "Riapertura" : "Chiusura") . " della sessione " . mercato_registro_sessione($esistente) . " non applicata: salvataggio non riuscito.", $id);
+                    } catch (Exception $eRegistro) {
+                        // l'errore principale è il salvataggio, segnalato qui sotto
+                    }
+                }
+                throw new Exception("Impossibile aggiornare lo stato della sessione.");
+            }
             echo json_encode(['success' => true]);
             break;
 
@@ -412,7 +423,16 @@ try {
                 mercato_registro_annota('eliminazione', "Sessione " . mercato_registro_sessione($esistente) . " eliminata con le sue buste, i crediti assegnati e i report.", $id);
             }
 
-            mercato_db_delete_session($id);
+            if (!mercato_db_delete_session($id)) {
+                if ($esistente) {
+                    try {
+                        mercato_registro_annota('eliminazione', "Eliminazione della sessione " . mercato_registro_sessione($esistente) . " non completata: salvataggio non riuscito.", $id);
+                    } catch (Exception $eRegistro) {
+                        // l'errore principale è il salvataggio, segnalato qui sotto
+                    }
+                }
+                throw new Exception("Impossibile eliminare la sessione.");
+            }
             echo json_encode(['success' => true, 'msg' => 'Sessione eliminata con successo!']);
             break;
 

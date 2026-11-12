@@ -485,8 +485,8 @@ $registroRiepilogo = mercato_registro_riepilogo($registro);
         <li><span class="registro-data"><?= htmlspecialchars(mercato_registro_data($voce['ts'])) ?></span><?= htmlspecialchars($voce['testo']) ?></li>
         <?php endforeach; ?>
       </ul>
-      <?php if (count($registroMostrato) < count($registro)): ?>
-      <p class="registro-nota" style="margin-bottom:0;">Sono mostrate <?= count($registroMostrato) ?> azioni su <?= count($registro) ?>. Restano sempre in elenco tutte le simulazioni e i report anticipati che hanno reso visibili degli importi, tutte le assegnazioni finali, tutte le modifiche a impostazioni e sessioni (date comprese) e tutte le eliminazioni di sessioni; delle altre azioni (aperture e chiusure manuali, creazione di sessioni, simulazioni e report che non hanno mostrato importi segreti) solo le 200 più recenti.</p>
+      <?php if (count($registroMostrato) < mercato_registro_totale()): ?>
+      <p class="registro-nota" style="margin-bottom:0;">Sono mostrate <?= count($registroMostrato) ?> azioni su <?= mercato_registro_totale() ?>: le <?= MERCATO_REGISTRO_MAX_ALTRE ?> più recenti tra simulazioni e report che hanno reso visibili degli importi, assegnazioni finali, modifiche a impostazioni e sessioni (date comprese) ed eliminazioni di sessioni, e le 200 più recenti delle altre azioni (aperture e chiusure manuali, creazione di sessioni, simulazioni e report che non hanno mostrato importi segreti). Il riepilogo conta invece tutto il registro.</p>
       <?php endif; ?>
     <?php endif; ?>
   </div>

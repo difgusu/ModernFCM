@@ -206,7 +206,7 @@ function mercato_db_toggle_session($id, $attiva) {
 }
 
 function mercato_db_delete_session($id) {
-    mercato_json_update('sessioni.json', function($sessions) use ($id) {
+    $eliminata = mercato_json_update('sessioni.json', function($sessions) use ($id) {
         if (!is_array($sessions)) $sessions = [];
         $filtered = array_values(array_filter($sessions, function($s) use ($id) {
             return (int)$s['id'] !== (int)$id;
@@ -236,7 +236,7 @@ function mercato_db_delete_session($id) {
             }
         }
     }
-    return true;
+    return (bool)$eliminata;
 }
 
 // ==========================================
@@ -412,7 +412,13 @@ function save_mercato_settings($newSettings) {
         }
 
         $modifiche = [];
-        foreach ($effettive as $chiave => $valore) {
+        $chiavi = array_keys($effettive);
+        if (in_array('abilita_simulazione', $chiavi, true)) {
+            // Il cambio dell'opzione sulla simulazione va per primo: è quello che conta di più per le squadre
+            $chiavi = array_merge(['abilita_simulazione'], array_values(array_diff($chiavi, ['abilita_simulazione'])));
+        }
+        foreach ($chiavi as $chiave) {
+            $valore = $effettive[$chiave];
             $modifica = mercato_registro_impostazione($chiave, $current[$chiave] ?? null, $valore);
             if ($modifica !== null) {
                 $modifiche[] = $modifica;
@@ -424,7 +430,16 @@ function save_mercato_settings($newSettings) {
             mercato_registro_annota($cambiaSimulazione ? 'impostazioni_simulazione' : 'impostazioni', 'Impostazioni modificate: ' . implode('; ', $modifiche) . '.');
         }
 
-        return ['data' => $bids, 'write' => false, 'result' => mercato_json_write('impostazioni.json', $newSettings)];
+        $scritto = mercato_json_write('impostazioni.json', $newSettings);
+        if (!$scritto && $modifiche) {
+            // La voce appena annotata descrive una modifica che non è avvenuta: lo si dice nel registro
+            try {
+                mercato_registro_annota($cambiaSimulazione ? 'impostazioni_simulazione' : 'impostazioni', 'Modifica delle impostazioni non applicata: salvataggio non riuscito.');
+            } catch (Exception $eRegistro) {
+                // l'errore principale è il salvataggio, segnalato al chiamante
+            }
+        }
+        return ['data' => $bids, 'write' => false, 'result' => $scritto];
     }, []);
 }
 
@@ -440,11 +455,10 @@ function save_mercato_settings($newSettings) {
  * Da $azione dipende anche quali voci restano sempre in elenco nelle pagine (vedi mercato_registro_da_mostrare).
  */
 function mercato_registro_annota($azione, $testo, $idSessione = null) {
-    // Ogni voce resta corta: il registro viene riletto per intero a ogni pagina delle squadre
-    $testo = (string)$testo;
-    if (strlen($testo) > 600) {
-        $testo = (function_exists('mb_strcut') ? mb_strcut($testo, 0, 597, 'UTF-8') : substr($testo, 0, 597)) . '...';
-    }
+    // Nessun carattere di controllo o di formattazione (che potrebbe rovesciare la riga mostrata).
+    // Le parti scelte dall'admin (nomi, date) sono già accorciate quando la voce viene composta, quindi
+    // questo limite è solo una rete di sicurezza e non scatta con i testi normali.
+    $testo = mercato_registro_frammento($testo, 1000);
     $riga = json_encode([
         'ts'          => date('Y-m-d H:i:s'),
         'azione'      => (string)$azione,
@@ -477,21 +491,71 @@ function mercato_registro_annota($azione, $testo, $idSessione = null) {
  * Le righe non valide vengono ignorate.
  */
 function mercato_registro_leggi() {
+    // Il file si legge riga per riga e in memoria restano solo le voci che le pagine possono mostrare
+    // (le MERCATO_REGISTRO_MAX_ALTRE più recenti tra le azioni importanti e le 200 più recenti di
+    // routine), mentre totale e riepilogo contano l'intero registro: anche un registro enorme resta
+    // leggibile.
+    $GLOBALS['mercato_registro_conteggi'] = ['totale' => 0, 'segreti' => 0, 'ultima_segreti' => ''];
     $fp = is_file(MERCATO_REGISTRO_PATH) ? @fopen(MERCATO_REGISTRO_PATH, 'r') : false;
     if (!$fp) return [];
     flock($fp, LOCK_SH);
-    $content = (string)stream_get_contents($fp);
+
+    $voci = [];
+    $inRoutine = 0;
+    $inAltre = 0;
+    while (($riga = fgets($fp)) !== false) {
+        $riga = rtrim($riga, "\r\n");
+        $voce = ($riga !== '') ? json_decode($riga, true) : null;
+        if (!is_array($voce) || !isset($voce['ts'], $voce['testo']) || !is_string($voce['ts']) || !is_string($voce['testo'])) {
+            continue;
+        }
+        $GLOBALS['mercato_registro_conteggi']['totale']++;
+        if (in_array($voce['azione'] ?? '', ['simulazione', 'report'], true)) {
+            $GLOBALS['mercato_registro_conteggi']['segreti']++;
+            $GLOBALS['mercato_registro_conteggi']['ultima_segreti'] = $voce['ts'];
+        }
+        $voci[] = $voce;
+        if (mercato_registro_is_routine($voce)) $inRoutine++; else $inAltre++;
+        if ($inRoutine > 400 || $inAltre > 2 * MERCATO_REGISTRO_MAX_ALTRE) {
+            $voci = mercato_registro_compatta($voci);
+            $inRoutine = count(array_filter($voci, 'mercato_registro_is_routine'));
+            $inAltre = count($voci) - $inRoutine;
+        }
+    }
     flock($fp, LOCK_UN);
     fclose($fp);
 
-    $voci = [];
-    foreach (explode("\n", $content) as $riga) {
-        $voce = ($riga !== '') ? json_decode($riga, true) : null;
-        if (is_array($voce) && isset($voce['ts'], $voce['testo']) && is_string($voce['ts']) && is_string($voce['testo'])) {
-            $voci[] = $voce;
+    return array_reverse(mercato_registro_compatta($voci));
+}
+
+if (!defined('MERCATO_REGISTRO_MAX_ALTRE')) {
+    define('MERCATO_REGISTRO_MAX_ALTRE', 2000);
+}
+
+/**
+ * Numero totale di voci del registro letto con mercato_registro_leggi() (0 se non è stato letto).
+ */
+function mercato_registro_totale() {
+    return (int)($GLOBALS['mercato_registro_conteggi']['totale'] ?? 0);
+}
+
+function mercato_registro_is_routine($voce) {
+    return in_array($voce['azione'] ?? '', ['stato', 'sessione', 'simulazione_senza_segreti', 'report_senza_segreti'], true);
+}
+
+/**
+ * Tiene, nell'ordine originale, le 200 voci di routine e le MERCATO_REGISTRO_MAX_ALTRE altre più recenti.
+ */
+function mercato_registro_compatta(array $voci) {
+    $tenute = [];
+    $routine = 0;
+    $altre = 0;
+    for ($i = count($voci) - 1; $i >= 0; $i--) {
+        if (mercato_registro_is_routine($voci[$i]) ? ($routine++ < 200) : ($altre++ < MERCATO_REGISTRO_MAX_ALTRE)) {
+            $tenute[] = $voci[$i];
         }
     }
-    return array_reverse($voci);
+    return array_reverse($tenute);
 }
 
 /**
@@ -526,10 +590,16 @@ function mercato_registro_da_mostrare($registro, $limite = 200) {
 function mercato_registro_riepilogo($registro) {
     $volte = 0;
     $ultima = '';
-    foreach ($registro as $voce) {
-        if (in_array($voce['azione'] ?? '', ['simulazione', 'report'], true)) {
-            if ($volte === 0) $ultima = $voce['ts'] ?? '';
-            $volte++;
+    if (isset($GLOBALS['mercato_registro_conteggi']) && is_array($GLOBALS['mercato_registro_conteggi'])) {
+        // Conteggi fatti da mercato_registro_leggi() sull'intero file, non solo sulle voci trattenute
+        $volte = (int)$GLOBALS['mercato_registro_conteggi']['segreti'];
+        $ultima = (string)$GLOBALS['mercato_registro_conteggi']['ultima_segreti'];
+    } else {
+        foreach ($registro as $voce) {
+            if (in_array($voce['azione'] ?? '', ['simulazione', 'report'], true)) {
+                if ($volte === 0) $ultima = $voce['ts'] ?? '';
+                $volte++;
+            }
         }
     }
     if ($volte === 0) return '';
@@ -579,7 +649,24 @@ function mercato_registro_impostazione($chiave, $prima, $dopo) {
  * Etichetta di una sessione nelle voci del registro, es. #3 «1ª Sessione Riparazione».
  */
 function mercato_registro_sessione($sessione) {
-    return '#' . (int)($sessione['id'] ?? 0) . ' «' . (string)($sessione['nome'] ?? '') . '»';
+    return '#' . (int)($sessione['id'] ?? 0) . ' «' . mercato_registro_frammento($sessione['nome'] ?? '', 60) . '»';
+}
+
+/**
+ * Testo da inserire in una voce del registro: senza caratteri di controllo o di formattazione
+ * (es. quelli che invertono la direzione del testo) e lungo al massimo $max caratteri.
+ */
+function mercato_registro_frammento($valore, $max) {
+    $testo = preg_replace('/[\p{Cc}\p{Cf}\x{2028}\x{2029}]+/u', ' ', (string)$valore);
+    if ($testo === null) {
+        // UTF-8 non valido: restano solo i caratteri ASCII stampabili
+        $testo = preg_replace('/[^\x20-\x7E]+/', ' ', (string)$valore);
+    }
+    $testo = trim($testo);
+    if (preg_match_all('/./su', $testo) > $max && preg_match('/^.{0,' . max(1, (int)$max - 1) . '}/su', $testo, $m)) {
+        $testo = rtrim($m[0]) . '…';
+    }
+    return $testo;
 }
 
 /**
@@ -591,5 +678,5 @@ function mercato_registro_data($valore) {
     if (preg_match('/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?\z/', $valore, $m) && ($ts = strtotime($valore)) !== false) {
         return date(isset($m[1]) && $m[1] !== ':00' ? 'd/m/Y H:i:s' : 'd/m/Y H:i', $ts);
     }
-    return $valore;
+    return mercato_registro_frammento($valore, 30);
 }

@@ -266,6 +266,11 @@ function mercato_resolve_session_run($idSessione, $isFinal, $origine) {
             // Senza la chiusura registrata gli importi non vanno restituiti (l'asta sarebbe ancora
             // aperta): si tolgono i crediti appena scritti e l'assegnazione resta da ripetere.
             mercato_db_delete_extra_saldo_by_session($idSessione);
+            try {
+                mercato_registro_annota('finale', "Assegnazione finale della sessione " . mercato_registro_sessione($sessione) . " non completata: crediti annullati, sessione ancora da assegnare.", $idSessione);
+            } catch (Exception $eRegistro) {
+                // l'errore principale è la chiusura non registrata, segnalato qui sotto
+            }
             throw new Exception("Impossibile registrare la chiusura della sessione: assegnazione finale non eseguita, riprova.");
         }
 
