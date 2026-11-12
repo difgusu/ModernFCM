@@ -567,6 +567,40 @@ body.dark-mode .role-btn-A {
   font-size: 0.8rem;
 }
 
+/* Registro Azioni dell'Amministratore (elenco compatto in sola lettura) */
+.registro-nota {
+  color: var(--m-text-muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  margin: 6px 0 12px 0;
+}
+
+.registro-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+
+.registro-list li {
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--m-border);
+  overflow-wrap: anywhere;
+}
+
+.registro-list li:last-child {
+  border-bottom: none;
+}
+
+.registro-data {
+  color: var(--m-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-right: 10px;
+}
+
 /* Dialog Nativo con light-dismiss */
 dialog {
   border: 1px solid var(--m-border);

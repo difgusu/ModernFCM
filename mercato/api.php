@@ -21,21 +21,33 @@ try {
     switch ($action) {
         case 'login_team':
             fcm_require_post();
-            $idSquadra = (int)($_POST['id_squadra'] ?? 0);
-            $password = (string)($_POST['password'] ?? '');
+            // Un id non numerico (o un array) vale come squadra inesistente
+            $idSquadra = $_POST['id_squadra'] ?? '';
+            $idSquadra = (is_string($idSquadra) && preg_match('/^[0-9]{1,9}\z/', $idSquadra)) ? (int)$idSquadra : 0;
+            $password = is_string($_POST['password'] ?? null) ? $_POST['password'] : '';
             $res = mercato_login_team($idSquadra, $password);
             if (!empty($res['success'])) {
                 $res['csrf_token'] = fcm_csrf_token();
+            } elseif (!empty($res['retry_after'])) {
+                // Limite ai tentativi: stato 429, corpo JSON nel formato degli altri errori
+                http_response_code(429);
+                header('Retry-After: ' . (int)$res['retry_after']);
+                unset($res['retry_after']);
             }
             echo json_encode($res);
             break;
 
         case 'login_admin':
             fcm_require_post();
-            $password = (string)($_POST['password'] ?? '');
+            $password = is_string($_POST['password'] ?? null) ? $_POST['password'] : '';
             $res = mercato_login_admin($password);
             if (!empty($res['success'])) {
                 $res['csrf_token'] = fcm_csrf_token();
+            } elseif (!empty($res['retry_after'])) {
+                // Limite ai tentativi: stato 429, corpo JSON nel formato degli altri errori
+                http_response_code(429);
+                header('Retry-After: ' . (int)$res['retry_after']);
+                unset($res['retry_after']);
             }
             echo json_encode($res);
             break;
@@ -267,20 +279,61 @@ try {
             fcm_require_csrf();
             if (!mercato_is_admin()) throw new Exception("Accesso non autorizzato.");
             $id = !empty($_POST['id']) ? (int)$_POST['id'] : null;
-            $nome = trim($_POST['nome'] ?? '');
-            $apertura = trim($_POST['data_apertura'] ?? '');
-            $chiusura = trim($_POST['data_chiusura'] ?? '');
+            $nome = is_string($_POST['nome'] ?? null) ? trim($_POST['nome']) : '';
+            $apertura = is_string($_POST['data_apertura'] ?? null) ? trim($_POST['data_apertura']) : '';
+            $chiusura = is_string($_POST['data_chiusura'] ?? null) ? trim($_POST['data_chiusura']) : '';
 
             if (empty($nome) || empty($apertura) || empty($chiusura)) {
                 throw new Exception("Tutti i campi della sessione sono obbligatori.");
             }
 
-            mercato_db_save_session([
+            // Nome e date finiscono nel registro mostrato alle squadre: testo UTF-8 valido e corto,
+            // date solo assolute (come quelle del modulo), così il registro resta sempre leggibile
+            $nome = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $nome);
+            if ($nome === null || preg_match_all('/./su', $nome) > 100) {
+                throw new Exception("Il nome della sessione deve essere un testo di al massimo 100 caratteri.");
+            }
+            foreach ([$apertura, $chiusura] as $dataInviata) {
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?\z/', $dataInviata) || strtotime($dataInviata) === false) {
+                    throw new Exception("Date della sessione non valide: indica giorno e ora di apertura e di chiusura.");
+                }
+            }
+
+            // Creazione e modifiche (date comprese) vengono prima annotate nel registro visibile alle squadre
+            $esistente = $id ? mercato_db_get_session($id) : null;
+            if (!$esistente) {
+                mercato_registro_annota('sessione', "Nuova sessione «{$nome}» creata: apertura " . mercato_registro_data($apertura) . ", chiusura " . mercato_registro_data($chiusura) . ".", $id);
+            } else {
+                $modifiche = [];
+                if ((string)($esistente['nome'] ?? '') !== $nome) {
+                    $modifiche[] = "nuovo nome «{$nome}»";
+                }
+                if ((string)($esistente['data_apertura'] ?? '') !== $apertura) {
+                    $modifiche[] = "apertura " . mercato_registro_data($esistente['data_apertura'] ?? '') . " → " . mercato_registro_data($apertura);
+                }
+                if ((string)($esistente['data_chiusura'] ?? '') !== $chiusura) {
+                    $modifiche[] = "chiusura " . mercato_registro_data($esistente['data_chiusura'] ?? '') . " → " . mercato_registro_data($chiusura);
+                }
+                if ($modifiche) {
+                    mercato_registro_annota('date', "Sessione " . mercato_registro_sessione($esistente) . " modificata: " . implode('; ', $modifiche) . ".", $id);
+                }
+            }
+
+            $salvata = mercato_db_save_session([
                 'id'            => $id,
                 'nome'          => $nome,
                 'data_apertura' => $apertura,
                 'data_chiusura' => $chiusura
             ]);
+            if (!$salvata) {
+                // La voce appena annotata descrive una modifica che non è avvenuta: lo si dice nel registro
+                try {
+                    mercato_registro_annota($esistente ? 'date' : 'sessione', "Salvataggio non riuscito: la modifica annotata sopra non è stata applicata.", $id);
+                } catch (Exception $eRegistro) {
+                    // l'errore principale è il salvataggio, segnalato qui sotto
+                }
+                throw new Exception("Impossibile salvare la sessione.");
+            }
 
             echo json_encode(['success' => true]);
             break;
@@ -291,6 +344,11 @@ try {
             if (!mercato_is_admin()) throw new Exception("Accesso non autorizzato.");
             $id = (int)($_POST['id'] ?? 0);
             $attiva = (int)($_POST['attiva'] ?? 0);
+
+            $esistente = mercato_db_get_session($id);
+            if ($esistente && !empty($esistente['attiva']) !== !empty($attiva)) {
+                mercato_registro_annota('stato', "Sessione " . mercato_registro_sessione($esistente) . ($attiva ? " riaperta" : " chiusa") . " manualmente.", $id);
+            }
 
             mercato_db_toggle_session($id, $attiva);
             echo json_encode(['success' => true]);
@@ -319,7 +377,9 @@ try {
                 'abilita_simulazione'            => !empty($_POST['abilita_simulazione']) ? 1 : 0
             ];
 
-            save_mercato_settings($updated);
+            if (!save_mercato_settings($updated)) {
+                throw new Exception("Impossibile salvare le impostazioni su disco.");
+            }
             echo json_encode(['success' => true, 'msg' => 'Impostazioni e percentuali salvate correttamente!']);
             break;
 
@@ -347,6 +407,11 @@ try {
             $id = (int)($_POST['id_sessione'] ?? 0);
             if (!$id) throw new Exception("ID sessione mancante.");
 
+            $esistente = mercato_db_get_session($id);
+            if ($esistente) {
+                mercato_registro_annota('eliminazione', "Sessione " . mercato_registro_sessione($esistente) . " eliminata con le sue buste, i crediti assegnati e i report.", $id);
+            }
+
             mercato_db_delete_session($id);
             echo json_encode(['success' => true, 'msg' => 'Sessione eliminata con successo!']);
             break;
@@ -358,6 +423,13 @@ try {
 
             $session = mercato_db_get_session($id);
             if (!$session) throw new Exception("Sessione non trovata.");
+
+            // Prima dell'assegnazione finale il report equivale a una simulazione (decifra le buste e
+            // lascia una voce nel registro): deve essere una richiesta voluta, non un semplice link.
+            if (empty($session['elaborata'])) {
+                fcm_require_post();
+                fcm_require_csrf();
+            }
 
             $reportTxt = mercato_get_session_report($id);
             echo json_encode([

@@ -25,10 +25,8 @@ function mercato_json_read($filename, $default = []) {
 }
 
 function mercato_json_update($filename, callable $mutator, $default = []) {
-    if (!is_dir(MERCATO_DATA_DIR)) {
-        if (!@mkdir(MERCATO_DATA_DIR, 0755, true) && !is_dir(MERCATO_DATA_DIR)) {
-            return false;
-        }
+    if (!mercato_ensure_data_dir()) {
+        return false;
     }
     $filePath = MERCATO_DATA_DIR . '/' . $filename;
     $fp = @fopen($filePath, 'c+');
@@ -109,7 +107,32 @@ function mercato_db_get_session($id) {
 function mercato_db_get_active_session() {
     $sessions = mercato_db_get_sessions();
     foreach ($sessions as $s) {
-        if (!empty($s['attiva'])) return $s;
+        // Una sessione già assegnata in via definitiva non torna "in corso" nemmeno se riattivata:
+        // le sue buste restano quelle dell'assegnazione e il suo report non finisce tra i dati pubblici.
+        if (!empty($s['attiva']) && empty($s['elaborata'])) return $s;
+    }
+    return null;
+}
+
+/**
+ * Restituisce la prima sessione non ancora assegnata in via definitiva che contiene almeno una
+ * busta, oppure null. Date e stato aperta/chiusa non contano: finché le buste non sono state
+ * assegnate i loro importi restano un segreto da proteggere.
+ */
+function mercato_db_find_pending_session($bids = null) {
+    if (!is_array($bids)) {
+        $bids = mercato_json_read('offerte.json', []);
+    }
+    $conBuste = [];
+    foreach ($bids as $b) {
+        if (is_array($b) && isset($b['id_sessione'])) {
+            $conBuste[(int)$b['id_sessione']] = true;
+        }
+    }
+    foreach (mercato_db_get_sessions() as $s) {
+        if (empty($s['elaborata']) && isset($conBuste[(int)($s['id'] ?? 0)])) {
+            return $s;
+        }
     }
     return null;
 }
@@ -365,6 +388,208 @@ function get_mercato_settings() {
     return array_merge($MERCATO_DEFAULT_SETTINGS, $saved);
 }
 
+/**
+ * Salva le impostazioni. L'opzione 'abilita_simulazione' non cambia finché esistono buste non
+ * ancora assegnate (altrimenti si potrebbe accenderla, guardare gli importi e rispegnerla): in
+ * quel caso lancia un'eccezione e non salva nulla. Ogni modifica viene annotata nel registro.
+ */
 function save_mercato_settings($newSettings) {
-    return mercato_json_write('impostazioni.json', $newSettings);
+    if (!is_array($newSettings)) return false;
+
+    // Controllo, annotazione e scrittura avvengono tenendo il lock di offerte.json: tra il
+    // controllo sulle buste e il salvataggio non può arrivare nessuna nuova offerta.
+    return (bool)mercato_json_update('offerte.json', function($bids) use ($newSettings) {
+        global $MERCATO_DEFAULT_SETTINGS;
+        $current = get_mercato_settings();
+        $effettive = array_merge($MERCATO_DEFAULT_SETTINGS, $newSettings);
+
+        $cambiaSimulazione = !empty($effettive['abilita_simulazione']) !== !empty($current['abilita_simulazione']);
+        if ($cambiaSimulazione) {
+            $pendente = mercato_db_find_pending_session($bids);
+            if ($pendente) {
+                throw new Exception("L'opzione «Consenti la simulazione dell'asta» non può essere modificata finché la sessione " . mercato_registro_sessione($pendente) . " contiene buste non ancora assegnate. Esegui prima l'assegnazione finale oppure elimina la sessione.");
+            }
+        }
+
+        $modifiche = [];
+        foreach ($effettive as $chiave => $valore) {
+            $modifica = mercato_registro_impostazione($chiave, $current[$chiave] ?? null, $valore);
+            if ($modifica !== null) {
+                $modifiche[] = $modifica;
+            }
+        }
+        if ($modifiche) {
+            // Un cambio dell'opzione sulla simulazione ha un'azione propria, per distinguerlo nel
+            // registro dalle altre modifiche alle impostazioni
+            mercato_registro_annota($cambiaSimulazione ? 'impostazioni_simulazione' : 'impostazioni', 'Impostazioni modificate: ' . implode('; ', $modifiche) . '.');
+        }
+
+        return ['data' => $bids, 'write' => false, 'result' => mercato_json_write('impostazioni.json', $newSettings)];
+    }, []);
+}
+
+// ==========================================
+// REGISTRO AZIONI AMMINISTRATORE
+// ==========================================
+
+/**
+ * Annota un'azione sensibile dell'amministratore nel registro mostrato alle squadre.
+ * Il file contiene una riga JSON per evento e viene aperto solo in append, sotto lock esclusivo:
+ * nessuna funzione del modulo lo riscrive, lo accorcia o lo cancella.
+ * Se l'annotazione non riesce lancia un'eccezione: l'azione non deve avvenire senza lasciare traccia.
+ * Da $azione dipende anche quali voci restano sempre in elenco nelle pagine (vedi mercato_registro_da_mostrare).
+ */
+function mercato_registro_annota($azione, $testo, $idSessione = null) {
+    // Ogni voce resta corta: il registro viene riletto per intero a ogni pagina delle squadre
+    $testo = (string)$testo;
+    if (strlen($testo) > 600) {
+        $testo = (function_exists('mb_strcut') ? mb_strcut($testo, 0, 597, 'UTF-8') : substr($testo, 0, 597)) . '...';
+    }
+    $riga = json_encode([
+        'ts'          => date('Y-m-d H:i:s'),
+        'azione'      => (string)$azione,
+        'id_sessione' => $idSessione !== null ? (int)$idSessione : null,
+        'testo'       => (string)$testo
+    ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+
+    $ok = false;
+    $fp = ($riga !== false && mercato_ensure_data_dir()) ? @fopen(MERCATO_REGISTRO_PATH, 'a+') : false;
+    if ($fp) {
+        if (flock($fp, LOCK_EX)) {
+            // Se una scrittura precedente è rimasta a metà si riparte da una riga nuova,
+            // così la voce resta leggibile (in modalità append la scrittura va comunque in coda).
+            $stat = fstat($fp);
+            if (!empty($stat['size']) && fseek($fp, -1, SEEK_END) === 0 && fread($fp, 1) !== "\n") {
+                $riga = "\n" . $riga;
+            }
+            $ok = (fwrite($fp, $riga . "\n") === strlen($riga) + 1) && fflush($fp);
+            flock($fp, LOCK_UN);
+        }
+        fclose($fp);
+    }
+    if (!$ok) {
+        throw new Exception("Impossibile aggiornare il registro delle azioni dell'amministratore: operazione annullata.");
+    }
+}
+
+/**
+ * Legge il registro delle azioni dell'amministratore, dalla voce più recente alla più vecchia.
+ * Le righe non valide vengono ignorate.
+ */
+function mercato_registro_leggi() {
+    $fp = is_file(MERCATO_REGISTRO_PATH) ? @fopen(MERCATO_REGISTRO_PATH, 'r') : false;
+    if (!$fp) return [];
+    flock($fp, LOCK_SH);
+    $content = (string)stream_get_contents($fp);
+    flock($fp, LOCK_UN);
+    fclose($fp);
+
+    $voci = [];
+    foreach (explode("\n", $content) as $riga) {
+        $voce = ($riga !== '') ? json_decode($riga, true) : null;
+        if (is_array($voce) && isset($voce['ts'], $voce['testo']) && is_string($voce['ts']) && is_string($voce['testo'])) {
+            $voci[] = $voce;
+        }
+    }
+    return array_reverse($voci);
+}
+
+/**
+ * Sceglie le voci del registro da mostrare nelle pagine (l'elenco arriva dalla voce più recente).
+ * Solo le azioni di routine elencate qui sotto sono limitate alle $limite più recenti: aperture e
+ * chiusure manuali, creazione di sessioni, simulazioni e report che non hanno mostrato importi
+ * ancora segreti. Tutte le altre voci restano sempre: simulazioni e report anticipati che hanno
+ * reso visibili importi ancora segreti, assegnazioni finali, modifiche alle impostazioni e alle
+ * sessioni (date comprese), eliminazioni di sessioni. Così aprire e chiudere una sessione
+ * centinaia di volte non basta a far uscire dall'elenco né la prova che gli importi sono stati
+ * visti né una modifica a regole o date.
+ */
+function mercato_registro_da_mostrare($registro, $limite = 200) {
+    $routine = ['stato', 'sessione', 'simulazione_senza_segreti', 'report_senza_segreti'];
+    $voci = [];
+    $altre = 0;
+    foreach ($registro as $voce) {
+        if (in_array($voce['azione'] ?? '', $routine, true)) {
+            if ($altre >= $limite) continue;
+            $altre++;
+        }
+        $voci[] = $voce;
+    }
+    return $voci;
+}
+
+/**
+ * Riepilogo calcolato sull'intero registro: quante volte una simulazione o un report anticipato
+ * hanno reso visibili all'amministratore importi ancora segreti e quando è successo l'ultima
+ * volta. Stringa vuota se non è mai successo. Resta in evidenza anche quando l'elenco è molto lungo.
+ */
+function mercato_registro_riepilogo($registro) {
+    $volte = 0;
+    $ultima = '';
+    foreach ($registro as $voce) {
+        if (in_array($voce['azione'] ?? '', ['simulazione', 'report'], true)) {
+            if ($volte === 0) $ultima = $voce['ts'] ?? '';
+            $volte++;
+        }
+    }
+    if ($volte === 0) return '';
+    return "Importi delle buste resi visibili all'amministratore prima dell'assegnazione finale (simulazioni e report anticipati): "
+        . ($volte === 1 ? "1 volta, il " : "{$volte} volte, l'ultima il ") . mercato_registro_data($ultima) . '.';
+}
+
+/**
+ * Descrive per il registro la modifica di un'impostazione con parole comprensibili alle squadre
+ * al posto di chiavi interne e valori grezzi, es. «Simulazione dell'asta: disattivata → attivata»
+ * o «Recupero {MINORE}: 50% → 60%». Restituisce null se ciò che si leggerebbe non cambia.
+ */
+function mercato_registro_impostazione($chiave, $prima, $dopo) {
+    $chiave = (string)$chiave;
+    $etichette = [
+        'max_giocatori'                  => 'Numero massimo di giocatori in rosa',
+        'num_p'                          => 'Portieri in rosa',
+        'num_d'                          => 'Difensori in rosa',
+        'num_c'                          => 'Centrocampisti in rosa',
+        'num_a'                          => 'Attaccanti in rosa',
+        'obbligo_taglio'                 => 'Obbligo di taglio',
+        'perc_recupero_estera'           => 'Recupero {ESTERA}',
+        'perc_recupero_minore'           => 'Recupero {MINORE}',
+        'perc_recupero_eliminata'        => 'Recupero {ELIMINATA}',
+        'perc_recupero_serie_a'          => 'Recupero giocatore di A',
+        'arrotonda_eccesso'              => 'Opzione «Arrotonda recupero crediti per eccesso»',
+        'mostra_estera_minore_eliminata' => 'Opzione «Mostra tra i giocatori disponibili anche {ESTERA}, {MINORE}, {ELIMINATA}»',
+        'mostra_chiamate_altri'          => 'Opzione «Consenti agli utenti di vedere le chiamate e i tagli altrui»',
+        'abilita_simulazione'            => "Simulazione dell'asta"
+    ];
+    // Opzioni sì/no: come nel resto del modulo conta solo se sono attive oppure no
+    $opzioni = ['arrotonda_eccesso', 'mostra_estera_minore_eliminata', 'mostra_chiamate_altri', 'abilita_simulazione'];
+
+    $valori = [];
+    foreach ([$prima, $dopo] as $valore) {
+        if (in_array($chiave, $opzioni, true)) {
+            $valori[] = !empty($valore) ? 'attivata' : 'disattivata';
+        } else {
+            $valori[] = is_scalar($valore) ? $valore . (strpos($chiave, 'perc_') === 0 ? '%' : '') : '?';
+        }
+    }
+    if ($valori[0] === $valori[1]) return null;
+    return ($etichette[$chiave] ?? $chiave) . ': ' . $valori[0] . ' → ' . $valori[1];
+}
+
+/**
+ * Etichetta di una sessione nelle voci del registro, es. #3 «1ª Sessione Riparazione».
+ */
+function mercato_registro_sessione($sessione) {
+    return '#' . (int)($sessione['id'] ?? 0) . ' «' . (string)($sessione['nome'] ?? '') . '»';
+}
+
+/**
+ * Data in formato leggibile per il registro. Solo le date assolute vengono riformattate: qualsiasi
+ * altro valore (es. una data relativa) resta visibile così com'è stato inserito.
+ */
+function mercato_registro_data($valore) {
+    $valore = (string)$valore;
+    if (preg_match('/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?\z/', $valore, $m) && ($ts = strtotime($valore)) !== false) {
+        return date(isset($m[1]) && $m[1] !== ':00' ? 'd/m/Y H:i:s' : 'd/m/Y H:i', $ts);
+    }
+    return $valore;
 }

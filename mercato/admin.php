@@ -60,6 +60,11 @@ if ($isAdmin && isset($_POST['esegui_risoluzione'])) {
 
 // Lista sessioni
 $sessioni = mercato_db_get_sessions();
+// Finché una sessione non ancora assegnata contiene buste l'opzione sulla simulazione resta bloccata
+$sessioneConBuste = $isAdmin ? mercato_db_find_pending_session() : null;
+$registro = $isAdmin ? mercato_registro_leggi() : [];
+$registroMostrato = mercato_registro_da_mostrare($registro);
+$registroRiepilogo = mercato_registro_riepilogo($registro);
 ?>
 <!DOCTYPE html>
 <html lang="it">
@@ -296,10 +301,13 @@ $sessioni = mercato_db_get_sessions();
 
         <!-- Spunta Consenti Simulazione Asta all'Admin -->
         <div class="setting-checkbox-row">
-          <input type="checkbox" id="abilita_simulazione" name="abilita_simulazione" value="1" <?= !isset($settings['abilita_simulazione']) || !empty($settings['abilita_simulazione']) ? 'checked' : '' ?>>
+          <input type="checkbox" id="abilita_simulazione" name="abilita_simulazione" value="1" <?= !isset($settings['abilita_simulazione']) || !empty($settings['abilita_simulazione']) ? 'checked' : '' ?><?= $sessioneConBuste ? ' disabled' : '' ?>>
           <label for="abilita_simulazione" class="checkbox-text" style="cursor:pointer;">
             <strong>Consenti la simulazione dell'asta all'amministratore</strong>
-            <small>Se disattivato, il pulsante "Simula" viene rimosso e anche l'admin non potrà sbirciare gli importi offerti nelle buste fino alla risoluzione definitiva dell'asta.</small>
+            <small>Se disattivato, il pulsante "Simula" viene rimosso e gli importi offerti nelle buste non sono consultabili dal pannello fino all'assegnazione finale dell'asta; chi gestisce l'hosting può comunque leggere i file sul server. L'opzione non si può cambiare finché una sessione non ancora assegnata contiene buste. Simulazioni e modifiche vengono annotate nel registro visibile alle squadre.</small>
+            <?php if ($sessioneConBuste): ?>
+            <small style="color:var(--m-warning); margin-top:4px;">🔒 Opzione bloccata: la sessione <?= htmlspecialchars(mercato_registro_sessione($sessioneConBuste)) ?> contiene buste non ancora assegnate.</small>
+            <?php endif; ?>
           </label>
         </div>
       </div>
@@ -461,6 +469,27 @@ $sessioni = mercato_db_get_sessions();
     </table>
   </div>
   <?php endif; ?>
+
+  <!-- Registro delle azioni sensibili dell'amministratore (sola lettura) -->
+  <div class="buste-box" style="margin-bottom:24px;">
+    <h3 style="margin-top:0;">📜 Registro Azioni dell'Amministratore</h3>
+    <p class="registro-nota">Simulazioni, report consultati prima dell'assegnazione finale, assegnazioni finali e modifiche a impostazioni e sessioni vengono annotati qui. L'elenco non è modificabile dal pannello ed è visibile anche alle squadre che accedono al mercato.</p>
+    <?php if ($registroRiepilogo !== ''): ?>
+    <p class="registro-nota" style="color:var(--m-text);"><strong><?= htmlspecialchars($registroRiepilogo) ?></strong></p>
+    <?php endif; ?>
+    <?php if (empty($registro)): ?>
+      <p class="registro-nota" style="margin-bottom:0;">Nessuna azione registrata.</p>
+    <?php else: ?>
+      <ul class="registro-list">
+        <?php foreach ($registroMostrato as $voce): ?>
+        <li><span class="registro-data"><?= htmlspecialchars(mercato_registro_data($voce['ts'])) ?></span><?= htmlspecialchars($voce['testo']) ?></li>
+        <?php endforeach; ?>
+      </ul>
+      <?php if (count($registroMostrato) < count($registro)): ?>
+      <p class="registro-nota" style="margin-bottom:0;">Sono mostrate <?= count($registroMostrato) ?> azioni su <?= count($registro) ?>. Restano sempre in elenco tutte le simulazioni e i report anticipati che hanno reso visibili degli importi, tutte le assegnazioni finali, tutte le modifiche a impostazioni e sessioni (date comprese) e tutte le eliminazioni di sessioni; delle altre azioni (aperture e chiusure manuali, creazione di sessioni, simulazioni e report che non hanno mostrato importi segreti) solo le 200 più recenti.</p>
+      <?php endif; ?>
+    <?php endif; ?>
+  </div>
 
   <?php endif; ?>
 

@@ -154,11 +154,13 @@ function mercato_get_team_financials($idSquadra, $idSessione = null, $excludeCod
  *
  * @param int $idSessione ID della sessione di mercato
  * @param int|null $excludeTeamId Se specificato, omette le offerte della squadra indicata
- * @param int|null $divisione Se specificato, filtra le offerte per divisione
+ * @param int|null $divisione Divisione di chi guarda: senza divisione non viene restituito nulla
  * @return array Lista di offerte pubbliche senza importi
  */
 function mercato_get_session_public_bids($idSessione, $excludeTeamId = null, $divisione = null) {
     if (!$idSessione) return [];
+    // Le chiamate si vedono solo dentro la propria divisione: mai l'elenco di tutte le divisioni
+    if ($divisione === null) return [];
 
     $settings = get_mercato_settings();
     if (empty($settings['mostra_chiamate_altri'])) {

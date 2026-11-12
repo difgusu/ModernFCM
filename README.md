@@ -149,6 +149,10 @@ Modulo opzionale (`ModMercatoLibero`) per gestire il mercato a buste chiuse dire
 - **Squadre**: login, offerte per i calciatori liberi con controllo di crediti disponibili, crediti già impegnati, slot di ruolo saturi e calcolo del taglio/rimborso secondo le percentuali di lega.
 - **Buste cifrate**: le offerte sono cifrate (`mercato/inc/crypto.php`) e visibili solo in fase di risoluzione.
 - **Admin**: creazione/modifica sessioni, apertura/chiusura, impostazioni regolamentari, **simulazione** e **assegnazione finale** (idempotente) con crediti extra registrati per sessione, report testuale completo e *scheda operazioni da applicare in FCM* copiabile.
+- **Registro delle azioni dell'amministratore**: simulazioni, report consultati prima dell'assegnazione finale, assegnazioni finali, creazione, modifica (date comprese), apertura/chiusura manuale ed eliminazione delle sessioni e modifiche alle impostazioni vengono annotate in `mercato/data/registro_admin.txt`, un file a cui il modulo aggiunge soltanto righe. Il registro è mostrato in sola lettura alle squadre che accedono al mercato e nel pannello admin. Se il file non è scrivibile l'azione viene rifiutata: nulla avviene senza lasciare traccia.
+- **Simulazione e segretezza**: l'opzione «Consenti la simulazione dell'asta all'amministratore» non può essere cambiata finché una sessione non ancora assegnata in via definitiva contiene buste (prima va eseguita l'assegnazione finale oppure eliminata la sessione). Con la simulazione disattivata gli importi non sono consultabili dal pannello fino all'assegnazione finale; chi gestisce l'hosting può comunque leggere i file sul server.
+- **Sessioni**: il nome può avere al massimo 100 caratteri e le date di apertura e chiusura devono essere date assolute (giorno e ora), come quelle inserite dal modulo del pannello.
+- **File in `mercato/data/`**: oltre ai file già esistenti il modulo crea `registro_admin.txt` (il registro) e `assegnazione.lock` (lock usato durante l'assegnazione finale). L'intera cartella è negata via HTTP dal suo `.htaccess`, che il modulo ricrea se manca.
 - Se il modulo è disattivato le pagine mostrano un avviso e la voce di menu scompare.
 
 ---
@@ -289,7 +293,7 @@ Assicurati che i permessi di scrittura siano attivi sulle cartelle che richiedon
 - `js/`
 - `img/sponsor/` *(upload loghi sponsor dal pannello admin Homepage)*
 - `gbook182/` e `fkounter5/` *(se guestbook e contatore visite sono abilitati)*
-- `mercato/data/` *(sessioni, offerte e report del Mercato Libero)*.
+- `mercato/data/` *(sessioni, offerte, report e registro delle azioni dell'amministratore del Mercato Libero)*.
 
 Per limitare lo spam il **guestbook** accetta un solo messaggio ogni 10 secondi (in tutto, non per visitatore; serve `inc/data/` scrivibile) e rifiuta i nuovi messaggi quando il file `gbook182/entries.txt` raggiunge la dimensione fissata dalla nuova impostazione `$settings['max_logsize']` di `gbook182/settings.php` (4096 KB se non la cambi, `0` = nessun limite): in quel caso alza la soglia oppure elimina i messaggi più vecchi.
 

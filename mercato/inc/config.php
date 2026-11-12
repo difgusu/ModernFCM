@@ -11,6 +11,30 @@ define('MERCATO_DIR', dirname(__DIR__));
 define('MERCATO_DATA_DIR', MERCATO_DIR . '/data');
 define('MERCATO_DB_PATH', MERCATO_DATA_DIR . '/mercato.sqlite');
 define('MERCATO_REPORTS_DIR', MERCATO_DATA_DIR . '/reports');
+define('MERCATO_REGISTRO_PATH', MERCATO_DATA_DIR . '/registro_admin.txt');
+
+/**
+ * Crea la cartella dati se manca e ne ripristina l'.htaccess: se la cartella viene ricreata dal
+ * codice (o caricata senza i file nascosti) chiave, buste e registro non devono restare leggibili via HTTP.
+ */
+function mercato_ensure_data_dir() {
+    if (!is_dir(MERCATO_DATA_DIR)) {
+        if (!@mkdir(MERCATO_DATA_DIR, 0755, true) && !is_dir(MERCATO_DATA_DIR)) {
+            return false;
+        }
+    }
+    $htaccess = MERCATO_DATA_DIR . '/.htaccess';
+    if (!file_exists($htaccess)) {
+        @file_put_contents(
+            $htaccess,
+            "# Protezione cartella dati e report da accesso diretto via browser:\n"
+            . "# qui dentro nulla va servito via HTTP, quindi si nega l'intera cartella (sottocartelle comprese)\n"
+            . "<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>\n"
+            . "<IfModule !mod_authz_core.c>\n    Order deny,allow\n    Deny from all\n</IfModule>\n"
+        );
+    }
+    return true;
+}
 
 // Helper per la modularità: verifica flag in js/fcmVariabili.js ed eventuale presenza del file su disco
 if (!function_exists('fcm_module_enabled')) {
@@ -48,10 +72,8 @@ $keyFile = MERCATO_DATA_DIR . '/secret.key';
 $mercatoKey = file_exists($keyFile) ? trim((string)@file_get_contents($keyFile)) : '';
 if ($mercatoKey === '') {
     $mercatoKey = bin2hex(random_bytes(16));
-    if (!is_dir(MERCATO_DATA_DIR)) {
-        if (!@mkdir(MERCATO_DATA_DIR, 0755, true) && !is_dir(MERCATO_DATA_DIR)) {
-            throw new \RuntimeException('Impossibile creare la directory dati del Mercato.');
-        }
+    if (!mercato_ensure_data_dir()) {
+        throw new \RuntimeException('Impossibile creare la directory dati del Mercato.');
     }
     if (!fcm_write_file_atomic($keyFile, $mercatoKey, 0600)) {
         throw new \RuntimeException('Impossibile salvare la chiave di cifratura secret.key in mercato/data/.');
