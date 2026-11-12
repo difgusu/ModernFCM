@@ -51,7 +51,7 @@ Fai doppio clic su:
 
 4. Clicca su **AVVIA CONVERSIONE SQLITE**:
    * La barra di avanzamento e il box di registro mostreranno l'avanzamento in tempo reale.
-   * Tutte le tabelle di lega e di Serie A verranno convertite in file .sqlite.
+   * Tutte le tabelle di lega e di Serie A verranno convertite in file .sqlite (senza le colonne riservate: vedi *Dati Riservati*).
    * In qualsiasi momento puoi cliccare su **Apri File Log** per aprire il file `exporter_log.txt` con Notepad.
 
 ---
@@ -69,3 +69,12 @@ sqlite/
     ├── lega_XX.sqlite
     └── seriea_XX.sqlite
 ```
+
+---
+
+## 🔒 Dati Riservati
+
+* **Colonne non esportate**: recapiti e credenziali restano fuori dai database generati, sia dallo schema sia dai dati. Sono escluse, in tutte le tabelle, le colonne il cui nome inizia con `Telef` o contiene `Mail`, `Passw` o `Pwd` (in FCM il campo `Telef2` della fantasquadra può contenere la password usata per l'invio della formazione). Il registro elenca, tabella per tabella, le colonne lasciate fuori. ModernFCM non legge nessuna di queste colonne.
+* **Database già generati**: i file creati con una versione precedente del plugin contengono ancora quelle colonne. Per ripulirli riesporta tutte le stagioni (pulsante **Tutte Lega** oppure **Tutte**) e ricarica sul sito la cartella `sqlite/`.
+* **I file `.sqlite` non vanno resi pubblici**: restano una copia dei dati della lega. Sul sito non devono essere scaricabili (ci pensano le regole `.htaccess` di ModernFCM; su Nginx vanno aggiunte le regole indicate nel README principale).
+* **Il plugin non va caricato sul sito**: serve solo sul PC con FCM. `config_sqlite.json` ed `exporter_log.txt` contengono percorsi locali del PC.

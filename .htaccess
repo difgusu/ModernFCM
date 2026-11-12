@@ -28,7 +28,22 @@
 </IfModule>
 
 # 4. Protezione file di configurazione, backup, log e dati sensibili
-<FilesMatch "(\.(ini|bak|dat|log|tmp|sql|sh|exe|key|sqlite|db)|admin_config\.inc\.php|invform\.inc\.php|banned_ip\.txt|entries\.txt|ai_config\.json)$">
+#    (senza distinzione tra maiuscole e minuscole)
+# 4a. Per estensione: configurazioni, chiavi, database, log, copie di backup, script e binari
+#     dei plugin, temporanei (anche con il suffisso casuale dopo .tmp)
+<FilesMatch "(?i)(\.(ini|bak|dat|log|sql|sh|exe|key|sqlite|db|env|old|orig|save|swp|ps1|bat)|\.tmp[0-9a-f.]*|\.(sqlite|db)-(journal|wal|shm)|~)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+# 4b. Per nome: file solo-include (*.inc.php, anche se copiati con un suffisso in più), dati del
+#     guestbook, chiave dell'editoriale AI, log degli errori PHP (anche ruotato o rinominato:
+#     error_log.1, error_log-20260101, error_log2, ...), configurazione e log dell'esportatore SQLite
+<FilesMatch "(?i)(\.inc\.php|(banned_ip|entries)\.txt|ai_config\.json|^error_log(?![a-z])|^(config_sqlite\.json|exporter_log\.txt)$)">
   <IfModule mod_authz_core.c>
     Require all denied
   </IfModule>
@@ -41,12 +56,39 @@
 # 5. Impedisci directory listing ed esplorazione delle cartelle
 Options -Indexes
 
-# 6. Impedisci l'accesso a cartelle nascoste (.git, .svn)
+# 6. Impedisci l'accesso a file e cartelle nascosti e a ciò che non serve al sito in esecuzione
 <IfModule mod_rewrite.c>
-  RewriteRule (^|/)\.(git|svn) - [F,L]
+  # Tutto ciò che inizia con un punto (.git, .svn, .env, ...), tranne .well-known
+  RewriteRule (^|/)\.(?!well-known(/|$)) - [F,L]
+  # Cartelle di dati, strumenti e documentazione che nessuna pagina richiede via HTTP
+  RewriteRule ^(mercato/data|inc/cache_ai|gbook182/apptmp|plugin|fkounter5/(tool|docs))(/|$) - [F,L,NC]
+  # Nessuno script PHP nelle cartelle di immagini e upload (anche con doppia estensione)
+  RewriteRule ^img/.*\.(php\d*|phtml|phar|pht)(\.|/|$) - [F,L,NC]
+  # Archivi compressi e archivi di lega di FCM (.fcm, .fca, .mdb): scaricabili solo dalla
+  # cartella dei documenti di lega (doc/)
+  RewriteCond %{REQUEST_URI} !/doc/[^/]+$
+  RewriteRule \.(zip|tar|gz|tgz|bz2|xz|7z|rar|fcm|fca|mdb)$ - [F,L,NC]
 </IfModule>
 
 # 7. Hosting: abilita compressione GZIP e Brotli
 <IfModule mod_deflate.c>
     AddOutputFilterByType DEFLATE application/json application/javascript text/plain text/css
+</IfModule>
+
+# 8. Nessun PATH_INFO dopo il nome di uno script (es. /index.php/altro): il sito non lo usa.
+#    La regola di riscrittura serve dove PHP gira via PHP-FPM (mod_proxy_fcgi), che ignora AcceptPathInfo.
+AcceptPathInfo Off
+<IfModule mod_rewrite.c>
+  RewriteRule \.php/ - [F,L,NC]
+</IfModule>
+
+# 9. Header di sicurezza su tutte le risposte, comprese quelle di errore
+<IfModule mod_headers.c>
+  # unset: evita il doppione quando la pagina PHP invia già lo stesso header
+  Header unset X-Content-Type-Options
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Content-Security-Policy "frame-ancestors 'self'"
+  Header always set Strict-Transport-Security "max-age=15552000"
 </IfModule>
