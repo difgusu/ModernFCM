@@ -3795,9 +3795,9 @@ const fcmDataLoader = {
 
     // 4. Carica in parallelo dati opzionali da SQLite / configurazioni
     const [topCostiData, fmData, confrontiData, storicoConfig] = await Promise.all([
-      (this.fetchJson('sqlite/top_costi.json').then(d => d || this.fetchJson('inc/api_storico.php?action=top_costi'))).catch(() => null),
+      (this.fetchJson('sqlite/top_costi.json').then(d => (d && Array.isArray(d.players) && d.players.length > 0) ? d : this.fetchJson('inc/api_storico.php?action=top_costi'))).catch(() => null),
       this.loadFantamisterStorico().catch(() => null),
-      (this.fetchJson('sqlite/confronti.json').then(d => d || this.fetchJson('inc/api_storico.php?action=confronti'))).catch(() => null),
+      (this.fetchJson('sqlite/confronti.json').then(d => (d && Array.isArray(d.matches) && d.matches.length > 0) ? d : this.fetchJson('inc/api_storico.php?action=confronti'))).catch(() => null),
       this.loadStoricoConfig().catch(() => ({ showLegacySites: true, seasons: {} })),
       this.loadCompetitionLogos().catch(() => ({}))
     ]);
@@ -4018,7 +4018,8 @@ const fcmDataLoader = {
       this.fetchJson('sqlite/ranking.json')
     ]);
     let data = rawData;
-    if (!data) {
+    const rankArr = Array.isArray(data) ? data : (data && Array.isArray(data.ranking) ? data.ranking : []);
+    if (!data || rankArr.length === 0) {
       data = await this.fetchJson('inc/api_storico.php?action=ranking');
     }
     if (!data) return [];
@@ -4164,8 +4165,9 @@ const fcmDataLoader = {
    */
   async loadAlmanacco() {
     let data = await this.fetchJson('sqlite/almanacco.json');
-    if (!data) {
-      data = await this.fetchJson('inc/api_storico.php?action=almanacco');
+    if (!data || !Array.isArray(data.teams) || data.teams.length === 0) {
+      const apiData = await this.fetchJson('inc/api_storico.php?action=almanacco');
+      if (apiData) data = apiData;
     }
     if (!data) return null;
 
@@ -4332,14 +4334,15 @@ const fcmDataLoader = {
     }
 
     let data = await this.fetchJson('sqlite/album.json');
-    if (!data) {
-      data = await this.fetchJson('inc/api_storico.php?action=album');
+    if (!data || !Array.isArray(data.album) || data.album.length === 0 || !Array.isArray(data.teams) || data.teams.length === 0) {
+      const apiData = await this.fetchJson('inc/api_storico.php?action=album');
+      if (apiData) data = apiData;
     }
     if (!data) return null;
 
     // Build active teams list (from data.teams or arrFantasquadre)
     const teams = [];
-    if (data.teams && Array.isArray(data.teams)) {
+    if (data.teams && Array.isArray(data.teams) && data.teams.length > 0) {
       for (const t of data.teams) {
         const idAtt = t.idAttuale !== undefined ? t.idAttuale : (t.IDAttuale !== undefined ? t.IDAttuale : t.currentId);
         const tId = t.id !== undefined ? t.id : t.ID;
@@ -4348,7 +4351,8 @@ const fcmDataLoader = {
           teams.push({ id: Number(tId), ID: Number(tId), name: tName, Nome: tName, currentId: Number(idAtt), idAttuale: Number(idAtt), IDAttuale: Number(idAtt) });
         }
       }
-    } else if (typeof arrFantasquadre !== 'undefined') {
+    }
+    if (teams.length === 0 && typeof arrFantasquadre !== 'undefined') {
       for (let i = 1; i < arrFantasquadre.length; i++) {
         const f = arrFantasquadre[i];
         if (f) teams.push({ id: f.ID, ID: f.ID, name: f.Nome, Nome: f.Nome, currentId: f.ID, idAttuale: f.ID, IDAttuale: f.ID });
@@ -4479,8 +4483,9 @@ const fcmDataLoader = {
    */
   async loadTopCosti() {
     let data = await this.fetchJson('sqlite/top_costi.json');
-    if (!data) {
-      data = await this.fetchJson('inc/api_storico.php?action=top_costi');
+    if (!data || !Array.isArray(data.players) || data.players.length === 0) {
+      const apiData = await this.fetchJson('inc/api_storico.php?action=top_costi');
+      if (apiData) data = apiData;
     }
     if (!data) return null;
 
@@ -4567,8 +4572,10 @@ const fcmDataLoader = {
       return this._cachedFantamisterStorico;
     }
     let data = await this.fetchJson('sqlite/fantamister_storico.json');
-    if (!data) {
-      data = await this.fetchJson('inc/api_storico.php?action=fantamister_storico');
+    const hasCompData = data && data.byComp && typeof data.byComp === 'object' && !Array.isArray(data.byComp) && Object.keys(data.byComp).length > 0;
+    if (!data || !hasCompData || Number(data.countSeasons || 0) === 0) {
+      const apiData = await this.fetchJson('inc/api_storico.php?action=fantamister_storico');
+      if (apiData) data = apiData;
     }
     if (data) {
       this._cachedFantamisterStorico = data;
@@ -4600,8 +4607,9 @@ const fcmDataLoader = {
         this.fetchJson('sqlite/confronti.json')
       ]);
       let data = rawData;
-      if (!data) {
-        data = await this.fetchJson('inc/api_storico.php?action=confronti');
+      if (!data || !Array.isArray(data.matches) || data.matches.length === 0) {
+        const apiData = await this.fetchJson('inc/api_storico.php?action=confronti');
+        if (apiData) data = apiData;
       }
       if (!data) return null;
 
@@ -5632,8 +5640,9 @@ const fcmDataLoader = {
       this.fetchJson('sqlite/classifica_perpetua.json')
     ]);
     let data = rawData;
-    if (!data) {
-      data = await this.fetchJson('inc/api_storico.php?action=classifica_perpetua');
+    if (!data || !Array.isArray(data.ranking) || data.ranking.length === 0) {
+      const apiData = await this.fetchJson('inc/api_storico.php?action=classifica_perpetua');
+      if (apiData) data = apiData;
     }
     if (data && Array.isArray(data.palmares)) {
       this.applyCompetitionLogosToPalmares(data.palmares);

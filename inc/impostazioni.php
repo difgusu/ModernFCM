@@ -669,6 +669,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             handleApiAction('confronti', $sqliteBase, true);
             handleApiAction('album', $sqliteBase, true);
             handleApiAction('almanacco', $sqliteBase, true);
+            handleApiAction('ranking', $sqliteBase, true);
+            handleApiAction('top_costi', $sqliteBase, true);
+            handleApiAction('fantamister_storico', $sqliteBase, true);
+            handleApiAction('classifica_perpetua', $sqliteBase, true);
             ob_end_clean();
         }
         echo json_encode(['success' => true, 'message' => 'Mappatura franchigie salvata e storico ricalcolato con successo!', 'updated' => date('d/m/Y H:i:s')]);

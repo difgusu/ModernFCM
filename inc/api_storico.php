@@ -192,12 +192,17 @@ if (!function_exists('getLatestSqliteMtime')) {
                     if ($mt > $max) $max = $mt;
                 }
             }
-            foreach (['ranking_config.json', 'franchise_map.json'] as $cfg) {
+            foreach (['ranking_config.json', 'franchise_map.json', 'competition_map.json'] as $cfg) {
                 $f = "$sqliteBase/$cfg";
                 if (file_exists($f)) {
                     $mt = @filemtime($f);
                     if ($mt > $max) $max = $mt;
                 }
+            }
+            $logosCfg = dirname($sqliteBase) . '/inc/data/competition_logos.json';
+            if (file_exists($logosCfg)) {
+                $mt = @filemtime($logosCfg);
+                if ($mt > $max) $max = $mt;
             }
         }
 
@@ -211,6 +216,14 @@ if (!function_exists('isCacheValid')) {
         if (!file_exists($cacheFile)) return false;
         $size = @filesize($cacheFile);
         if ($size === false || $size === 0) return false;
+
+        // Considera non validi i file di cache con payload vuoto (generati prima del caricamento dei DB SQLite)
+        if ($size < 512) {
+            $head = (string)@file_get_contents($cacheFile, false, null, 0, 512);
+            if ($head === '' || trim($head) === '[]' || trim($head) === '{}') return false;
+            if (preg_match('/"(?:count|countSeasons|totalSeasons)"\s*:\s*0\b/', $head)) return false;
+            if (preg_match('/"(?:teams|ranking|players|matches|squadre|competitions)"\s*:\s*\[\s*\]/', $head)) return false;
+        }
 
         $cacheMtime = @filemtime($cacheFile);
         if (!$cacheMtime) return false;
@@ -1565,7 +1578,9 @@ function handleApiAction($action, $sqliteBase, $isCli = false) {
                     'cartella' => $s['cartella']
                 ];
             }, $seasons);
-            @fcm_write_file_atomic("$sqliteBase/stagioni.json", json_encode($out, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+            if (!empty($out)) {
+                @fcm_write_file_atomic("$sqliteBase/stagioni.json", json_encode($out, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+            }
             if (!$isCli) echo json_encode($out, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
             return $out;
 
@@ -1796,7 +1811,9 @@ function handleApiAction($action, $sqliteBase, $isCli = false) {
             ];
 
             $jsonOut = json_encode($out, JSON_UNESCAPED_UNICODE);
-            @fcm_write_file_atomic($cacheFile, $jsonOut);
+            if (!empty($matches) || !empty($teamsList)) {
+                @fcm_write_file_atomic($cacheFile, $jsonOut);
+            }
             if (!$isCli) echo $jsonOut;
             return $out;
 
@@ -1975,7 +1992,9 @@ function handleApiAction($action, $sqliteBase, $isCli = false) {
             ];
 
             $jsonOut = json_encode($out, JSON_UNESCAPED_UNICODE);
-            @fcm_write_file_atomic($cacheFile, $jsonOut);
+            if (!empty($album)) {
+                @fcm_write_file_atomic($cacheFile, $jsonOut);
+            }
             if (!$isCli) echo $jsonOut;
             return $out;
 
@@ -1993,7 +2012,7 @@ function handleApiAction($action, $sqliteBase, $isCli = false) {
             $topCrediti = max(1.0, (float)getLatestCreditiTotali($sqliteBase, $seasons));
 
             $albumFile = "$sqliteBase/album.json";
-            if (!file_exists($albumFile) || $forceRefresh) {
+            if (!isCacheValid($albumFile, $sqliteBase) || $forceRefresh) {
                 handleApiAction('album', $sqliteBase, true);
             }
 
@@ -2333,7 +2352,9 @@ function handleApiAction($action, $sqliteBase, $isCli = false) {
             ];
 
             $jsonOut = json_encode($out, JSON_UNESCAPED_UNICODE);
-            @fcm_write_file_atomic($cacheFile, $jsonOut);
+            if (!empty($out['teams']) && (!empty($fedelissimi) || !empty($ratings))) {
+                @fcm_write_file_atomic($cacheFile, $jsonOut);
+            }
             if (!$isCli) echo $jsonOut;
             return $out;
 
@@ -2666,7 +2687,9 @@ function handleApiAction($action, $sqliteBase, $isCli = false) {
             ];
 
             $jsonOut = json_encode($outRanking, JSON_UNESCAPED_UNICODE);
-            @fcm_write_file_atomic($cacheFile, $jsonOut);
+            if (!empty($finalRanking)) {
+                @fcm_write_file_atomic($cacheFile, $jsonOut);
+            }
             if (!$isCli) echo $jsonOut;
             return $outRanking;
 
@@ -2851,7 +2874,9 @@ function handleApiAction($action, $sqliteBase, $isCli = false) {
             ];
 
             $jsonOut = json_encode($out, JSON_UNESCAPED_UNICODE);
-            @fcm_write_file_atomic($cacheFile, $jsonOut);
+            if (!empty($costi)) {
+                @fcm_write_file_atomic($cacheFile, $jsonOut);
+            }
             if (!$isCli) echo $jsonOut;
             return $out;
 
@@ -3528,7 +3553,9 @@ function handleApiAction($action, $sqliteBase, $isCli = false) {
             }
 
             $out = buildClassificaPerpetua($sqliteBase);
-            @fcm_write_file_atomic($cacheFile, json_encode($out, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+            if (!empty($out['ranking'])) {
+                @fcm_write_file_atomic($cacheFile, json_encode($out, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+            }
             if (!$isCli) echo json_encode($out, JSON_UNESCAPED_UNICODE);
             return $out;
 
@@ -3925,7 +3952,9 @@ function handleApiAction($action, $sqliteBase, $isCli = false) {
             ];
 
             $jsonOutput = json_encode($result, JSON_UNESCAPED_UNICODE);
-            fcm_write_file_atomic($cacheFile, $jsonOutput);
+            if (!empty($players)) {
+                fcm_write_file_atomic($cacheFile, $jsonOutput);
+            }
             if (!$isCli) echo $jsonOutput;
             return $result;
 
@@ -5003,7 +5032,9 @@ function handleApiAction($action, $sqliteBase, $isCli = false) {
             ];
 
             $jsonOutput = json_encode($result, JSON_UNESCAPED_UNICODE);
-            fcm_write_file_atomic($cacheFile, $jsonOutput);
+            if (!empty($finalByComp)) {
+                fcm_write_file_atomic($cacheFile, $jsonOutput);
+            }
             if (!$isCli) echo $jsonOutput;
             return $result;
 
