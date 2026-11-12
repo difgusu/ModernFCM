@@ -1783,7 +1783,12 @@ class Telegram
                 curl_setopt($ch, CURLOPT_PROXYPORT, $this->proxy['port']);
             }
         }
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        // Il token del bot viaggia nell'URL: il certificato del server va sempre verificato
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+        // Senza limiti di tempo un server che non risponde terrebbe bloccato l'invio della formazione
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 20);
         $result = curl_exec($ch);
         if ($result === false) {
             $result = json_encode(

@@ -3,6 +3,20 @@
  * ModernFCM
  */
 
+// Le versioni precedenti dell'invio formazione salvavano la password della squadra in chiaro senza
+// chiederlo (chiavi "pn_fsq_pw_<id>"): si eliminano su qualsiasi pagina, non solo all'apertura
+// dell'invio formazione, perché qualunque script dello stesso sito potrebbe leggerle
+(function () {
+  try {
+    const vecchie = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf('pn_fsq_pw_') === 0) vecchie.push(k);
+    }
+    vecchie.forEach(k => localStorage.removeItem(k));
+  } catch (e) { /* storage non disponibile */ }
+})();
+
 const App = {
   // Viste native SPA
   routes: {

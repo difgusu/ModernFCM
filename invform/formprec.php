@@ -101,6 +101,20 @@ if (isset($_REQUEST['fallback']) && $_REQUEST['fallback'] !== '') {
 
 print("var arrFormazioniPrecedenti=new Array();\r\na=arrFormazioniPrecedenti;\r\n");
 
+// Identificatori xg<ID> (giocatori) e xa<ID> (squadre di A) definiti nei dati pubblicati da FCM.
+// Resta NULL se l'elenco non è leggibile: in quel caso il controllo sugli identificatori è saltato.
+$definiti = null;
+$serieA = @file_get_contents("../js/fcmSerieADati.js");
+if (is_string($serieA) && preg_match_all('/\b(xg|xa)(\d+)\s*=(?!=)/', $serieA, $definizioni, PREG_SET_ORDER)) {
+	$definiti = ['xg' => [], 'xa' => []];
+	foreach ($definizioni as $def) {
+		$definiti[$def[1]][$def[2]] = true;
+	}
+	if (empty($definiti['xg']) || empty($definiti['xa'])) {
+		$definiti = null;
+	}
+}
+
 $rowCount = 0;
 foreach ($days as $d) {
 	$filePath = "../js/fcmFormazioniDati" . $d . ".js";
@@ -108,7 +122,11 @@ foreach ($days as $d) {
 	if ($lines !== false) {
 		foreach ($lines as $line) {
 			$line = trim($line);
-			if (preg_match('/^a\[\d+\]\s*=\s*(new\s+Z\(.+\));?$/i', $line, $matches)) {
+			// Il browser esegue queste righe come script: si ripropongono solo quelle fatte di numeri
+			// e di identificatori xg<ID>/xa<ID> definiti, così un valore anomalo rimasto in un file
+			// non viene eseguito e non blocca il caricamento delle righe successive
+			if (preg_match('/^a\[\d+\]\s*=\s*(new\s+Z\(\s*-?\d+\s*,\s*-?\d+\s*,\s*-?\d+\s*,\s*xg(\d+)\s*,\s*xa(\d+)\s*,\s*-?\d+\s*,\s*-?\d+\s*,\s*-?\d+\s*\))\s*;?$/', $line, $matches)
+				&& ($definiti === null || (isset($definiti['xg'][$matches[2]]) && isset($definiti['xa'][$matches[3]])))) {
 				$rowCount++;
 				print("a[" . $rowCount . "]=" . $matches[1] . ";\r\n");
 			}
