@@ -13,7 +13,51 @@ if (file_exists(__DIR__ . "/data/liveVU_associazioni.php")) {
     include_once($baseDir . "/inc/data/liveVU_associazioni.php");
 }
 
-$Gio = !empty($_GET["Gio"]) ? $_GET["Gio"] : (!empty($_GET["cGio"]) ? $_GET["cGio"] : (!empty($_GET["GIO"]) ? $_GET["GIO"] : null));
+// Le funzioni fcm_live_* che seguono sono ripetute identiche negli altri endpoint dei dati live
+// (inc/live_extract*.php, inc/probform_extract.php): ogni modifica va riportata in tutte le copie.
+if (!function_exists('fcm_live_giornata_richiesta')) {
+    /**
+     * Giornata di Serie A chiesta dal client: vale solo se e' un intero tra 1 e 38 in forma
+     * canonica (niente zeri iniziali, decimali o array). NULL se manca o non e' valida.
+     */
+    function fcm_live_giornata_richiesta(array $nomiParametro) {
+        foreach ($nomiParametro as $nome) {
+            if (!empty($_GET[$nome])) {
+                $g = filter_var($_GET[$nome], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1, 'max_range' => 38)));
+                return ($g === false) ? null : $g;
+            }
+        }
+        return null;
+    }
+}
+
+if (!function_exists('fcm_live_giornata_corrente')) {
+    /**
+     * Giornata di Serie A corrente per la lega: la prima che nel calendario FCM ha ancora incontri
+     * da calcolare, cioe' quella che il sito mostra in home e nel live. NULL se il calendario
+     * manca, non e' leggibile o non ha piu' incontri da calcolare.
+     */
+    function fcm_live_giornata_corrente() {
+        $raw = @file_get_contents(dirname(__DIR__) . '/js/fcmCalendarioDati.js');
+        // new I(ID, IncAcc, IDTipo, Giocato, IDFantagiornata, Fantagiornata, IDCompetizione,
+        //       Competizione, IDGirone, Girone, GiornataDiA, ...): i tre nomi possono contenere virgole
+        $nome = '(?:"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|[^,()]*)';
+        $re = '/new\s+I\(\s*[^,()]*,[^,()]*,\s*(\d+)\s*,\s*(\d+)\s*,[^,()]*,\s*' . $nome . '\s*,[^,()]*,\s*' . $nome
+            . '\s*,[^,()]*,\s*' . $nome . '\s*,\s*(\d+)\s*[,)]/';
+        $corrente = null;
+        if (is_string($raw) && preg_match_all($re, $raw, $incontri, PREG_SET_ORDER)) {
+            foreach ($incontri as $inc) {
+                // tipo 2 = turno di riposo; giocato 1 = incontro gia' calcolato
+                if ((int)$inc[1] !== 2 && (int)$inc[2] !== 1 && ($corrente === null || (int)$inc[3] < $corrente)) {
+                    $corrente = (int)$inc[3];
+                }
+            }
+        }
+        return ($corrente !== null && $corrente >= 1 && $corrente <= 38) ? $corrente : null;
+    }
+}
+
+$Gio = fcm_live_giornata_richiesta(array("Gio", "cGio", "GIO"));
 if (empty($Gio)) {
     $calFile = $baseDir . "/js/fcmCalendarioDati.js";
     if (!file_exists($calFile)) { $calFile = "js/fcmCalendarioDati.js"; }
@@ -60,7 +104,14 @@ $votiTarget = $baseDir . "/js/fcmVotiDatiVU.js";
 $metaTarget = $baseDir . "/js/fcmVotiDatiVUMeta.json";
 
 function pianeta_valore($valore) {
-    return ($valore === null || $valore === "") ? "" : (string)$valore;
+    // Conteggi e flag del feed esterno finiscono nella pagina live: si accettano solo numeri
+    if (is_bool($valore)) {
+        return $valore ? "1" : "";
+    }
+    if (is_int($valore) || is_float($valore)) {
+        return (string)$valore;
+    }
+    return (is_string($valore) && is_numeric(trim($valore))) ? trim($valore) : "";
 }
 
 function pianeta_parse_num($val) {
@@ -172,14 +223,22 @@ if (defined('LIVE_EXTRACT_VU_HELPERS_ONLY')) {
     return;
 }
 
-// Gestione sessione per identificare amministratori autenticati
+// Orari delle giornate di Serie A (js/DataA.js): servono a riconoscere una giornata già iniziata
+if (file_exists(__DIR__ . '/aggiorna_dataA.php')) {
+    if (!defined('FCM_AGGIORNA_DATAA_HELPERS_ONLY')) {
+        define('FCM_AGGIORNA_DATAA_HELPERS_ONLY', true);
+    }
+    require_once __DIR__ . '/aggiorna_dataA.php';
+}
+
+// Amministratore riconosciuto dalla sessione già aperta: per i visitatori anonimi non se ne crea una nuova
 require_once __DIR__ . '/admin_security.inc.php';
-fcm_ensure_session();
-$isAdmin = !empty($_SESSION['pn_admin_logged']);
+$isAdmin = fcm_admin_session_active(true);
 $isCli = (php_sapi_name() === 'cli');
 
 // Controllo forzatura manuale e TTL cache (intervallo rigoroso di 15 minuti / 900s per utenti web)
-$force = !empty($_GET['force']) && ($_GET['force'] == '1' || $_GET['force'] === 'true' || $_GET['force'] === 'force');
+// La forzatura vale solo per l'amministratore autenticato e da riga di comando
+$force = ($isAdmin || $isCli) && !empty($_GET['force']) && ($_GET['force'] == '1' || $_GET['force'] === 'true' || $_GET['force'] === 'force');
 $cacheTtl = 15 * 60; // Scadenza tassativa di 15 minuti (900 secondi)
 
 $metaData = null;
@@ -196,30 +255,77 @@ if (file_exists($votiTarget)) {
     $cacheTime = isset($metaData["timestamp"]) ? (int)$metaData["timestamp"] : filemtime($votiTarget);
 }
 
-// Se non è admin né CLI, è vietato ricaricare prima del TTL normale (15 min),
-// a meno di forzatura esplicita (force=1) con cooldown di sicurezza anti-flood di 30 secondi
-if (!$isAdmin && !$isCli) {
-    if ($force) {
-        if (time() - $cacheTime < 30) {
-            $force = false;
-        }
-    } else {
-        if (time() - $cacheTime < $cacheTtl) {
-            $force = false;
-        }
-    }
-}
-
 $isCacheValid = false;
-if (!$force && file_exists($votiTarget) && filesize($votiTarget) > 100 && is_array($metaData)) {
-    $sameGiornata = isset($metaData["giornata"]) && (string)$metaData["giornata"] === (string)$Gio;
+$cacheStessaGiornata = false; // voti già salvati per la giornata richiesta, anche se scaduti
+if (file_exists($votiTarget) && filesize($votiTarget) > 100 && is_array($metaData)) {
+    $sameGiornata = isset($metaData["giornata"]) && (int)$metaData["giornata"] === (int)$Gio;
     $sameSchema = isset($metaData["schema"]) && (int)$metaData["schema"] === 2;
-    if ($sameGiornata && $sameSchema && (time() - $cacheTime < $cacheTtl)) {
+    $cacheStessaGiornata = $sameGiornata && $sameSchema;
+    if (!$force && $cacheStessaGiornata && (time() - $cacheTime < $cacheTtl)) {
         $isCacheValid = true;
     }
 }
 
-if ($isCacheValid) {
+// Senza una cache valida i visitatori possono far scaricare solo la giornata corrente della lega
+// o, vedi sotto, una successiva appena iniziata (le sole che possono finire nel file condiviso
+// letto da tutti) e al massimo una volta al minuto in totale: lo scaricamento costa una ventina
+// di richieste a PianetaFanta. Negli altri casi si risponde con i voti già salvati, se sono quelli
+// della giornata richiesta.
+$erroreSoloCache = null;
+$altraGiornata = false; // giornata che i visitatori non possono far scaricare
+if (!$isCacheValid && !$isCli) {
+    if (!$isAdmin) {
+        $giornataInCorso = fcm_live_giornata_corrente();
+        $giornateRecenti = function_exists('fcm_dataA_giornate_recenti') ? fcm_dataA_giornate_recenti($baseDir) : array();
+        if ($giornataInCorso !== null) {
+            // Vale anche una giornata successiva iniziata di recente secondo js/DataA.js: capita quando
+            // la lega non ha ancora calcolato una giornata e in Serie A si gioca già la seguente
+            $altraGiornata = (int)$Gio !== $giornataInCorso
+                && !((int)$Gio > $giornataInCorso && in_array((int)$Gio, $giornateRecenti, true));
+        } else {
+            // Giornata della lega non determinabile (calendario assente o tutto già calcolato): non vale
+            // quella scelta dal visitatore ma solo l'ultima iniziata secondo gli orari di js/DataA.js
+            $giornataInCorso = !empty($giornateRecenti) ? max($giornateRecenti) : null;
+            $altraGiornata = ((int)$Gio !== $giornataInCorso);
+        }
+    }
+    if ($altraGiornata) {
+        $erroreSoloCache = ($giornataInCorso !== null ? "Sul sito ci sono solo i voti ufficiosi della giornata in corso (" . $giornataInCorso . "ª): quelli" : "I voti ufficiosi")
+            . " della " . (int)$Gio . "ª giornata può scaricarli solo l'amministratore.";
+    } elseif (!$force && !fcm_cooldown_acquire((!$isAdmin && $giornataInCorso !== null && (int)$Gio !== (int)$giornataInCorso) ? 'live_vu_succ' : 'live_vu', 60)) {
+        // (la giornata successiva già in campo ha un turno suo: non toglie l'aggiornamento a quella della lega)
+        $erroreSoloCache = "Voti ufficiosi non ancora disponibili per questa giornata: riprova tra un minuto.";
+    }
+}
+if ($erroreSoloCache !== null && !$cacheStessaGiornata) {
+    if ($isAjax) {
+        if (!headers_sent()) {
+            header('Content-Type: application/json; charset=utf-8');
+            header('Cache-Control: no-cache, no-store, must-revalidate');
+        }
+        echo json_encode(array(
+            'success' => false,
+            'cached' => false,
+            'schema' => 2,
+            'count' => 0,
+            'source' => 'pianetafanta',
+            'giornata' => (int)$Gio,
+            'stagione' => '',
+            'hasMatchLive' => false,
+            // istante già scaduto: la home riprova al giro successivo invece di aspettare 15 minuti
+            'timestamp' => time() - $cacheTtl,
+            'lastUpdated' => date("d/m/Y H:i:s"),
+            'cacheTtl' => $cacheTtl,
+            // rifiuto per la giornata, non un errore della fonte: il client lo presenta come avviso
+            'altraGiornata' => $altraGiornata,
+            'error' => $erroreSoloCache
+        ));
+        exit;
+    }
+    return;
+}
+
+if ($isCacheValid || $erroreSoloCache !== null) {
     if ($isAjax) {
         if (!headers_sent()) {
             header('Content-Type: application/json; charset=utf-8');
@@ -231,6 +337,8 @@ if ($isCacheValid) {
         echo json_encode(array(
             'success' => true,
             'cached' => true,
+            // il client propone "Forza Aggiornamento" solo a chi può davvero forzare
+            'canForce' => $isAdmin,
             'changed' => false,
             'schema' => 2,
             'count' => isset($metaData["count"]) ? (int)$metaData["count"] : 0,
@@ -307,7 +415,9 @@ function pianeta_api_json($url, $timeout = 20) {
     return isset($risposta["data"]) ? $risposta["data"] : null;
 }
 
-$Stagione = !empty($_GET["Stagione"]) ? $_GET["Stagione"] : null;
+// La stagione non si accetta dalle richieste web: con una stagione diversa i voti della giornata
+// corrente resterebbero sbagliati in cache per tutti. Resta disponibile da riga di comando.
+$Stagione = ($isCli && isset($_GET["Stagione"]) && is_string($_GET["Stagione"]) && preg_match('/^\d{4}_\d{4}\z/', $_GET["Stagione"])) ? $_GET["Stagione"] : null;
 if (empty($Stagione)) {
     // 1. Rileva automaticamente la stagione attiva dalle impostazioni dell'API di Pianetafanta
     $settings = pianeta_api_json("https://pianetafanta.it/api/voti/settings", 10);

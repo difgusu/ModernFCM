@@ -101,7 +101,8 @@ const liveVotiView = {
   formatVoto(v) {
     if (v === 'SV' || v === 'S.V.' || v === null || v === undefined || v === '') return 'SV';
     const num = Number(v);
-    if (isNaN(num)) return v;
+    // Il risultato finisce in innerHTML: un valore non numerico non va mai restituito così com'è
+    if (isNaN(num)) return 'SV';
     return num.toFixed(2);
   },
 
@@ -309,7 +310,8 @@ const liveVotiView = {
       this.currentDiv = (numDiv > 1 && arrDivisioni[1]) ? arrDivisioni[1].ID : 0;
     }
 
-    if (match !== null && match !== undefined && match !== '') {
+    // Match arriva dall'URL e viene poi usato in link e selettori: solo un ID numerico oppure 'all'
+    if (typeof match === 'string' && /^(?:\d+|all)$/.test(match)) {
       this.currentMatch = match;
     } else {
       this.currentMatch = null;
@@ -632,7 +634,7 @@ const liveVotiView = {
                 </svg>
                 <span>Aggiorna</span>
               </button>
-              <a href="#calcolo?Comp=${this.currentComp}&Gio=${this.currentDay}${this.currentDiv ? '&Div=' + this.currentDiv : ''}${(this.currentMatch && this.currentMatch !== 'all') ? '&Match=' + this.currentMatch : ''}" id="btnLiveGoCalcolo" class="btn-live-action" title="Vai alla pagina di calcolo manuale">
+              <a href="#calcolo?Comp=${this.currentComp}&Gio=${this.currentDay}${this.currentDiv ? '&Div=' + this.currentDiv : ''}${(this.currentMatch && this.currentMatch !== 'all') ? '&Match=' + encodeURIComponent(this.currentMatch) : ''}" id="btnLiveGoCalcolo" class="btn-live-action" title="Vai alla pagina di calcolo manuale">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="4" y="2" width="16" height="20" rx="2"></rect>
                   <line x1="8" y1="6" x2="16" y2="6"></line>
@@ -1141,7 +1143,7 @@ const liveVotiView = {
    * Sincronizza l'URL hash principale su #live con i parametri correnti
    */
   _updateHashState() {
-    const matchParam = (this.currentMatch && this.currentMatch !== 'all') ? `&Match=${this.currentMatch}` : '';
+    const matchParam = (this.currentMatch && this.currentMatch !== 'all') ? `&Match=${encodeURIComponent(this.currentMatch)}` : '';
     const divParam = this.currentDiv ? `&Div=${this.currentDiv}` : '';
     const newHash = `#live?Gio=${this.currentDay}&Comp=${this.currentComp}${divParam}${matchParam}`;
 
@@ -1159,7 +1161,7 @@ const liveVotiView = {
     const linkCalcolo = this.container ? this.container.querySelector('#btnLiveGoCalcolo') : null;
     if (!linkCalcolo) return;
     const divPart = this.currentDiv ? `&Div=${this.currentDiv}` : '';
-    const matchPart = (this.currentMatch && this.currentMatch !== 'all') ? `&Match=${this.currentMatch}` : '';
+    const matchPart = (this.currentMatch && this.currentMatch !== 'all') ? `&Match=${encodeURIComponent(this.currentMatch)}` : '';
     linkCalcolo.href = `#calcolo?Comp=${this.currentComp}&Gio=${this.currentDay}${divPart}${matchPart}`;
   },
 
@@ -2312,7 +2314,8 @@ const liveVotiView = {
       if (vObj.Sostituzione === '1') {
         const isTit = vObj.Titolare === '1';
         const subIcon = isTit ? 'uscito_s.png' : 'entrato_s.png';
-        const minStr = vObj.Minuto ? `${vObj.Minuto}` : '';
+        // Il minuto arriva dai feed esterni e finisce in attributi e testo HTML
+        const minStr = vObj.Minuto ? this._escapeAttr(vObj.Minuto) : '';
         const subTitle = isTit ? `Sostituzione: Uscito${minStr ? ` al ${minStr}` : ''}` : `Sostituzione: Entrato${minStr ? ` al ${minStr}` : ''}`;
         res.subBadge = `
           <div class="pr-sub">
@@ -2613,13 +2616,15 @@ const liveVotiView = {
     };
 
     const isPortiere = (ruoloFormatted === 'P');
-    const gF = Number(v.GolFatto || 0);
-    const gS = Number(v.GolSubito || 0);
-    const rig = Number(v.Rigore || 0);
-    const rPar = Number(v.RigoreParato || 0);
-    const rSba = Number(v.RigoreSbagliato || 0);
-    const autoG = Number(v.AutoGol || 0);
-    const ass = Number(v.Assist || 0);
+    // I conteggi arrivano dai feed esterni: il tetto evita cicli enormi o infiniti nella generazione delle icone
+    const capCount = (n) => Math.min(20, Number(n || 0));
+    const gF = capCount(v.GolFatto);
+    const gS = capCount(v.GolSubito);
+    const rig = capCount(v.Rigore);
+    const rPar = capCount(v.RigoreParato);
+    const rSba = capCount(v.RigoreSbagliato);
+    const autoG = capCount(v.AutoGol);
+    const ass = capCount(v.Assist);
 
     // Gol Fatti & Rigori
     if (isFP) {
@@ -3417,8 +3422,11 @@ const liveVotiView = {
     let targetMatch = null;
 
     if (this.currentMatch && this.currentMatch !== 'all') {
-      const specificBlock = this.container.querySelector(`.match-block[data-match-id="${this.currentMatch}"]`) ||
-        this.container.querySelector(`.match-block[data-match-idx="${this.currentMatch}"]`);
+      // Confronto sugli attributi, così il valore non entra mai in un selettore CSS
+      const wanted = String(this.currentMatch);
+      const matchBlocks = Array.from(this.container.querySelectorAll('.match-block'));
+      const specificBlock = matchBlocks.find(b => b.getAttribute('data-match-id') === wanted) ||
+        matchBlocks.find(b => b.getAttribute('data-match-idx') === wanted);
       if (specificBlock) {
         targetMatch = specificBlock.querySelector('.match-container') || specificBlock;
       }

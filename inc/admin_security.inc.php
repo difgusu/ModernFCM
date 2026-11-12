@@ -587,11 +587,32 @@ if (!function_exists('fcm_admin_session_active')) {
     function fcm_admin_session_active($closeAfter = false) {
         $openedHere = false;
         if (session_status() !== PHP_SESSION_ACTIVE) {
-            if (empty($_COOKIE[session_name()]) || headers_sent()) {
+            $cookieId = (isset($_COOKIE[session_name()]) && is_string($_COOKIE[session_name()])) ? $_COOKIE[session_name()] : '';
+            if ($cookieId === '' || headers_sent()) {
                 return false;
             }
             fcm_ensure_session();
             $openedHere = true;
+            // Con lo strict mode un ID che il server non conosce viene sostituito da uno nuovo: non è una
+            // sessione esistente. Quella appena creata va eliminata subito, altrimenti basterebbe mandare
+            // cookie inventati per riempire la cartella delle sessioni.
+            if (session_status() === PHP_SESSION_ACTIVE && session_id() !== $cookieId) {
+                $_SESSION = [];
+                @session_destroy();
+                // Il cookie con il nuovo ID non serve: si toglie solo l'intestazione del cookie di sessione
+                $prefix = 'set-cookie: ' . strtolower(session_name()) . '=';
+                $others = [];
+                foreach (headers_list() as $h) {
+                    if (stripos($h, 'Set-Cookie:') === 0 && strpos(strtolower($h), $prefix) !== 0) {
+                        $others[] = $h;
+                    }
+                }
+                header_remove('Set-Cookie');
+                foreach ($others as $h) {
+                    header($h, false);
+                }
+                return false;
+            }
         }
         $isAdmin = !empty($_SESSION['pn_admin_logged']);
         if ($openedHere && $closeAfter && session_status() === PHP_SESSION_ACTIVE) {

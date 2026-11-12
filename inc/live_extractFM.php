@@ -10,6 +10,14 @@ set_time_limit(300);
 
 require_once __DIR__ . '/admin_security.inc.php';
 
+// Orari delle giornate di Serie A (js/DataA.js): servono a riconoscere una giornata già iniziata
+if (file_exists(__DIR__ . '/aggiorna_dataA.php')) {
+    if (!defined('FCM_AGGIORNA_DATAA_HELPERS_ONLY')) {
+        define('FCM_AGGIORNA_DATAA_HELPERS_ONLY', true);
+    }
+    require_once __DIR__ . '/aggiorna_dataA.php';
+}
+
 // Popola $_GET se lanciato da CLI o server con QUERY_STRING
 if (empty($_GET) && getenv('QUERY_STRING')) {
     parse_str(getenv('QUERY_STRING'), $_GET);
@@ -27,6 +35,156 @@ $isAjax = !empty($_GET['ajax']) || (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && 
 define('FM_BASE_URL', "https://publicapi.fantamaster.it/livescores/");
 define('VOTI_OUTPUT_FILE', dirname(__DIR__) . "/js/fcmVotiDatiFM.js");
 define('VOTI_META_FILE', dirname(__DIR__) . "/js/fcmVotiDatiFMMeta.json");
+
+// Le funzioni fcm_live_* che seguono sono ripetute identiche negli altri endpoint dei dati live
+// (inc/live_extract*.php, inc/probform_extract.php): ogni modifica va riportata in tutte le copie.
+if (!function_exists('fcm_live_modulo_attivo')) {
+    /**
+     * TRUE se il modulo risulta attivo in js/fcmVariabili.js. Stessa regola del menu del sito e
+     * del client: attivo se la variabile manca oppure vale Si, 1 o true.
+     */
+    function fcm_live_modulo_attivo($nomeVariabile) {
+        $raw = @file_get_contents(dirname(__DIR__) . '/js/fcmVariabili.js');
+        if (!is_string($raw) || !preg_match_all('/^[ \t]*var\s+' . preg_quote($nomeVariabile, '/') . '\s*=\s*["\']?([^"\'\r\n;]*)/m', $raw, $m)) {
+            return true;
+        }
+        return in_array(strtolower(trim(end($m[1]))), array('si', '1', 'true'), true);
+    }
+}
+
+if (!function_exists('fcm_live_giornata_richiesta')) {
+    /**
+     * Giornata di Serie A chiesta dal client: vale solo se e' un intero tra 1 e 38 in forma
+     * canonica (niente zeri iniziali, decimali o array). NULL se manca o non e' valida.
+     */
+    function fcm_live_giornata_richiesta(array $nomiParametro) {
+        foreach ($nomiParametro as $nome) {
+            if (!empty($_GET[$nome])) {
+                $g = filter_var($_GET[$nome], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1, 'max_range' => 38)));
+                return ($g === false) ? null : $g;
+            }
+        }
+        return null;
+    }
+}
+
+if (!function_exists('fcm_live_giornata_corrente')) {
+    /**
+     * Giornata di Serie A corrente per la lega: la prima che nel calendario FCM ha ancora incontri
+     * da calcolare, cioe' quella che il sito mostra in home e nel live. NULL se il calendario
+     * manca, non e' leggibile o non ha piu' incontri da calcolare.
+     */
+    function fcm_live_giornata_corrente() {
+        $raw = @file_get_contents(dirname(__DIR__) . '/js/fcmCalendarioDati.js');
+        // new I(ID, IncAcc, IDTipo, Giocato, IDFantagiornata, Fantagiornata, IDCompetizione,
+        //       Competizione, IDGirone, Girone, GiornataDiA, ...): i tre nomi possono contenere virgole
+        $nome = '(?:"(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|[^,()]*)';
+        $re = '/new\s+I\(\s*[^,()]*,[^,()]*,\s*(\d+)\s*,\s*(\d+)\s*,[^,()]*,\s*' . $nome . '\s*,[^,()]*,\s*' . $nome
+            . '\s*,[^,()]*,\s*' . $nome . '\s*,\s*(\d+)\s*[,)]/';
+        $corrente = null;
+        if (is_string($raw) && preg_match_all($re, $raw, $incontri, PREG_SET_ORDER)) {
+            foreach ($incontri as $inc) {
+                // tipo 2 = turno di riposo; giocato 1 = incontro gia' calcolato
+                if ((int)$inc[1] !== 2 && (int)$inc[2] !== 1 && ($corrente === null || (int)$inc[3] < $corrente)) {
+                    $corrente = (int)$inc[3];
+                }
+            }
+        }
+        return ($corrente !== null && $corrente >= 1 && $corrente <= 38) ? $corrente : null;
+    }
+}
+
+$isCli = (php_sapi_name() === 'cli');
+
+// Modulo disattivato nelle variabili del sito: l'endpoint non scarica e non scrive nulla
+if (!$isCli && !fcm_live_modulo_attivo('ModLiveFantaMaster')) {
+    if ($isAjax) {
+        if (!headers_sent()) {
+            http_response_code(403);
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        echo json_encode(array('success' => false, 'error' => 'Modulo Live FantaMaster disattivato'));
+        exit;
+    }
+    return;
+}
+
+// Admin riconosciuto dalla sessione già aperta: per i visitatori anonimi non se ne crea una nuova
+$isAdmin = !$isCli && fcm_admin_session_active(true);
+
+// I visitatori possono far scaricare solo la giornata corrente della lega o, vedi sotto, una
+// successiva appena iniziata: sono le sole che possono finire nel file condiviso letto da tutti.
+// Senza giornata (o con una giornata non valida) vale quella corrente.
+$gio = fcm_live_giornata_richiesta(array('Gio', 'cGio', 'day'));
+$giornataLega = fcm_live_giornata_corrente();
+if ($gio === null && !$isCli) {
+    $gio = $giornataLega;
+}
+$altraGiornata = false;
+if (!$isCli && !$isAdmin) {
+    if ($giornataLega === null) {
+        // Giornata della lega non determinabile (calendario assente o tutto già calcolato): a FantaMaster
+        // non si chiede quella scelta dal visitatore, vale la sua giornata in corso
+        $gio = null;
+    } elseif ($gio !== $giornataLega) {
+        // Vale anche una giornata successiva iniziata di recente secondo js/DataA.js: capita quando
+        // la lega non ha ancora calcolato una giornata e in Serie A si gioca già la seguente
+        $altraGiornata = !($gio > $giornataLega && function_exists('fcm_dataA_giornate_recenti')
+            && in_array($gio, fcm_dataA_giornate_recenti(dirname(__DIR__)), true));
+    }
+}
+
+// Limite condiviso tra tutti i visitatori: da FantaMaster si scarica al massimo una volta ogni 20
+// secondi (il client aggiorna ogni 60); nel frattempo si risponde con i dati già salvati.
+// Lo scavalcano solo la riga di comando e l'admin autenticato che chiede force.
+$forzaAggiornamento = $isCli || ($isAdmin && !empty($_GET['force']) && is_scalar($_GET['force']));
+// La giornata successiva già in campo ha un turno suo: non toglie l'aggiornamento a quella della lega
+$chiaveCooldown = ($giornataLega !== null && $gio !== null && $gio !== $giornataLega) ? 'live_fm_succ' : 'live_fm';
+if ($altraGiornata || (!$forzaAggiornamento && !fcm_cooldown_acquire($chiaveCooldown, 20))) {
+    if ($isAjax) {
+        $metaCache = file_exists(VOTI_OUTPUT_FILE) ? @json_decode((string)@file_get_contents(VOTI_META_FILE), true) : null;
+        if (!headers_sent()) {
+            header('Content-Type: application/json; charset=utf-8');
+            header('Cache-Control: no-cache, no-store, must-revalidate');
+        }
+        if (is_array($metaCache) && isset($metaCache['timestamp'])) {
+            $cachedCount = isset($metaCache['count']) ? (int)$metaCache['count'] : 0;
+            // giornataFM è quella dei dati salvati: se non è quella chiesta il client li ignora
+            echo json_encode(array(
+                'success' => true,
+                // dati già salvati, non scaricati ora: il client lo dice e propone "Forza Aggiornamento"
+                // solo a chi può davvero forzare
+                'cached' => true,
+                'canForce' => $isAdmin,
+                'count' => $cachedCount,
+                'source' => 'fantamaster',
+                'giornataFM' => isset($metaCache['giornataFM']) ? (int)$metaCache['giornataFM'] : 0,
+                'hasMatchLive' => !empty($metaCache['hasMatchLive']),
+                'error' => null,
+                'timestamp' => (int)$metaCache['timestamp'],
+                'updated' => date('H:i:s', (int)$metaCache['timestamp']),
+                'message' => 'Voti FantaMaster caricati dalla cache locale (' . $cachedCount . ' giocatori)'
+            ));
+        } else {
+            echo json_encode(array(
+                'success' => false,
+                'count' => 0,
+                'source' => 'fantamaster',
+                'giornataFM' => 0,
+                'hasMatchLive' => false,
+                // rifiuto per la giornata, non un errore della fonte: il client lo presenta come avviso
+                'altraGiornata' => $altraGiornata,
+                'error' => $altraGiornata
+                    ? "Voti FantaMaster disponibili solo per la giornata in corso"
+                    : "Voti FantaMaster non ancora disponibili: riprova tra qualche secondo",
+                'timestamp' => time(),
+                'updated' => date('H:i:s')
+            ));
+        }
+        exit;
+    }
+    return;
+}
 
 // Caricamento associazioni giocatori unificate
 $baseDir = dirname(__DIR__);
@@ -71,16 +229,26 @@ function fm_returnvoto($voto) {
     if ($voto === null || $voto === "" || $voto === "0" || $voto === 0) {
         return "SV";
     }
-    return (string)$voto;
+    // Il voto arriva dal feed esterno e finisce nella pagina live: si accetta solo un numero
+    if (is_int($voto) || is_float($voto)) {
+        return (string)$voto;
+    }
+    if (is_string($voto)) {
+        // Il separatore decimale può essere la virgola ("6,5"), come accetta anche il client
+        $voto = str_replace(',', '.', trim($voto));
+        if (is_numeric($voto)) {
+            return $voto;
+        }
+    }
+    return "SV";
 }
 
 // 1. Costruzione URL con timestamp e giornata opzionale
-$gio = !empty($_GET['Gio']) ? $_GET['Gio'] : (!empty($_GET['cGio']) ? $_GET['cGio'] : (!empty($_GET['day']) ? $_GET['day'] : null));
 $tcache = round(microtime(true) * 1000);
 
 $apiUrl = FM_BASE_URL . "?tcache=" . $tcache;
-if (!empty($gio) && is_numeric($gio)) {
-    $apiUrl .= "&day=" . intval($gio);
+if ($gio !== null) {
+    $apiUrl .= "&day=" . $gio;
 }
 
 // 2. Estrazione dati via cURL o stream

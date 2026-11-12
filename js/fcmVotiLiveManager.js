@@ -52,6 +52,16 @@ var FcmVotiLiveManager = (function () {
         }
     }
 
+    // I valori che arrivano dalle risposte JSON (o riletti da sessionStorage) vanno escapati prima di entrare in innerHTML
+    function escapeHtml(value) {
+        return String(value === null || value === undefined ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function checkAndShowGiornataLiveNotice(giornataLive) {
         if (!giornataLive || !config.giornata) return;
         var noticeContainer = document.getElementById('fpDayNoticeContainer');
@@ -84,8 +94,8 @@ var FcmVotiLiveManager = (function () {
 
             noticeContainer.innerHTML =
                 '<div id="fpDayNotice" class="vu-cache-notice" style="margin-bottom: 16px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); color: #d97706; padding: 12px 16px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">' +
-                '<span>&#9888;&#65039; <strong>Nota sul Live:</strong> Stai visualizzando la <strong>' + config.giornata + '&ordf; giornata</strong>, ma il Live ' + config.sourceName + ' &egrave; attualmente attivo per la <strong>' + giornataLive + '&ordf; giornata</strong> di Serie A.</span>' +
-                '<a href="' + targetUrl + '" class="btn-force-inline" style="background:#d97706; color:#ffffff; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem;">Passa alla ' + giornataLive + '&ordf; giornata Live &rarr;</a>' +
+                '<span>&#9888;&#65039; <strong>Nota sul Live:</strong> Stai visualizzando la <strong>' + escapeHtml(config.giornata) + '&ordf; giornata</strong>, ma il Live ' + config.sourceName + ' &egrave; attualmente attivo per la <strong>' + escapeHtml(giornataLive) + '&ordf; giornata</strong> di Serie A.</span>' +
+                '<a href="' + escapeHtml(targetUrl) + '" class="btn-force-inline" style="background:#d97706; color:#ffffff; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem;">Passa alla ' + escapeHtml(giornataLive) + '&ordf; giornata Live &rarr;</a>' +
                 '</div>';
         } else {
             noticeContainer.innerHTML = '';
@@ -252,8 +262,8 @@ var FcmVotiLiveManager = (function () {
         var isVuSource = (config.source === 'pianetafanta');
         var cacheBaseText = isVuSource ? 'Voti Ufficiosi (PianetaFanta) caricati dalla cache locale' : 'Voti caricati dalla cache locale';
         var msg = isCached
-            ? ((data && data.message) || cacheBaseText)
-            : ('Voti e bonus/malus scaricati con successo da ' + config.sourceName + '! (' + ((data && data.count) || 0) + ' giocatori)');
+            ? ((data && data.message) ? escapeHtml(data.message) : cacheBaseText)
+            : ('Voti e bonus/malus scaricati con successo da ' + config.sourceName + '! (' + escapeHtml((data && data.count) || 0) + ' giocatori)');
         var icon = isCached ? '&#9889;' : '&#9989;';
 
         updateProgress(100, msg, icon);
@@ -275,7 +285,9 @@ var FcmVotiLiveManager = (function () {
         }
 
         var timeStr = (data && (data.lastUpdated || data.updated)) ? (data.lastUpdated || data.updated) : '';
-        var timeSuffix = timeStr ? (' (aggiornati alle ' + timeStr + ')') : '';
+        var timeSuffix = timeStr ? (' (aggiornati alle ' + escapeHtml(timeStr) + ')') : '';
+        // La forzatura vale solo per l'amministratore: se il server dice che non è consentita il pulsante non viene proposto
+        var canForce = !(data && data.canForce === false);
 
         // Gestione banner discrepanza giornata ed auto-refresh (Fantapazz / FantaMaster / Fantacalcio)
         if (config.source === 'fantapazz' || config.source === 'fantamaster' || config.source === 'fantacalcio') {
@@ -300,7 +312,7 @@ var FcmVotiLiveManager = (function () {
                     '<span style="display:inline-flex;align-items:center;gap:6px;">' +
                     '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>' +
                     'Voti Ufficiosi (PianetaFanta) caricati dalla cache locale' + timeSuffix + '</span> ' +
-                    '<button type="button" class="btn-force-inline" onclick="if(window.importaVotiUfficiosiCalcolo){window.importaVotiUfficiosiCalcolo(true);}else if(window.FcmVotiLiveManager){window.FcmVotiLiveManager.startExtraction(true, true);}">Forza Aggiornamento</button>' +
+                    (canForce ? '<button type="button" class="btn-force-inline" onclick="if(window.importaVotiUfficiosiCalcolo){window.importaVotiUfficiosiCalcolo(true);}else if(window.FcmVotiLiveManager){window.FcmVotiLiveManager.startExtraction(true, true);}">Forza Aggiornamento</button>' : '') +
                     '</div>';
             } else {
                 cacheStatusEl.innerHTML = '';
@@ -315,7 +327,7 @@ var FcmVotiLiveManager = (function () {
                     '<span style="display:inline-flex;align-items:center;gap:6px;">' +
                     '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>' +
                     cacheBaseText + timeSuffix + '</span> ' +
-                    '<button type="button" class="btn-force-inline" onclick="if(window.FcmVotiLiveManager)FcmVotiLiveManager.startExtraction(true, true);">Forza Aggiornamento</button>' +
+                    (canForce ? '<button type="button" class="btn-force-inline" onclick="if(window.FcmVotiLiveManager)FcmVotiLiveManager.startExtraction(true, true);">Forza Aggiornamento</button>' : '') +
                     '</div>';
             } else {
                 vuNoticeContainer.innerHTML = '';
@@ -657,6 +669,8 @@ var FcmVotiLiveManager = (function () {
 
                 if (data && data.success) {
                     handleSuccess(data);
+                } else if (data && data.altraGiornata === true) {
+                    handleOtherDay(data.error);
                 } else {
                     var errMsg = (data && data.error) ? data.error : "Errore sconosciuto durante l'estrazione dei dati";
                     handleError(errMsg);
@@ -723,8 +737,58 @@ var FcmVotiLiveManager = (function () {
 
         showTimeoutPanel(
             'Impossibile caricare i dati',
-            'Si &egrave; verificato un errore durante la comunicazione con <strong>' + config.sourceName + '</strong>: ' + msg
+            'Si &egrave; verificato un errore durante la comunicazione con <strong>' + config.sourceName + '</strong>: ' + escapeHtml(msg)
         );
+    }
+
+    // Il server non scarica per i visitatori i voti di una giornata diversa da quella in corso: non è un
+    // errore della fonte e i dati salvati, che sono di un'altra giornata, non vanno proposti
+    function handleOtherDay(msg) {
+        state.isExtracting = false;
+        setImportButtonLoading(false);
+        clearInterval(state.timerInterval);
+        clearInterval(state.progressInterval);
+
+        var dot = document.getElementById('liveProgressDot');
+        if (dot) {
+            dot.className = 'live-pulse-dot dot-warning';
+        }
+
+        updateProgress(state.currentProgress, 'Voti non disponibili per questa giornata', '&#9888;&#65039;');
+
+        // Un avviso "caricati dalla cache" rimasto dalla giornata vista prima non vale per questa
+        var cacheStatusEl = document.getElementById('vuCacheStatus');
+        if (cacheStatusEl) cacheStatusEl.innerHTML = '';
+        var vuNoticeContainer = document.getElementById('vuCacheNoticeContainer');
+        if (vuNoticeContainer) vuNoticeContainer.innerHTML = '';
+
+        var slot = document.getElementById('liveTimeoutPanelSlot');
+        if (slot) {
+            slot.innerHTML = '<div class="vu-cache-notice" style="margin-top: 16px;">' +
+                '<span>' + escapeHtml(msg || 'I voti di questa giornata non sono disponibili sul sito.') + '</span>' +
+                '</div>';
+        }
+    }
+
+    // Giornata dei voti salvati sul sito per la fonte attiva, letta dal file di metadati (null se non è nota)
+    function fetchSavedGiornata(callback) {
+        var metaFile = 'js/fcmVotiDatiVUMeta.json';
+        var field = 'giornata';
+        if (config.source === 'fantamaster') {
+            metaFile = 'js/fcmVotiDatiFMMeta.json';
+            field = 'giornataFM';
+        } else if (config.source === 'fantacalcio') {
+            metaFile = 'js/fcmVotiDatiFCMeta.json';
+            field = 'giornataFC';
+        } else if (config.source === 'fantapazz') {
+            metaFile = 'js/fcmVotiDatiFPMeta.json';
+            field = 'giornataFP';
+        }
+        fetch(metaFile + '?t=' + Date.now(), { cache: 'no-store' })
+            .then(function (res) { return res.ok ? res.json() : null; })
+            .then(function (meta) { return (meta && parseInt(meta[field], 10)) || null; })
+            .catch(function () { return null; })
+            .then(callback);
     }
 
     function showTimeoutPanel(title, descHtml) {
@@ -766,12 +830,29 @@ var FcmVotiLiveManager = (function () {
         if (btnCached) {
             btnCached.addEventListener('click', function () {
                 if (typeof config.onSuccess === 'function') {
-                    reloadScriptVoti(function () {
-                        try {
-                            config.onSuccess({ count: (typeof arrVoti !== 'undefined' && arrVoti) ? arrVoti.length : 0 });
-                        } catch (e) { }
-                        var container = document.getElementById(config.containerId);
-                        if (container) container.style.display = 'none';
+                    // I dati salvati sono condivisi tra tutti i visitatori e possono essere di un'altra giornata:
+                    // in quel caso non vanno caricati sulla giornata visualizzata
+                    var reqId = state.requestSeq;
+                    fetchSavedGiornata(function (savedDay) {
+                        if (reqId !== state.requestSeq) return;
+                        var shownDay = parseInt(config.giornata, 10);
+                        if (savedDay && shownDay && savedDay !== shownDay) {
+                            var desc = slot.querySelector('.live-timeout-desc');
+                            if (desc) {
+                                desc.innerHTML = 'I dati salvati sul sito sono della <strong>' + escapeHtml(savedDay) + '&ordf; giornata</strong>, non della ' + escapeHtml(shownDay) + '&ordf;: non vengono caricati.';
+                            }
+                            btnCached.disabled = true;
+                            btnCached.style.opacity = '0.6';
+                            btnCached.style.cursor = 'not-allowed';
+                            return;
+                        }
+                        reloadScriptVoti(function () {
+                            try {
+                                config.onSuccess({ count: (typeof arrVoti !== 'undefined' && arrVoti) ? arrVoti.length : 0 });
+                            } catch (e) { }
+                            var container = document.getElementById(config.containerId);
+                            if (container) container.style.display = 'none';
+                        });
                     });
                 } else {
                     setupLoadedView();

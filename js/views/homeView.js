@@ -57,6 +57,31 @@ const homeView = {
   },
 
   /**
+   * I file dei voti live sono condivisi tra tutti i visitatori e possono contenere una giornata diversa da quella
+   * mostrata in home. FALSE se i metadati della fonte ('vu', 'fantacalcio', 'fantapazz', 'fantamaster') indicano
+   * un'altra giornata: in quel caso il file non va caricato, o i voti finirebbero sulle formazioni sbagliate.
+   */
+  async _isLiveFeedOfDay(source, day) {
+    const metaBySource = {
+      vu: ['js/fcmVotiDatiVUMeta.json', 'giornata'],
+      fantacalcio: ['js/fcmVotiDatiFCMeta.json', 'giornataFC'],
+      fantapazz: ['js/fcmVotiDatiFPMeta.json', 'giornataFP'],
+      fantamaster: ['js/fcmVotiDatiFMMeta.json', 'giornataFM']
+    };
+    const meta = Object.prototype.hasOwnProperty.call(metaBySource, source) ? metaBySource[source] : null;
+    if (!meta || typeof fetch === 'undefined') return true;
+    try {
+      const res = await fetch(`${meta[0]}?t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) return true;
+      const data = await res.json();
+      const feedDay = data ? Number(data[meta[1]]) : 0;
+      return !feedDay || feedDay === Number(day);
+    } catch (e) {
+      return true;
+    }
+  },
+
+  /**
    * Format girone name without forcing ALL-CAPS (e.g. "GIRONE A" -> "Girone A")
    */
   formatGironeName(name) {
@@ -298,7 +323,7 @@ const homeView = {
       try { await fcmDataLoader.loadScript('js/fcmCalcolorisultatiVariabili.js', true); } catch (e) { }
 
       // 1. Caricamento PianetaFanta (base permanente e prioritaria)
-      if (hasLiveVU) {
+      if (hasLiveVU && await this._isLiveFeedOfDay('vu', calendar.nextMatchday)) {
         try {
           await fcmDataLoader.loadScript('js/fcmVotiDatiVU.js', true);
           this._liveDataStore.vu = {
@@ -312,7 +337,7 @@ const homeView = {
       }
 
       // 2. Pre-caricamento immediato delle fonti live secondarie (Fantacalcio, Fantapazz e FantaMaster)
-      if (hasLiveFC) {
+      if (hasLiveFC && await this._isLiveFeedOfDay('fantacalcio', calendar.nextMatchday)) {
         try {
           await fcmDataLoader.loadScript('js/fcmVotiDatiFC.js', true);
           const dataFC = {
@@ -325,7 +350,7 @@ const homeView = {
           console.warn('Voti live Fantacalcio non disponibili:', e);
         }
       }
-      if (hasliveFP) {
+      if (hasliveFP && await this._isLiveFeedOfDay('fantapazz', calendar.nextMatchday)) {
         try {
           await fcmDataLoader.loadScript('js/fcmVotiDatiFP.js', true);
           const dataFP = {
@@ -338,7 +363,7 @@ const homeView = {
           console.warn('Voti live Fantapazz non disponibili:', e);
         }
       }
-      if (hasLiveFM) {
+      if (hasLiveFM && await this._isLiveFeedOfDay('fantamaster', calendar.nextMatchday)) {
         try {
           await fcmDataLoader.loadScript('js/fcmVotiDatiFM.js', true);
           const dataFM = {
@@ -3124,21 +3149,28 @@ const homeView = {
     let posts = [];
     let currentIndex = 0;
 
-    const cleanComment = rawHtml => {
-      const comment = document.createElement('div');
-      comment.innerHTML = String(rawHtml || '').replaceAll('##GBOOK_TEMPLATE##', guestbookTemplatePath);
-      comment.querySelectorAll('script,style,iframe,object,embed,form').forEach(element => element.remove());
-      comment.querySelectorAll('*').forEach(element => {
-        if (element.tagName === 'IMG') {
-          Array.from(element.attributes).forEach(attribute => {
-            if (!['src', 'alt', 'title'].includes(attribute.name)) element.removeAttribute(attribute.name);
-          });
-        } else if (element.tagName !== 'BR') {
-          Array.from(element.attributes).forEach(attribute => element.removeAttribute(attribute.name));
-        }
-      });
-      return comment.innerHTML;
+    // Il commento non viene mai interpretato come HTML: restano attivi solo gli a-capo e le emoticon
+    // inserite dal guestbook (immagini della sua cartella emoticon), tutto il resto è mostrato come testo
+    const emoticonPath = `${guestbookTemplatePath}images/emoticons/`;
+    const escapeTags = text => text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const readAttribute = (tag, name) => {
+      const found = new RegExp(`\\s${name}="([^"<>]*)"`, 'i').exec(tag);
+      return found ? found[1] : '';
     };
+    const cleanComment = rawHtml => String(rawHtml || '')
+      .replaceAll('##GBOOK_TEMPLATE##', guestbookTemplatePath)
+      .split(/(<br\s*\/?>|<img\s[^<>]*>)/i)
+      .map(part => {
+        if (/^<br\s*\/?>$/i.test(part)) return '<br>';
+        if (/^<img\s[^<>]*>$/i.test(part)) {
+          const src = readAttribute(part, 'src');
+          if (src.startsWith(emoticonPath) && /^[a-z0-9_-]+\.(gif|png|jpe?g|webp)$/i.test(src.slice(emoticonPath.length))) {
+            return `<img src="${src}" alt="${readAttribute(part, 'alt')}" title="${readAttribute(part, 'title')}">`;
+          }
+        }
+        return escapeTags(part);
+      })
+      .join('');
 
     const renderPost = () => {
       const post = posts[currentIndex];
@@ -4203,13 +4235,15 @@ const homeView = {
     };
 
     const isPortiere = (roleLetter === 'P' || roleLetter === 1);
-    const gF = Number(v.GolFatto || 0);
-    const gS = Number(v.GolSubito || 0);
-    const rig = Number(v.Rigore || 0);
-    const rPar = Number(v.RigoreParato || 0);
-    const rSba = Number(v.RigoreSbagliato || 0);
-    const autoG = Number(v.AutoGol || 0);
-    const ass = Number(v.Assist || 0);
+    // I conteggi arrivano dai feed esterni: il tetto evita cicli enormi o infiniti nella generazione delle icone
+    const capCount = (n) => Math.min(20, Number(n || 0));
+    const gF = capCount(v.GolFatto);
+    const gS = capCount(v.GolSubito);
+    const rig = capCount(v.Rigore);
+    const rPar = capCount(v.RigoreParato);
+    const rSba = capCount(v.RigoreSbagliato);
+    const autoG = capCount(v.AutoGol);
+    const ass = capCount(v.Assist);
 
     // Gol Fatti & Rigori
     const netGol = isSeparatePen ? Math.max(0, gF) : Math.max(0, gF - rig);
@@ -4772,7 +4806,8 @@ const homeView = {
     const formatLiveVoto = (v) => {
       if (v === 'SV' || v === 'S.V.' || v === null || v === undefined || v === '') return 'SV';
       const num = Number(v);
-      if (isNaN(num)) return String(v);
+      // Il risultato finisce in innerHTML: un valore non numerico non va mai restituito così com'è
+      if (isNaN(num)) return 'SV';
       return (Math.round(num * 100) / 100).toString();
     };
 
@@ -5237,7 +5272,9 @@ const homeView = {
 
     // Carica i dati della sorgente live selezionata se non ancora in memoria
     const secStore = this._getSecondaryData(targetSource);
-    if (!secStore.loaded || !secStore.voti || secStore.voti.length === 0) {
+    const liveCal = (typeof fcmDataLoader !== 'undefined' && fcmDataLoader.getCalendarData) ? fcmDataLoader.getCalendarData() : null;
+    const liveDay = (liveCal && liveCal.nextMatchday) ? liveCal.nextMatchday : 1;
+    if ((!secStore.loaded || !secStore.voti || secStore.voti.length === 0) && await this._isLiveFeedOfDay(targetSource, liveDay)) {
       try {
         if (targetSource === 'fantapazz') {
           await fcmDataLoader.loadScript('js/fcmVotiDatiFP.js', true);
@@ -5405,6 +5442,7 @@ const homeView = {
       if (activeSec === 'fantapazz') {
         try {
           await fetch(`inc/live_extractFP.php?ajax=1&Gio=${encodeURIComponent(g)}&force=1&t=${Date.now()}`, { cache: 'no-store' });
+          if (!(await this._isLiveFeedOfDay('fantapazz', g))) throw new Error('voti salvati di un\'altra giornata');
           await fcmDataLoader.loadScript('js/fcmVotiDatiFP.js', true);
           this._setSecondaryData('fantapazz', {
             voti: (typeof arrVoti !== 'undefined' && Array.isArray(arrVoti)) ? arrVoti.slice() : [],
@@ -5417,6 +5455,7 @@ const homeView = {
       } else if (activeSec === 'fantamaster') {
         try {
           await fetch(`inc/live_extractFM.php?ajax=1&Gio=${encodeURIComponent(g)}&force=1&t=${Date.now()}`, { cache: 'no-store' });
+          if (!(await this._isLiveFeedOfDay('fantamaster', g))) throw new Error('voti salvati di un\'altra giornata');
           await fcmDataLoader.loadScript('js/fcmVotiDatiFM.js', true);
           this._setSecondaryData('fantamaster', {
             voti: (typeof arrVoti !== 'undefined' && Array.isArray(arrVoti)) ? arrVoti.slice() : [],
@@ -5429,6 +5468,7 @@ const homeView = {
       } else if (activeSec === 'fantacalcio') {
         try {
           await fetch(`inc/live_extractFC.php?ajax=1&Gio=${encodeURIComponent(g)}&force=1&t=${Date.now()}`, { cache: 'no-store' });
+          if (!(await this._isLiveFeedOfDay('fantacalcio', g))) throw new Error('voti salvati di un\'altra giornata');
           await fcmDataLoader.loadScript('js/fcmVotiDatiFC.js', true);
           this._setSecondaryData('fantacalcio', {
             voti: (typeof arrVoti !== 'undefined' && Array.isArray(arrVoti)) ? arrVoti.slice() : [],
@@ -5451,6 +5491,7 @@ const homeView = {
             const vuData = await vuRes.json();
             this._lastVURefreshTime = (vuData && vuData.timestamp) ? vuData.timestamp * 1000 : now;
           }
+          if (!(await this._isLiveFeedOfDay('vu', g))) throw new Error('voti salvati di un\'altra giornata');
           await fcmDataLoader.loadScript('js/fcmVotiDatiVU.js', true);
           this._liveDataStore.vu = {
             voti: (typeof arrVoti !== 'undefined' && Array.isArray(arrVoti)) ? arrVoti.slice() : [],
@@ -5528,7 +5569,7 @@ const homeView = {
 
       this._lastVURefreshTime = (data && data.timestamp) ? data.timestamp * 1000 : Date.now();
 
-      if (data && data.success) {
+      if (data && data.success && await this._isLiveFeedOfDay('vu', g)) {
         if (typeof fcmDataLoader !== 'undefined' && fcmDataLoader.loadScript) {
           await fcmDataLoader.loadScript('js/fcmVotiDatiVU.js', true);
         }

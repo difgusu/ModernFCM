@@ -376,6 +376,21 @@ const fcmDataLoader = {
     return isInc ? '../' + url : url;
   },
 
+  /**
+   * Il loader carica script e dati solo da questo sito. TRUE se l'indirizzo, risolto come farebbe il browser,
+   * resta sullo stesso origin: esclude http(s):// esterni, "//host", data:, javascript: e simili.
+   */
+  _isSameOrigin(url) {
+    if (typeof window === 'undefined' || !window.location || !window.location.origin || typeof URL !== 'function') {
+      return true; // Fuori dal browser non c'è un origin con cui confrontare
+    }
+    try {
+      return new URL(url, window.location.href).origin === window.location.origin;
+    } catch (e) {
+      return false;
+    }
+  },
+
   _initLoadedScripts() {
     if (typeof document === 'undefined') return;
     if (!this._loadedScripts) this._loadedScripts = new Set();
@@ -396,6 +411,11 @@ const fcmDataLoader = {
    * Helper to dynamically inject a script and wait for load
    */
   loadScript(src, forceReload = false, charset = 'ISO-8859-1') {
+    // Nessun chiamante ha bisogno di script esterni: un indirizzo che porta su un altro origin non viene caricato
+    if (!this._isSameOrigin(this._resolvePath(src))) {
+      console.warn(`Script esterno non caricato: ${src}`);
+      return Promise.resolve();
+    }
     if (!this._scriptsInitialized) {
       this._initLoadedScripts();
       this._scriptsInitialized = true;
@@ -1726,8 +1746,8 @@ const fcmDataLoader = {
   },
 
   /**
-   * Loads match schedule & deadlines directly from invform/invform.inc.php
-   * (via invform.php endpoint on server, and direct text parsing as fallback)
+   * Loads match schedule & deadlines from invform/invform.inc.php
+   * (via invform.php endpoint on server)
    */
   async loadMatchSchedule(targetDay) {
     const day = targetDay || (this.getCalendarData().nextMatchday);
@@ -1753,19 +1773,7 @@ const fcmDataLoader = {
         }
       } catch (e) { }
 
-      // 2. Direct fetch and regex parse of invform/invform.inc.php (works in local dev, node/python server)
-      try {
-        const resp = await fetch('invform/invform.inc.php');
-        if (resp.ok) {
-          const text = await resp.text();
-          if (text && text.includes('orariInizio')) {
-            this._scheduleCache = this._parseInvformIncText(text);
-            return this._scheduleCache;
-          }
-        }
-      } catch (e) { }
-
-      // 3. Fallback if single termineInvio object exists
+      // 2. Fallback if single termineInvio object exists
       if (typeof termineInvio !== 'undefined' && termineInvio && termineInvio.dataOraTermine) {
         const anticipo = (termineInvio.anticipoInvio !== undefined && termineInvio.anticipoInvio !== null)
           ? parseInt(termineInvio.anticipoInvio, 10)
@@ -1869,33 +1877,6 @@ const fcmDataLoader = {
     }
 
     return str;
-  },
-
-  _parseInvformIncText(phpText) {
-    const schedule = {};
-    let anticipo = 30;
-    const antMatch = phpText.match(/\$anticipoInvio\s*=\s*['"]?(\d+)['"]?/);
-    if (antMatch) anticipo = parseInt(antMatch[1], 10);
-    this._anticipoInvio = anticipo;
-
-    const regex = /(\d+)\s*=>\s*['"](\d{4}-\d{2}-\d{2})\s+(\d{1,2})[.:](\d{2})['"]/g;
-    let m;
-    while ((m = regex.exec(phpText)) !== null) {
-      const day = parseInt(m[1], 10);
-      const dateStr = m[2];
-      const hour = m[3].padStart(2, '0');
-      const min = m[4];
-      const inicioDate = new Date(`${dateStr}T${hour}:${min}:00`);
-      const termineDate = new Date(inicioDate.getTime() - anticipo * 60 * 1000);
-      schedule[day] = {
-        serieADay: day,
-        orarioInizio: `${dateStr} ${hour}:${min}`,
-        dataOraInizio: inicioDate,
-        dataOraTermine: termineDate,
-        anticipoInvio: anticipo
-      };
-    }
-    return schedule;
   },
 
   _parseOrariMap(orariMap, anticipo) {
@@ -3645,6 +3626,8 @@ const fcmDataLoader = {
   async fetchJson(url, forceReload = false) {
     if (!url) return null;
     const resolvedUrl = this._resolvePath(url);
+    // I dati JSON si leggono solo da questo sito
+    if (!this._isSameOrigin(resolvedUrl)) return null;
     if (!forceReload && this._fetchCache && this._fetchCache.has(resolvedUrl)) {
       return this._fetchCache.get(resolvedUrl);
     }
@@ -3707,6 +3690,30 @@ const fcmDataLoader = {
     }
     this._cachedStoricoConfig = cfg;
     return cfg;
+  },
+
+  /**
+   * Helper: compone il link al sito legacy di una stagione dai valori salvati in storico_config.json.
+   * Sono ammessi solo percorsi: un valore con schema (http:, javascript:, ...) o del tipo "//host" viene
+   * scartato, e ogni segmento viene codificato perché il risultato finisce in un attributo href.
+   */
+  _buildLegacyPath(folder, indexFile) {
+    const rawPath = `${folder}/${indexFile}`;
+    if (/^\s*([a-z][a-z0-9+.\-]*:|\/\/)/i.test(rawPath)) return null;
+    // Query e frammento del file di avvio (es. "index.php?stag=1", "home.php#top") non sono segmenti del
+    // percorso: restano in coda così come sono, codificando solo i caratteri non ammessi in un indirizzo
+    const tailStart = String(indexFile).search(/[?#]/);
+    const tail = tailStart === -1 ? '' : String(indexFile).slice(tailStart);
+    try {
+      return rawPath.slice(0, rawPath.length - tail.length).split('/').map(segment => {
+        let decoded = segment;
+        // Un segmento già codificato (es. "Stagione%202019") non va codificato due volte
+        try { decoded = decodeURIComponent(segment); } catch (e) { }
+        return encodeURIComponent(decoded).replace(/'/g, '%27');
+      }).join('/') + tail.replace(/%(?![0-9A-Fa-f]{2})|[^A-Za-z0-9\-._~!$&()*+,;=:@\/?#%]/gu, encodeURIComponent).replace(/'/g, '%27');
+    } catch (e) {
+      return null; // testo non codificabile (es. surrogati spaiati): nessun link
+    }
   },
 
   /**
@@ -3937,7 +3944,7 @@ const fcmDataLoader = {
         if (storicoConfig && storicoConfig.seasons && storicoConfig.seasons[sKey] && storicoConfig.seasons[sKey].folder) {
           const cleanF = String(storicoConfig.seasons[sKey].folder).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '');
           const idxFile = storicoConfig.seasons[sKey].index || 'index.php';
-          legacyPath = `${cleanF}/${idxFile}`;
+          legacyPath = this._buildLegacyPath(cleanF, idxFile);
         } else if (typeof arrDirectory !== 'undefined' && Array.isArray(arrDirectory)) {
           // Verifica se presente in arrDirectory da Confronti Storici
           const dObj = arrDirectory.find(d => d && Number(d.Stagione) === sId);

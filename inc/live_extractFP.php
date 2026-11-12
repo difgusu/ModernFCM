@@ -16,6 +16,84 @@ define('API_URL', "https://api.fantapazz.com/live.php");
 define('VOTI_OUTPUT_FILE', dirname(__DIR__) . "/js/fcmVotiDatiFP.js");
 define('VOTI_META_FILE', dirname(__DIR__) . "/js/fcmVotiDatiFPMeta.json");
 
+// La funzione che segue e' ripetuta identica negli altri endpoint dei dati live
+// (inc/live_extract*.php, inc/probform_extract.php): ogni modifica va riportata in tutte le copie.
+if (!function_exists('fcm_live_modulo_attivo')) {
+    /**
+     * TRUE se il modulo risulta attivo in js/fcmVariabili.js. Stessa regola del menu del sito e
+     * del client: attivo se la variabile manca oppure vale Si, 1 o true.
+     */
+    function fcm_live_modulo_attivo($nomeVariabile) {
+        $raw = @file_get_contents(dirname(__DIR__) . '/js/fcmVariabili.js');
+        if (!is_string($raw) || !preg_match_all('/^[ \t]*var\s+' . preg_quote($nomeVariabile, '/') . '\s*=\s*["\']?([^"\'\r\n;]*)/m', $raw, $m)) {
+            return true;
+        }
+        return in_array(strtolower(trim(end($m[1]))), array('si', '1', 'true'), true);
+    }
+}
+
+$isCli = (php_sapi_name() === 'cli');
+
+// Modulo disattivato nelle variabili del sito: l'endpoint non scarica e non scrive nulla
+if (!$isCli && !fcm_live_modulo_attivo('ModLiveFantapazz')) {
+    if ($isAjax) {
+        if (!headers_sent()) {
+            http_response_code(403);
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        echo json_encode(array('success' => false, 'error' => 'Modulo Live Fantapazz disattivato'));
+        exit;
+    }
+    return;
+}
+
+// Limite condiviso tra tutti i visitatori: da Fantapazz si scarica al massimo una volta ogni 20
+// secondi (il client aggiorna ogni 60); nel frattempo si risponde con i dati gia' salvati.
+// Lo scavalcano solo la riga di comando e l'admin autenticato che chiede force.
+$forzaAggiornamento = $isCli
+    || (!empty($_GET['force']) && is_scalar($_GET['force']) && fcm_admin_session_active(true));
+if (!$forzaAggiornamento && !fcm_cooldown_acquire('live_fp', 20)) {
+    if ($isAjax) {
+        $metaCache = file_exists(VOTI_OUTPUT_FILE) ? @json_decode((string)@file_get_contents(VOTI_META_FILE), true) : null;
+        if (!headers_sent()) {
+            header('Content-Type: application/json; charset=utf-8');
+            header('Cache-Control: no-cache, no-store, must-revalidate');
+        }
+        if (is_array($metaCache) && isset($metaCache['timestamp'])) {
+            $cachedCount = isset($metaCache['count']) ? (int)$metaCache['count'] : 0;
+            echo json_encode(array(
+                'success' => true,
+                // dati gia' salvati, non scaricati ora: il client lo dice. Chi ha chiesto force ed e'
+                // arrivato qui non e' admin e non deve piu' vedere "Forza Aggiornamento"; per gli altri non
+                // si apre la sessione solo per saperlo (null = non noto)
+                'cached' => true,
+                'canForce' => empty($_GET['force']) ? null : false,
+                'count' => $cachedCount,
+                'source' => 'fantapazz',
+                'giornataFP' => isset($metaCache['giornataFP']) ? (int)$metaCache['giornataFP'] : 0,
+                'hasMatchLive' => !empty($metaCache['hasMatchLive']),
+                'error' => null,
+                'timestamp' => (int)$metaCache['timestamp'],
+                'updated' => date('H:i:s', (int)$metaCache['timestamp']),
+                'message' => 'Voti Fantapazz.com caricati dalla cache locale (' . $cachedCount . ' giocatori)'
+            ));
+        } else {
+            echo json_encode(array(
+                'success' => false,
+                'count' => 0,
+                'source' => 'fantapazz',
+                'giornataFP' => 0,
+                'hasMatchLive' => false,
+                'error' => "Voti Fantapazz.com non ancora disponibili: riprova tra qualche secondo",
+                'timestamp' => time(),
+                'updated' => date('H:i:s')
+            ));
+        }
+        exit;
+    }
+    return;
+}
+
 // Caricamento associazioni per mapping automatico verso nome canonico FCM
 $fpToFcmMap = array();
 $baseDir = dirname(__DIR__);
@@ -56,22 +134,31 @@ if (file_exists($assocFile)) {
 }
 
 // Funzioni helper
+// Voto, minuto e codici bonus arrivano dal feed esterno e finiscono nella pagina live:
+// si accettano solo valori numerici.
 function returnvoto($voto) {
-    if ($voto === null || $voto === "") {
-        return "SV";
+    if (is_int($voto) || is_float($voto)) {
+        return $voto;
     }
-    return $voto;
+    if (is_string($voto)) {
+        // Il separatore decimale puo' essere la virgola ("6,5"), come accetta anche il client
+        $voto = str_replace(',', '.', trim($voto));
+        if (is_numeric($voto)) {
+            return $voto;
+        }
+    }
+    return "SV";
 }
 
 function checkmin($min) {
-    return ($min !== null && $min !== "") ? 1 : 0;
+    return ($min !== null && $min !== "" && is_scalar($min)) ? 1 : 0;
 }
 
 function returnmin($min) {
-    if ($min === null || $min === "") {
-        return "0";
+    if (is_scalar($min) && preg_match('/^\s*([0-9]{1,3})/', (string)$min, $cifre)) {
+        return (string)(int)$cifre[1];
     }
-    return $min;
+    return "0";
 }
 
 function getParametri($bonus) {
@@ -84,8 +171,11 @@ function getParametri($bonus) {
 
     $counts = array_fill_keys(array_values($eventi), 0);
     if ($bonus && is_array($bonus)) {
-        foreach ($bonus as $codice) {
-            if (isset($eventi[$codice])) {
+        foreach (array_slice($bonus, 0, 50) as $codice) {
+            if (is_string($codice) && preg_match('/^[1-9][0-9]?\z/', $codice)) {
+                $codice = (int)$codice;
+            }
+            if (is_int($codice) && isset($eventi[$codice])) {
                 $counts[$eventi[$codice]]++;
             }
         }

@@ -1,5 +1,5 @@
 // Service Worker per ModernFCM PWA (Scope: Radice '/')
-const CACHE_NAME = 'modernfcm-pwa-v3';
+const CACHE_NAME = 'modernfcm-pwa-v4';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -29,6 +29,12 @@ self.addEventListener('fetch', (event) => {
   // Eccezione per endpoint di sola lettura utili alla PWA anche offline: preview.php
   const isCacheablePhp = url.pathname.endsWith('preview.php');
   if (url.pathname.endsWith('.php') && !isCacheablePhp) {
+    return;
+  }
+
+  // Le navigazioni (documenti HTML) e le aree dinamiche del sito non passano mai dalla cache:
+  // la risposta può dipendere da chi è collegato (es. la pagina del mercato aperta come cartella)
+  if (event.request.mode === 'navigate' || /\/(mercato|inc|invform)\//i.test(url.pathname)) {
     return;
   }
 
@@ -65,7 +71,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Strategia 2: Network-First per JSON dati, pagine HTML e risposte non versionate
+  // Strategia 2: Network-First per JSON dati e risposte non versionate (le navigazioni sono escluse sopra)
   // Prova prima la rete per avere dati sempre aggiornati; fallback su cache se offline
   event.respondWith(
     fetch(event.request)

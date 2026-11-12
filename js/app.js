@@ -72,6 +72,9 @@ const App = {
     '#impostazioni': { file: 'inc/impostazioni.php', title: 'Impostazioni' },
   },
 
+  // Pagine locali che la rotta generica #frame?src=... può incorniciare (percorsi relativi alla cartella del sito)
+  framePages: ['album.htm'],
+
   currentRoute: '#home',
 
   init() {
@@ -108,6 +111,10 @@ const App = {
 
     // Listen to messages from child frames (e.g. scroll to modal, auto-resize)
     window.addEventListener('message', (e) => {
+      // Accetta solo i messaggi della pagina incorniciata, e solo se è una pagina di questo sito
+      const embeddedFrame = document.getElementById('spaEmbeddedFrame');
+      if (!embeddedFrame || e.source !== embeddedFrame.contentWindow || e.origin !== window.location.origin) return;
+
       if (e.data && e.data.type === 'pn_scroll_to_modal') {
         const iframe = document.getElementById('spaEmbeddedFrame');
         if (iframe) {
@@ -189,7 +196,7 @@ const App = {
       this.syncIframeCustomTheme(iframe, effectiveTheme);
       if (iframe.contentWindow) {
         try {
-          iframe.contentWindow.postMessage({ type: 'pn_theme_change', theme: effectiveTheme, preference: preference }, '*');
+          iframe.contentWindow.postMessage({ type: 'pn_theme_change', theme: effectiveTheme, preference: preference }, window.location.origin);
         } catch (err) { }
       }
     }
@@ -775,15 +782,8 @@ const App = {
       let targetSrc = params.get('src') || 'album.htm';
       const targetTitle = params.get('title') || 'Pagina ModernFCM';
 
-      // Validazione di sicurezza: consenti solo percorsi relativi sicuri (.htm, .html, .php)
-      const isSafeRelativeUrl = /^[a-zA-Z0-9_\-\.\/]+\.(htm|html|php)(\?[a-zA-Z0-9_\-\.&=%]*)?$/i.test(targetSrc)
-        && !targetSrc.includes('://')
-        && !targetSrc.toLowerCase().includes('javascript:')
-        && !/[<>"']/.test(targetSrc);
-
-      if (!isSafeRelativeUrl) {
-        targetSrc = 'album.htm';
-      }
+      // Validazione di sicurezza: solo le pagine locali elencate in framePages, mai indirizzi di altri siti
+      targetSrc = this.resolveFrameSrc(targetSrc) || 'album.htm';
 
       this.currentRoute = '#frame';
       this.updateNavStates('#extra');
@@ -1202,6 +1202,30 @@ const App = {
       quickAccordions.forEach(acc => {
         acc.open = (acc === targetQuickAcc);
       });
+    }
+  },
+
+  /**
+   * Valida l'indirizzo richiesto con #frame?src=...
+   * Restituisce il percorso relativo da incorniciare, oppure null se non è una pagina locale di framePages.
+   */
+  resolveFrameSrc(rawSrc) {
+    const src = String(rawSrc || '');
+    // Solo percorsi relativi semplici: niente schema, backslash, spazi o caratteri di controllo, e niente "//host"
+    if (!/^[a-zA-Z0-9_\-\.\/]+\.(htm|html|php)(\?[a-zA-Z0-9_\-\.&=%]*)?$/i.test(src) || src.startsWith('//')) {
+      return null;
+    }
+    try {
+      // L'indirizzo viene risolto come farebbe il browser: deve restare su questo sito e nella sua cartella
+      const siteDir = new URL('.', document.baseURI);
+      const url = new URL(src, siteDir);
+      if (url.origin !== window.location.origin || !url.pathname.startsWith(siteDir.pathname)) {
+        return null;
+      }
+      const page = url.pathname.slice(siteDir.pathname.length);
+      return this.framePages.includes(page) ? page + url.search : null;
+    } catch (e) {
+      return null;
     }
   },
 
