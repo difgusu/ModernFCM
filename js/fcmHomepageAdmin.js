@@ -1599,7 +1599,7 @@ const fcmHomepageAdmin = {
       const previewSnippet = this.getWidgetPreviewSnippet(item.id, customObj);
 
       return `
-        <div class="admin-home-item ${isCustom ? 'admin-home-item-custom' : ''} ${!isEnabled ? 'is-disabled' : ''} ${isItemCollapsed ? 'is-collapsed' : ''}" data-col="${colKey}" data-index="${idx}" data-id="${item.id}" draggable="true">
+        <div class="admin-home-item ${isCustom ? 'admin-home-item-custom' : ''} ${!isEnabled ? 'is-disabled' : ''} ${isItemCollapsed ? 'is-collapsed' : ''}" data-col="${colKey}" data-index="${idx}" data-id="${escapeHtml(item.id)}" draggable="true">
           <div class="admin-home-item-header">
             <div class="widget-edit-drag-grip" style="cursor:grab;padding:0 4px;color:#94a3b8;" title="Trascina per ordinare">
               ⠿
@@ -1619,13 +1619,13 @@ const fcmHomepageAdmin = {
                 <span class="home-custom-slider"></span>
               </label>
               ${isCustom ? `
-                <button type="button" class="btn-col-action btn-preview-custom-widget" data-id="${item.id}" title="Visualizza anteprima modale">
+                <button type="button" class="btn-col-action btn-preview-custom-widget" data-id="${escapeHtml(item.id)}" title="Visualizza anteprima modale">
                   👁️
                 </button>
-                <button type="button" class="btn-col-action btn-edit-custom-widget" data-id="${item.id}" data-col="${colKey}" title="Modifica widget">
+                <button type="button" class="btn-col-action btn-edit-custom-widget" data-id="${escapeHtml(item.id)}" data-col="${colKey}" title="Modifica widget">
                   ✏️
                 </button>
-                <button type="button" class="btn-col-action btn-delete-custom-widget" data-id="${item.id}" title="Elimina widget personalizzato">
+                <button type="button" class="btn-col-action btn-delete-custom-widget" data-id="${escapeHtml(item.id)}" title="Elimina widget personalizzato">
                   🗑️
                 </button>
               ` : ''}
@@ -1979,6 +1979,8 @@ const fcmHomepageAdmin = {
         };
         extraMeta = ` &bull; Competizione: <strong>${escapeHtml(cObj ? cObj.name : (w.compId || '-'))}</strong> &bull; Formula: <strong>${escapeHtml(fmtLabels[w.compFormat || 'auto'] || w.compFormat)}</strong>`;
       }
+      // L'id entra in un onclick: prima diventa una stringa JS, poi viene codificato per l'attributo HTML
+      const idArg = escapeHtml(JSON.stringify(String(w.id || '')));
       return `
         <div class="admin-summary-card">
           <div style="flex:1;min-width:240px;">
@@ -1991,13 +1993,13 @@ const fcmHomepageAdmin = {
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-            <button type="button" class="btn-col-action btn-preview-custom-widget" onclick="fcmHomepageAdmin.previewCustomWidget('${w.id}')" title="Visualizza anteprima">
+            <button type="button" class="btn-col-action btn-preview-custom-widget" onclick="fcmHomepageAdmin.previewCustomWidget(${idArg})" title="Visualizza anteprima">
               👁️ Anteprima
             </button>
-            <button type="button" class="btn-col-action btn-edit-custom-widget" onclick="fcmHomepageAdmin.editCustomWidget('${w.id}')" title="Modifica widget">
+            <button type="button" class="btn-col-action btn-edit-custom-widget" onclick="fcmHomepageAdmin.editCustomWidget(${idArg})" title="Modifica widget">
               ✏️ Modifica
             </button>
-            <button type="button" class="btn-col-action btn-delete-custom-widget" onclick="fcmHomepageAdmin.confirmDeleteCustomWidget('${w.id}')" title="Elimina widget">
+            <button type="button" class="btn-col-action btn-delete-custom-widget" onclick="fcmHomepageAdmin.confirmDeleteCustomWidget(${idArg})" title="Elimina widget">
               🗑️ Elimina
             </button>
           </div>

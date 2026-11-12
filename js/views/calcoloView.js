@@ -1715,9 +1715,12 @@ const calcoloView = {
         c.innerHTML = `
           <div style="text-align: center; color: #ef4444; padding: 30px;">
             <div style="font-weight: 700;">Impossibile comunicare con il server</div>
-            <div style="font-size: 0.84rem; margin-top: 6px; color: var(--text-muted);">${e.message}</div>
+            <div class="calc-settings-error-detail" style="font-size: 0.84rem; margin-top: 6px; color: var(--text-muted);"></div>
           </div>
         `;
+        // Il messaggio può riportare un pezzo della risposta del server: va inserito solo come testo
+        const detail = c.querySelector('.calc-settings-error-detail');
+        if (detail) detail.textContent = e.message;
       }
     }
   },
@@ -2609,7 +2612,13 @@ const calcoloView = {
       return;
     }
 
-    const esc = (s) => (s ? String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : '');
+    // Vale anche per codici e ID numerici (0 compreso)
+    const esc = (s) => ((s === null || s === undefined) ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
+    // Ruolo, codici e ID arrivano dalle fonti esterne: il ruolo è ammesso solo se P, D, C o A
+    const role = (r) => {
+      const v = String(r || '').trim().toUpperCase();
+      return /^[PDCA]$/.test(v) ? v : '';
+    };
     const normTeam = (t) => {
       if (!t) return '';
       t = String(t).toUpperCase().trim();
@@ -2658,7 +2667,7 @@ const calcoloView = {
           item.pfCandidates.forEach(c => {
             candPfMap[c.cod] = true;
             const isSel = (item.pfSelected && item.pfSelected.cod == c.cod) ? 'selected' : '';
-            colPF += `<option value="${c.cod}" ${isSel}>${esc(c.nome)} (${esc(c.squadra)} - ${c.ruolo || ''}) [Cod: ${c.cod}]</option>`;
+            colPF += `<option value="${esc(c.cod)}" ${isSel}>${esc(c.nome)} (${esc(c.squadra)} - ${role(c.ruolo)}) [Cod: ${esc(c.cod)}]</option>`;
           });
           colPF += '</optgroup>';
         }
@@ -2669,7 +2678,7 @@ const calcoloView = {
           sameTeamPf.forEach(p => {
             candPfMap[p.cod] = true;
             const isSel = (item.pfSelected && item.pfSelected.cod == p.cod) ? 'selected' : '';
-            colPF += `<option value="${p.cod}" ${isSel}>${esc(p.nome)} (${esc(p.squadra)} - ${p.ruolo || ''}) [Cod: ${p.cod}]</option>`;
+            colPF += `<option value="${esc(p.cod)}" ${isSel}>${esc(p.nome)} (${esc(p.squadra)} - ${role(p.ruolo)}) [Cod: ${esc(p.cod)}]</option>`;
           });
           colPF += '</optgroup>';
         }
@@ -2679,21 +2688,21 @@ const calcoloView = {
           colPF += `<optgroup label="Altri Non Assegnati (${otherPf.length})">`;
           otherPf.forEach(p => {
             const isSel = (item.pfSelected && item.pfSelected.cod == p.cod) ? 'selected' : '';
-            colPF += `<option value="${p.cod}" ${isSel}>${esc(p.nome)} (${esc(p.squadra)} - ${p.ruolo || ''}) [Cod: ${p.cod}]</option>`;
+            colPF += `<option value="${esc(p.cod)}" ${isSel}>${esc(p.nome)} (${esc(p.squadra)} - ${role(p.ruolo)}) [Cod: ${esc(p.cod)}]</option>`;
           });
           colPF += '</optgroup>';
         }
 
         if (item.pfSelected && item.pfSelected.cod && !candPfMap[item.pfSelected.cod]) {
           colPF += '<optgroup label="Attualmente Selezionato">';
-          colPF += `<option value="${item.pfSelected.cod}" selected>${esc(item.pfSelected.nome)} [Cod: ${item.pfSelected.cod}]</option>`;
+          colPF += `<option value="${esc(item.pfSelected.cod)}" selected>${esc(item.pfSelected.nome)} [Cod: ${esc(item.pfSelected.cod)}]</option>`;
           colPF += '</optgroup>';
         }
 
         colPF += '</select>';
       } else {
         if (item.pfSelected && item.pfSelected.cod) {
-          colPF = `<span style="font-weight: 700; color: var(--text-primary); font-size: 0.85rem;">${esc(item.pfSelected.nome)}</span> <code style="font-size: 0.74rem; color: var(--text-muted); background: rgba(0,0,0,0.25); padding: 2px 5px; border-radius: 4px;">Cod: ${item.pfSelected.cod}</code>`;
+          colPF = `<span style="font-weight: 700; color: var(--text-primary); font-size: 0.85rem;">${esc(item.pfSelected.nome)}</span> <code style="font-size: 0.74rem; color: var(--text-muted); background: rgba(0,0,0,0.25); padding: 2px 5px; border-radius: 4px;">Cod: ${esc(item.pfSelected.cod)}</code>`;
         } else {
           colPF = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Nessuna associazione</span>';
         }
@@ -2712,7 +2721,7 @@ const calcoloView = {
           item.fcCandidates.forEach(c => {
             candFcMap[c.id] = true;
             const isSel = (item.fcSelected && item.fcSelected.id == c.id) ? 'selected' : '';
-            colFC += `<option value="${c.id}" ${isSel}>${esc(c.nome)} (${esc(c.squadra)} - ${c.ruolo || ''}) [Id: ${c.id}]</option>`;
+            colFC += `<option value="${esc(c.id)}" ${isSel}>${esc(c.nome)} (${esc(c.squadra)} - ${role(c.ruolo)}) [Id: ${esc(c.id)}]</option>`;
           });
           colFC += '</optgroup>';
         }
@@ -2723,7 +2732,7 @@ const calcoloView = {
           sameTeamFc.forEach(p => {
             candFcMap[p.id] = true;
             const isSel = (item.fcSelected && item.fcSelected.id == p.id) ? 'selected' : '';
-            colFC += `<option value="${p.id}" ${isSel}>${esc(p.nome)} (${esc(p.squadra)} - ${p.ruolo || ''}) [Id: ${p.id}]</option>`;
+            colFC += `<option value="${esc(p.id)}" ${isSel}>${esc(p.nome)} (${esc(p.squadra)} - ${role(p.ruolo)}) [Id: ${esc(p.id)}]</option>`;
           });
           colFC += '</optgroup>';
         }
@@ -2733,21 +2742,21 @@ const calcoloView = {
           colFC += `<optgroup label="Altri Non Assegnati (${otherFc.length})">`;
           otherFc.forEach(p => {
             const isSel = (item.fcSelected && item.fcSelected.id == p.id) ? 'selected' : '';
-            colFC += `<option value="${p.id}" ${isSel}>${esc(p.nome)} (${esc(p.squadra)} - ${p.ruolo || ''}) [Id: ${p.id}]</option>`;
+            colFC += `<option value="${esc(p.id)}" ${isSel}>${esc(p.nome)} (${esc(p.squadra)} - ${role(p.ruolo)}) [Id: ${esc(p.id)}]</option>`;
           });
           colFC += '</optgroup>';
         }
 
         if (item.fcSelected && item.fcSelected.id && !candFcMap[item.fcSelected.id]) {
           colFC += '<optgroup label="Attualmente Selezionato">';
-          colFC += `<option value="${item.fcSelected.id}" selected>${esc(item.fcSelected.nome)} [Id: ${item.fcSelected.id}]</option>`;
+          colFC += `<option value="${esc(item.fcSelected.id)}" selected>${esc(item.fcSelected.nome)} [Id: ${esc(item.fcSelected.id)}]</option>`;
           colFC += '</optgroup>';
         }
 
         colFC += '</select>';
       } else {
         if (item.fcSelected && item.fcSelected.id) {
-          colFC = `<span style="font-weight: 700; color: var(--text-primary); font-size: 0.85rem;">${esc(item.fcSelected.nome)}</span> <code style="font-size: 0.74rem; color: var(--text-muted); background: rgba(0,0,0,0.25); padding: 2px 5px; border-radius: 4px;">Id: ${item.fcSelected.id}</code>`;
+          colFC = `<span style="font-weight: 700; color: var(--text-primary); font-size: 0.85rem;">${esc(item.fcSelected.nome)}</span> <code style="font-size: 0.74rem; color: var(--text-muted); background: rgba(0,0,0,0.25); padding: 2px 5px; border-radius: 4px;">Id: ${esc(item.fcSelected.id)}</code>`;
         } else {
           colFC = '<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">Nessuna associazione</span>';
         }
@@ -2762,8 +2771,8 @@ const calcoloView = {
 
       html += `
         <tr class="${rowClass}">
-          <td style="text-align: center;"><span class="badge-role badge-role-${item.ruoloFCM}">${item.ruoloFCM}</span></td>
-          <td><strong style="font-size: 0.88rem; color: var(--text-primary); display: block;">${esc(item.nomeFCM)}</strong><span style="font-size: 0.74rem; color: var(--text-muted); font-family: ui-monospace, monospace;">Cod: ${item.codiceFCM} • ID: ${item.idFCM}</span></td>
+          <td style="text-align: center;"><span class="badge-role badge-role-${role(item.ruoloFCM)}">${role(item.ruoloFCM)}</span></td>
+          <td><strong style="font-size: 0.88rem; color: var(--text-primary); display: block;">${esc(item.nomeFCM)}</strong><span style="font-size: 0.74rem; color: var(--text-muted); font-family: ui-monospace, monospace;">Cod: ${esc(item.codiceFCM)} • ID: ${esc(item.idFCM)}</span></td>
           <td><span style="font-weight: 600; color: var(--text-secondary);">${esc(item.squadraFCM)}</span></td>
           <td style="text-align: center;">${statusBadge}</td>
           <td>${colPF}</td>

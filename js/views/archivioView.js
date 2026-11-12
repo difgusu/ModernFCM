@@ -719,8 +719,8 @@ const archivioView = {
                   </a>
 
                   <!-- Pulsante legacy (Compare SOLO se la cartella è configurata) -->
-                  ${(s.hasLegacy && s.legacyPath) ? `
-                    <a href="${s.legacyPath}" target="_blank" rel="noopener noreferrer" class="pill-btn legacy-btn" title="Apri il sito archivio originale FCM in una nuova scheda">
+                  ${(s.hasLegacy && this.isSafeLegacyPath(s.legacyPath)) ? `
+                    <a href="${this.escapeHtml(s.legacyPath)}" target="_blank" rel="noopener noreferrer" class="pill-btn legacy-btn" title="Apri il sito archivio originale FCM in una nuova scheda">
                       🌐 Sito Originale
                     </a>
                   ` : ''}
@@ -854,6 +854,17 @@ const archivioView = {
         </div>
       </div>
     `;
+  },
+
+  /**
+   * Il link al sito storico arriva dalla configurazione: deve essere un percorso del sito,
+   * non un URL con schema (javascript:, data:, http:) o verso un altro host (//host)
+   */
+  isSafeLegacyPath(path) {
+    if (!path) return false;
+    // I browser ignorano spazi e caratteri di controllo dentro lo schema (es. "java\tscript:")
+    const compact = String(path).replace(/[\u0000-\u0020]+/g, '');
+    return !/^[a-z][a-z0-9+.-]*:/i.test(compact) && !/^[\/\\]{2}/.test(compact);
   },
 
   /**

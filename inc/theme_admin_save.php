@@ -6,9 +6,12 @@
  */
 
 require_once __DIR__ . '/admin_security.inc.php';
-fcm_ensure_session();
+// La sessione si apre solo se il browser ne ha già una: la lettura pubblica non ne crea di nuove
+$hasAdminSession = fcm_admin_session_active();
 
 header('Content-Type: application/json; charset=utf-8');
+// Senza sessione PHP mancherebbero le sue intestazioni anti-cache: la risposta non va memorizzata
+header('Cache-Control: no-store, no-cache, must-revalidate');
 
 $baseDir = dirname(__DIR__);
 $configPath = __DIR__ . '/data/theme_config.json';
@@ -24,7 +27,7 @@ if (file_exists($adminConfigFile)) {
 }
 
 $isPasswordConfigured = fcm_is_password_configured($adminPassword);
-$isAdminLogged = $isPasswordConfigured && !empty($_SESSION['pn_admin_logged']);
+$isAdminLogged = $isPasswordConfigured && $hasAdminSession;
 $hasInlinePasswordAuth = false;
 
 // Lettura input JSON
@@ -35,24 +38,31 @@ $inputJson = !empty($rawInput) ? json_decode($rawInput, true) : null;
 if (!$isAdminLogged && $isPasswordConfigured) {
     $submittedPwd = '';
     if (isset($_POST['admin_pwd'])) {
-        $submittedPwd = (string)$_POST['admin_pwd'];
+        $submittedPwd = $_POST['admin_pwd'];
     } elseif (is_array($inputJson) && isset($inputJson['password'])) {
-        $submittedPwd = (string)$inputJson['password'];
+        $submittedPwd = $inputJson['password'];
     } elseif (is_array($inputJson) && isset($inputJson['admin_pwd'])) {
-        $submittedPwd = (string)$inputJson['admin_pwd'];
+        $submittedPwd = $inputJson['admin_pwd'];
     }
 
-    if ($submittedPwd !== '' && fcm_verify_password($submittedPwd, $adminPassword)) {
-        if (!headers_sent() && session_status() === PHP_SESSION_ACTIVE) {
-            @session_regenerate_id(true);
+    if (is_scalar($submittedPwd) && (string)$submittedPwd !== '') {
+        // Verifica con limite ai tentativi, lo stesso contatore di tutti i punti di login admin
+        $loginAttempt = fcm_admin_login_attempt((string)$submittedPwd, $adminPassword);
+        if ($loginAttempt['ok']) {
+            fcm_admin_session_grant();
+            $isAdminLogged = true;
+            $hasInlinePasswordAuth = true;
+        } elseif ($loginAttempt['retry_after'] > 0) {
+            // Troppi errori recenti: finché dura il blocco la password non viene nemmeno verificata
+            http_response_code(429);
+            header('Retry-After: ' . (int)$loginAttempt['retry_after']);
+            echo json_encode(['success' => false, 'error' => fcm_throttle_message($loginAttempt['retry_after'])]);
+            exit;
         }
-        $_SESSION['pn_admin_logged'] = true;
-        $isAdminLogged = true;
-        $hasInlinePasswordAuth = true;
     }
 }
 
-$action = isset($_REQUEST['action']) ? trim($_REQUEST['action']) : '';
+$action = (isset($_REQUEST['action']) && is_string($_REQUEST['action'])) ? trim($_REQUEST['action']) : '';
 
 // 1. Azione pubblica: recupero configurazione attiva o default
 if ($action === 'get_theme_config') {
@@ -61,7 +71,7 @@ if ($action === 'get_theme_config') {
         'success' => true,
         'isAdmin' => $isAdminLogged,
         'hasCustomFile' => file_exists($configPath),
-        'csrfToken' => fcm_csrf_token(),
+        'csrfToken' => (session_status() === PHP_SESSION_ACTIVE) ? fcm_csrf_token() : '',
         'config' => $config
     ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
@@ -84,7 +94,7 @@ if (!$hasInlinePasswordAuth) {
 // 2. Azione: Salvataggio configurazione tema
 if ($action === 'save_theme_config') {
     $payload = $inputJson;
-    if (!$payload && isset($_POST['config'])) {
+    if (!$payload && isset($_POST['config']) && is_string($_POST['config'])) {
         $payload = json_decode($_POST['config'], true);
     }
 
@@ -115,7 +125,7 @@ if ($action === 'save_theme_config') {
     foreach (['dark', 'light', 'accents', 'roles', 'ui'] as $group) {
         if (!empty($payload['tokens'][$group]) && is_array($payload['tokens'][$group])) {
             foreach ($payload['tokens'][$group] as $k => $v) {
-                if (is_string($k) && strpos($k, '--') === 0) {
+                if (fcm_is_theme_token($group, $k)) {
                     $sanitized['tokens'][$group][$k] = fcm_sanitize_css_val($v);
                 }
             }

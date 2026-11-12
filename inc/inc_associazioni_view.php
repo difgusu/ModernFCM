@@ -2,7 +2,11 @@
 /**
  * View & UI per il tab Gestione Associazioni Live Unificate (Tutte le Fonti)
  * File: inc_associazioni_view.php
+ * Inclusa all'interno di impostazioni.php
  */
+if (!defined('PN_ADMIN_ASSOC_VIEW') && !isset($isAdminLogged)) {
+    die('Accesso diretto non consentito.');
+}
 ?>
 
 <!-- BANNER INTESTAZIONE MODULO ASSOCIAZIONI -->
@@ -377,7 +381,7 @@ function downloadAssocPF() {
             box.classList.add('has-file');
             if (statusEl) {
                 statusEl.style.display = 'block';
-                statusEl.innerHTML = '✅ Online: ' + data.count + ' giocatori (G' + data.giornata + ')';
+                statusEl.textContent = '✅ Online: ' + data.count + ' giocatori (G' + data.giornata + ')';
             }
             showToast(data.message || 'Quotazioni Pianetafanta scaricate!', 'success');
         })
@@ -419,7 +423,7 @@ function downloadAssocFC() {
             box.classList.add('has-file');
             if (statusEl) {
                 statusEl.style.display = 'block';
-                statusEl.innerHTML = '✅ Online: ' + data.count + ' giocatori';
+                statusEl.textContent = '✅ Online: ' + data.count + ' giocatori';
             }
             showToast(data.message || 'Quotazioni Fantacalcio scaricate!', 'success');
         })
@@ -461,7 +465,7 @@ function downloadAssocFP() {
             box.classList.add('has-file');
             if (statusEl) {
                 statusEl.style.display = 'block';
-                statusEl.innerHTML = '✅ Online: ' + data.count + ' giocatori (CSV)';
+                statusEl.textContent = '✅ Online: ' + data.count + ' giocatori (CSV)';
             }
             showToast(data.message || 'Quotazioni Fantapazz scaricate!', 'success');
         })
@@ -503,7 +507,7 @@ function downloadAssocFM() {
             box.classList.add('has-file');
             if (statusEl) {
                 statusEl.style.display = 'block';
-                statusEl.innerHTML = '✅ Online: ' + data.count + ' giocatori (CDN)';
+                statusEl.textContent = '✅ Online: ' + data.count + ' giocatori (CDN)';
             }
             showToast(data.message || 'Quotazioni FantaMaster scaricate!', 'success');
         })
@@ -664,10 +668,10 @@ function downloadAndAnalyzeAssoc() {
             var stFC = document.getElementById('fcOnlineStatus');
             var stFP = document.getElementById('fpOnlineStatus');
             var stFM = document.getElementById('fmOnlineStatus');
-            if (stPF) { stPF.style.display = 'block'; stPF.innerHTML = '✅ Online: ' + data.pf_count + ' giocatori (G' + data.pf_giornata + ')'; }
-            if (stFC) { stFC.style.display = 'block'; stFC.innerHTML = '✅ Online: ' + data.fc_count + ' giocatori'; }
-            if (stFP) { stFP.style.display = 'block'; stFP.innerHTML = '✅ Online: ' + data.fp_count + ' giocatori (CSV)'; }
-            if (stFM) { stFM.style.display = 'block'; stFM.innerHTML = '✅ Online: ' + data.fm_count + ' giocatori (CDN)'; }
+            if (stPF) { stPF.style.display = 'block'; stPF.textContent = '✅ Online: ' + data.pf_count + ' giocatori (G' + data.pf_giornata + ')'; }
+            if (stFC) { stFC.style.display = 'block'; stFC.textContent = '✅ Online: ' + data.fc_count + ' giocatori'; }
+            if (stFP) { stFP.style.display = 'block'; stFP.textContent = '✅ Online: ' + data.fp_count + ' giocatori (CSV)'; }
+            if (stFM) { stFM.style.display = 'block'; stFM.textContent = '✅ Online: ' + data.fm_count + ' giocatori (CDN)'; }
 
             applyMatchingResults(data);
         })
@@ -948,7 +952,7 @@ function renderAssocTable() {
                 item.pfCandidates.forEach(function(c) {
                     candPfMap[c.cod] = true;
                     var isSel = (item.pfSelected && item.pfSelected.cod == c.cod) ? 'selected' : '';
-                    colPF += '<option value="' + c.cod + '" ' + isSel + '>' + escapeHtml(c.nome) + ' (' + escapeHtml(c.squadra) + ') [' + c.cod + ']</option>';
+                    colPF += '<option value="' + escapeHtml(c.cod) + '" ' + isSel + '>' + escapeHtml(c.nome) + ' (' + escapeHtml(c.squadra) + ') [' + escapeHtml(c.cod) + ']</option>';
                 });
                 colPF += '</optgroup>';
             }
@@ -962,7 +966,7 @@ function renderAssocTable() {
                 sameTeamPf.forEach(function(p) {
                     candPfMap[p.cod] = true;
                     var isSel = (item.pfSelected && item.pfSelected.cod == p.cod) ? 'selected' : '';
-                    colPF += '<option value="' + p.cod + '" ' + isSel + '>' + escapeHtml(p.nome) + ' [' + p.cod + ']</option>';
+                    colPF += '<option value="' + escapeHtml(p.cod) + '" ' + isSel + '>' + escapeHtml(p.nome) + ' [' + escapeHtml(p.cod) + ']</option>';
                 });
                 colPF += '</optgroup>';
             }
@@ -972,20 +976,20 @@ function renderAssocTable() {
                 colPF += '<optgroup label="Altri Non Assegnati (' + otherPf.length + ')">';
                 otherPf.forEach(function(p) {
                     var isSel = (item.pfSelected && item.pfSelected.cod == p.cod) ? 'selected' : '';
-                    colPF += '<option value="' + p.cod + '" ' + isSel + '>' + escapeHtml(p.nome) + ' (' + escapeHtml(p.squadra) + ') [' + p.cod + ']</option>';
+                    colPF += '<option value="' + escapeHtml(p.cod) + '" ' + isSel + '>' + escapeHtml(p.nome) + ' (' + escapeHtml(p.squadra) + ') [' + escapeHtml(p.cod) + ']</option>';
                 });
                 colPF += '</optgroup>';
             }
 
             if (item.pfSelected && item.pfSelected.cod && !candPfMap[item.pfSelected.cod]) {
                 colPF += '<optgroup label="Attualmente Selezionato">';
-                colPF += '<option value="' + item.pfSelected.cod + '" selected>' + escapeHtml(item.pfSelected.nome) + ' [' + item.pfSelected.cod + ']</option>';
+                colPF += '<option value="' + escapeHtml(item.pfSelected.cod) + '" selected>' + escapeHtml(item.pfSelected.nome) + ' [' + escapeHtml(item.pfSelected.cod) + ']</option>';
                 colPF += '</optgroup>';
             }
             colPF += '</select>';
         } else {
             if (item.pfSelected && item.pfSelected.cod) {
-                colPF = '<span style="font-weight: 700; color: var(--text-primary); font-size: 0.82rem;">' + escapeHtml(item.pfSelected.nome) + '</span> <code style="font-size: 0.72rem; color: #a78bfa; background: rgba(139,92,246,0.15); padding: 1px 4px; border-radius: 4px;">Cod: ' + item.pfSelected.cod + '</code>';
+                colPF = '<span style="font-weight: 700; color: var(--text-primary); font-size: 0.82rem;">' + escapeHtml(item.pfSelected.nome) + '</span> <code style="font-size: 0.72rem; color: #a78bfa; background: rgba(139,92,246,0.15); padding: 1px 4px; border-radius: 4px;">Cod: ' + escapeHtml(item.pfSelected.cod) + '</code>';
             } else {
                 colPF = '<span style="color: var(--text-muted); font-size: 0.78rem; font-style: italic;">Nessuna</span>';
             }
@@ -1004,7 +1008,7 @@ function renderAssocTable() {
                 item.fcCandidates.forEach(function(c) {
                     candFcMap[c.id] = true;
                     var isSel = (item.fcSelected && item.fcSelected.id == c.id) ? 'selected' : '';
-                    colFC += '<option value="' + c.id + '" ' + isSel + '>' + escapeHtml(c.nome) + ' (' + escapeHtml(c.squadra) + ') [' + c.id + ']</option>';
+                    colFC += '<option value="' + escapeHtml(c.id) + '" ' + isSel + '>' + escapeHtml(c.nome) + ' (' + escapeHtml(c.squadra) + ') [' + escapeHtml(c.id) + ']</option>';
                 });
                 colFC += '</optgroup>';
             }
@@ -1018,7 +1022,7 @@ function renderAssocTable() {
                 sameTeamFc.forEach(function(p) {
                     candFcMap[p.id] = true;
                     var isSel = (item.fcSelected && item.fcSelected.id == p.id) ? 'selected' : '';
-                    colFC += '<option value="' + p.id + '" ' + isSel + '>' + escapeHtml(p.nome) + ' [' + p.id + ']</option>';
+                    colFC += '<option value="' + escapeHtml(p.id) + '" ' + isSel + '>' + escapeHtml(p.nome) + ' [' + escapeHtml(p.id) + ']</option>';
                 });
                 colFC += '</optgroup>';
             }
@@ -1028,20 +1032,20 @@ function renderAssocTable() {
                 colFC += '<optgroup label="Altri Non Assegnati (' + otherFc.length + ')">';
                 otherFc.forEach(function(p) {
                     var isSel = (item.fcSelected && item.fcSelected.id == p.id) ? 'selected' : '';
-                    colFC += '<option value="' + p.id + '" ' + isSel + '>' + escapeHtml(p.nome) + ' (' + escapeHtml(p.squadra) + ') [' + p.id + ']</option>';
+                    colFC += '<option value="' + escapeHtml(p.id) + '" ' + isSel + '>' + escapeHtml(p.nome) + ' (' + escapeHtml(p.squadra) + ') [' + escapeHtml(p.id) + ']</option>';
                 });
                 colFC += '</optgroup>';
             }
 
             if (item.fcSelected && item.fcSelected.id && !candFcMap[item.fcSelected.id]) {
                 colFC += '<optgroup label="Attualmente Selezionato">';
-                colFC += '<option value="' + item.fcSelected.id + '" selected>' + escapeHtml(item.fcSelected.nome) + ' [' + item.fcSelected.id + ']</option>';
+                colFC += '<option value="' + escapeHtml(item.fcSelected.id) + '" selected>' + escapeHtml(item.fcSelected.nome) + ' [' + escapeHtml(item.fcSelected.id) + ']</option>';
                 colFC += '</optgroup>';
             }
             colFC += '</select>';
         } else {
             if (item.fcSelected && item.fcSelected.id) {
-                colFC = '<span style="font-weight: 700; color: var(--text-primary); font-size: 0.82rem;">' + escapeHtml(item.fcSelected.nome) + '</span> <code style="font-size: 0.72rem; color: #38bdf8; background: rgba(2,132,199,0.15); padding: 1px 4px; border-radius: 4px;">ID: ' + item.fcSelected.id + '</code>';
+                colFC = '<span style="font-weight: 700; color: var(--text-primary); font-size: 0.82rem;">' + escapeHtml(item.fcSelected.nome) + '</span> <code style="font-size: 0.72rem; color: #38bdf8; background: rgba(2,132,199,0.15); padding: 1px 4px; border-radius: 4px;">ID: ' + escapeHtml(item.fcSelected.id) + '</code>';
             } else {
                 colFC = '<span style="color: var(--text-muted); font-size: 0.78rem; font-style: italic;">Nessuna</span>';
             }
@@ -1116,7 +1120,7 @@ function renderAssocTable() {
                 item.fmCandidates.forEach(function(c) {
                     candFmMap[c.id] = true;
                     var isSel = (item.fmSelected && item.fmSelected.id == c.id) ? 'selected' : '';
-                    colFM += '<option value="' + c.id + '" ' + isSel + '>' + escapeHtml(c.nome) + ' (' + escapeHtml(c.squadra) + ') [' + c.id + ']</option>';
+                    colFM += '<option value="' + escapeHtml(c.id) + '" ' + isSel + '>' + escapeHtml(c.nome) + ' (' + escapeHtml(c.squadra) + ') [' + escapeHtml(c.id) + ']</option>';
                 });
                 colFM += '</optgroup>';
             }
@@ -1130,7 +1134,7 @@ function renderAssocTable() {
                 sameTeamFm.forEach(function(p) {
                     candFmMap[p.id] = true;
                     var isSel = (item.fmSelected && item.fmSelected.id == p.id) ? 'selected' : '';
-                    colFM += '<option value="' + p.id + '" ' + isSel + '>' + escapeHtml(p.nome) + ' [' + p.id + ']</option>';
+                    colFM += '<option value="' + escapeHtml(p.id) + '" ' + isSel + '>' + escapeHtml(p.nome) + ' [' + escapeHtml(p.id) + ']</option>';
                 });
                 colFM += '</optgroup>';
             }
@@ -1140,21 +1144,21 @@ function renderAssocTable() {
                 colFM += '<optgroup label="Altri Non Assegnati (' + otherFm.length + ')">';
                 otherFm.forEach(function(p) {
                     var isSel = (item.fmSelected && item.fmSelected.id == p.id) ? 'selected' : '';
-                    colFM += '<option value="' + p.id + '" ' + isSel + '>' + escapeHtml(p.nome) + ' (' + escapeHtml(p.squadra) + ') [' + p.id + ']</option>';
+                    colFM += '<option value="' + escapeHtml(p.id) + '" ' + isSel + '>' + escapeHtml(p.nome) + ' (' + escapeHtml(p.squadra) + ') [' + escapeHtml(p.id) + ']</option>';
                 });
                 colFM += '</optgroup>';
             }
 
             if (item.fmSelected && item.fmSelected.id && !candFmMap[item.fmSelected.id]) {
                 colFM += '<optgroup label="Attualmente Selezionato">';
-                colFM += '<option value="' + item.fmSelected.id + '" selected>' + escapeHtml(item.fmSelected.nome) + ' [' + item.fmSelected.id + ']</option>';
+                colFM += '<option value="' + escapeHtml(item.fmSelected.id) + '" selected>' + escapeHtml(item.fmSelected.nome) + ' [' + escapeHtml(item.fmSelected.id) + ']</option>';
                 colFM += '</optgroup>';
             }
             colFM += '</select>';
         } else {
             if (item.fmSelected && (item.fmSelected.id || item.fmSelected.nome)) {
                 var fmLabel = item.fmSelected.nome ? escapeHtml(item.fmSelected.nome) : '';
-                var fmIdPart = item.fmSelected.id ? ' <code style="font-size: 0.72rem; color: #f59e0b; background: rgba(245,158,11,0.15); padding: 1px 4px; border-radius: 4px;">ID: ' + item.fmSelected.id + '</code>' : '';
+                var fmIdPart = item.fmSelected.id ? ' <code style="font-size: 0.72rem; color: #f59e0b; background: rgba(245,158,11,0.15); padding: 1px 4px; border-radius: 4px;">ID: ' + escapeHtml(item.fmSelected.id) + '</code>' : '';
                 colFM = '<span style="font-weight: 700; color: var(--text-primary); font-size: 0.82rem;">' + fmLabel + '</span>' + fmIdPart;
             } else {
                 colFM = '<span style="color: var(--text-muted); font-size: 0.78rem; font-style: italic;">Nessuna</span>';
@@ -1172,8 +1176,8 @@ function renderAssocTable() {
         var squadraStr = item.squadraFCM ? ' (' + escapeHtml(item.squadraFCM) + ')' : '';
 
         html += '<tr class="' + rowClass + '">';
-        html += '<td style="text-align: center;"><span class="badge-role badge-role-' + item.ruoloFCM + '">' + item.ruoloFCM + '</span></td>';
-        html += '<td><strong style="font-size: 0.86rem; color: var(--text-primary); display: block;">' + escapeHtml(item.nomeFCM) + '<span style="font-weight: 600; color: var(--text-secondary); font-size: 0.82rem; margin-left: 4px;">' + squadraStr + '</span></strong><span style="font-size: 0.72rem; color: var(--text-muted); font-family: ui-monospace, monospace;">Cod: ' + item.codiceFCM + ' • ID: ' + item.idFCM + '</span></td>';
+        html += '<td style="text-align: center;"><span class="badge-role badge-role-' + escapeHtml(item.ruoloFCM) + '">' + escapeHtml(item.ruoloFCM) + '</span></td>';
+        html += '<td><strong style="font-size: 0.86rem; color: var(--text-primary); display: block;">' + escapeHtml(item.nomeFCM) + '<span style="font-weight: 600; color: var(--text-secondary); font-size: 0.82rem; margin-left: 4px;">' + squadraStr + '</span></strong><span style="font-size: 0.72rem; color: var(--text-muted); font-family: ui-monospace, monospace;">Cod: ' + escapeHtml(item.codiceFCM) + ' • ID: ' + escapeHtml(item.idFCM) + '</span></td>';
         html += '<td>' + colPF + '</td>';
         html += '<td>' + colFC + '</td>';
         html += '<td>' + colFP + '</td>';
@@ -1442,7 +1446,8 @@ function saveAssociazioni() {
 }
 
 function escapeHtml(text) {
-    if (!text) return '';
+    // Vale anche per codici e ID numerici (0 compreso), che arrivano dalle fonti esterne
+    if (text === null || text === undefined) return '';
     return String(text)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')

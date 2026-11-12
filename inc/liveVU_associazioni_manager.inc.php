@@ -259,7 +259,7 @@ function loadCurrentLiveVUAssociazioni($baseDir) {
                     'nomeFCM' => $parts[5],
                     'idFCM' => isset($parts[6]) ? (int)$parts[6] : 0,
                     'nomeFP' => $nomeFP,
-                    'codFM' => $codFM,
+                    'codFM' => $codFM !== '' ? (int)$codFM : '',
                     'nomeFM' => $nomeFM
                 ];
             }
@@ -413,6 +413,152 @@ function assocMatchPlayerExtended($fcmNome, $fcmSquadra, $candNome, $candSquadra
     return false;
 }
 
+// Validazione dei dati che arrivano dal pannello, dai file caricati e dalle fonti esterne.
+// inc/data/liveVU_associazioni.php viene incluso da endpoint pubblici e gli elenchi finiscono nel
+// pannello admin: nomi, codici e ruoli passano sempre dalle funzioni che seguono.
+if (!defined('ASSOC_NAME_MAX_LEN')) {
+    define('ASSOC_NAME_MAX_LEN', 80); // lunghezza massima di un nome, in caratteri
+}
+
+/**
+ * Riduce il nome di un calciatore o di una squadra ai soli caratteri ammessi: lettere (anche
+ * accentate), spazio, apostrofo (anche tipografico), punto e trattino, più cifre e underscore
+ * usati dai nomi segnaposto ("Giocatore_12", "Team_3"). Tab, a-capo e spazi speciali diventano
+ * uno spazio; tutto il resto viene eliminato. I nomi reali restano identici.
+ */
+function assocSanitizeName($value) {
+    // Il testo non UTF-8 non è utilizzabile (preg con /u e json_encode fallirebbero): viene scartato
+    if (!is_string($value) || $value === '' || preg_match('//u', $value) !== 1) {
+        return '';
+    }
+    $name = preg_replace('/(?:(?! )[\t\n\x0B\f\r\x{85}\p{Z}])+/u', ' ', $value);
+    $name = preg_replace('/[^\p{L}\p{M}0-9 .\'’‘´_-]+/u', '', (string)$name);
+    if (!preg_match('/^.{0,' . ASSOC_NAME_MAX_LEN . '}/us', trim((string)$name), $m)) {
+        return '';
+    }
+    return rtrim($m[0]);
+}
+
+/**
+ * Ruolo classico di un calciatore: P, D, C oppure A. Qualsiasi altro valore diventa ''.
+ */
+function assocSanitizeRole($value) {
+    $role = is_string($value) ? strtoupper(trim($value)) : '';
+    return in_array($role, ['P', 'D', 'C', 'A'], true) ? $role : '';
+}
+
+/**
+ * Codice numerico di un calciatore su una fonte: intero positivo, oppure '' se manca o non è valido.
+ */
+function assocSanitizeCode($value) {
+    if (is_string($value) && preg_match('/^\s*[0-9]{1,9}\s*$/', $value)) {
+        $value = (int)$value;
+    }
+    return (is_int($value) && $value > 0) ? $value : '';
+}
+
+/**
+ * Riporta l'elenco dei calciatori di una fonte ('pf', 'fc', 'fp' o 'fm') ai soli campi usati dal
+ * modulo, validati per tipo: codici interi, ruolo P/D/C/A, nomi e squadre ripuliti.
+ * Vale per i dati appena scaricati, per i file caricati e per quelli riletti da cache o sessione.
+ */
+function assocNormalizeSourceList($list, $source) {
+    $clean = [];
+    if (!is_array($list)) {
+        return $clean;
+    }
+    foreach ($list as $p) {
+        if (!is_array($p)) {
+            continue;
+        }
+        if ($source === 'fp') {
+            $nome = assocSanitizeName($p['calciatore'] ?? ($p['nome'] ?? ''));
+            if ($nome === '') {
+                continue;
+            }
+            $squadra = assocSanitizeName($p['squadra'] ?? '');
+            $quotazione = $p['quotazione'] ?? '';
+            $clean[] = [
+                'ruolo' => assocSanitizeRole($p['ruolo'] ?? ''),
+                'calciatore' => $nome,
+                'squadra' => $squadra,
+                'quotazione' => (is_string($quotazione) && preg_match('/^[0-9]{1,6}(?:[.,][0-9]{1,2})?$/', $quotazione)) ? $quotazione : '',
+                'norm_name' => normalizeFpString($nome),
+                'norm_team' => normalizeFpTeamName($squadra)
+            ];
+        } elseif ($source === 'fm') {
+            $id = assocSanitizeCode($p['id'] ?? '');
+            $nome = assocSanitizeName($p['name'] ?? ($p['nome'] ?? ''));
+            if ($id === '' && $nome === '') {
+                continue;
+            }
+            $clean[] = [
+                'id' => (int)$id,
+                'name' => $nome,
+                'team' => assocSanitizeName($p['team'] ?? ($p['squadra'] ?? '')),
+                'role' => assocSanitizeRole($p['role'] ?? ($p['ruolo'] ?? ''))
+            ];
+        } else {
+            $key = ($source === 'fc') ? 'id' : 'cod';
+            $cod = assocSanitizeCode($p[$key] ?? '');
+            if ($cod === '') {
+                continue;
+            }
+            $clean[] = [
+                $key => $cod,
+                'ruolo' => assocSanitizeRole($p['ruolo'] ?? ''),
+                'nome' => assocSanitizeName($p['nome'] ?? ''),
+                'squadra' => assocSanitizeName($p['squadra'] ?? '')
+            ];
+        }
+    }
+    return $clean;
+}
+
+/**
+ * Riporta un elemento ricevuto per il salvataggio (formato piatto del pannello oppure riga del
+ * matching con 'player' e '*_selected') a una riga piatta con soli valori validati.
+ */
+function assocNormalizeSaveItem(array $item) {
+    $pick = function ($key, $group, $subKey) use ($item) {
+        if (isset($item[$key])) {
+            return $item[$key];
+        }
+        return (isset($item[$group]) && is_array($item[$group]) && isset($item[$group][$subKey])) ? $item[$group][$subKey] : '';
+    };
+    $codFCM = $pick('codFCM', 'player', 'codice');
+    $idFCM = $pick('idFCM', 'player', 'id');
+    return [
+        'ruolo' => assocSanitizeRole($pick('ruolo', 'player', 'ruolo')),
+        'codPF' => assocSanitizeCode($pick('codPF', 'pf_selected', 'cod')),
+        'nomePF' => assocSanitizeName($pick('nomePF', 'pf_selected', 'nome')),
+        'codFC' => assocSanitizeCode($pick('codFC', 'fc_selected', 'id')),
+        'nomeFC' => assocSanitizeName($pick('nomeFC', 'fc_selected', 'nome')),
+        'codFCM' => is_scalar($codFCM) ? (int)$codFCM : 0,
+        'nomeFCM' => assocSanitizeName($pick('nomeFCM', 'player', 'nome')),
+        'idFCM' => is_scalar($idFCM) ? (int)$idFCM : 0,
+        'nomeFP' => assocSanitizeName($pick('nomeFP', 'fp_selected', 'nome')),
+        'codFM' => assocSanitizeCode($pick('codFM', 'fm_selected', 'id')),
+        'nomeFM' => assocSanitizeName($pick('nomeFM', 'fm_selected', 'name'))
+    ];
+}
+
+/**
+ * Letterale stringa PHP (tra doppi apici) per il file generato. Oltre a virgolette e backslash
+ * viene neutralizzato il dollaro: nessuna interpolazione ("$var", "{$...}", "${...}") è possibile.
+ */
+function assocPhpStringLiteral($value) {
+    return '"' . addcslashes(assocSanitizeName($value), "\"\\\$") . '"';
+}
+
+/**
+ * Letterale PHP di un codice per il file generato: intero positivo oppure "" se manca.
+ */
+function assocPhpCodeLiteral($value) {
+    $code = assocSanitizeCode($value);
+    return $code === '' ? '""' : (string)$code;
+}
+
 // Mappature manuali note FantaMaster -> FCM per disambiguazione immediata
 $GLOBALS['manualFMtoFCM'] = [
     'Rossi F' => 'ROSSI Francesco',
@@ -501,7 +647,7 @@ function parseFantapazzCsvContent($content) {
             'norm_team' => normalizeFpTeamName($squadra)
         ];
     }
-    return $players;
+    return assocNormalizeSourceList($players, 'fp');
 }
 }
 
@@ -693,6 +839,13 @@ function runAssociationMatching($fcmPlayers, $pfList, $fcList, $existingAssoc, $
         }
     }
     if (!is_array($fmList)) $fmList = [];
+
+    // Qualunque sia la provenienza (download, file caricati, cache, sessione) le liste vengono
+    // ricondotte a valori validati prima di essere usate e rimandate al pannello
+    $pfList = assocNormalizeSourceList($pfList, 'pf');
+    $fcList = assocNormalizeSourceList($fcList, 'fc');
+    $fpList = assocNormalizeSourceList($fpList, 'fp');
+    $fmList = assocNormalizeSourceList($fmList, 'fm');
 
     // Indicizzazione lookup O(1)
     $pfByCode = [];
@@ -1226,6 +1379,13 @@ function runAssociationMatching($fcmPlayers, $pfList, $fcList, $existingAssoc, $
  * Scrittura del file inc/data/liveVU_associazioni.php ordinato prioritariamente per ruolo (P, D, C, A) e poi alfabeticamente per nome FCM.
  */
 function saveAssociazioniFiles($associations, $baseDir) {
+    // Il file generato viene incluso da endpoint pubblici: si lavora solo su righe ricondotte a
+    // codici interi e nomi ripuliti, qualunque sia la provenienza dei dati
+    $associations = array_map('assocNormalizeSaveItem', array_values(array_filter((array)$associations, 'is_array')));
+    if (empty($associations)) {
+        throw new Exception("Formato dati non valido.");
+    }
+
     // 1. Ordina per ruolo (P, D, C, A) e poi alfabeticamente puro per nome FCM
     $roleOrder = ['P' => 1, 'D' => 2, 'C' => 3, 'A' => 4];
     usort($associations, function($a, $b) use ($roleOrder) {
@@ -1303,21 +1463,21 @@ function saveAssociazioniFiles($associations, $baseDir) {
         $codFM = isset($item['codFM']) ? $item['codFM'] : (isset($item['fm_selected']['id']) ? $item['fm_selected']['id'] : '');
         $nomeFM = isset($item['nomeFM']) ? $item['nomeFM'] : (isset($item['fm_selected']['name']) ? $item['fm_selected']['name'] : '');
 
-        // Formattazione valori riga PHP
-        $valCodPF = (!empty($codPF) && is_numeric($codPF)) ? (int)$codPF : '""';
-        $valNomePF = !empty($nomePF) ? '"' . addcslashes($nomePF, '"\\') . '"' : '""';
+        // Formattazione valori riga PHP: solo interi e stringhe senza interpolazione
+        $valCodPF = assocPhpCodeLiteral($codPF);
+        $valNomePF = assocPhpStringLiteral($nomePF);
 
-        $valCodFC = (!empty($codFC) && is_numeric($codFC)) ? (int)$codFC : '""';
-        $valNomeFC = !empty($nomeFC) ? '"' . addcslashes($nomeFC, '"\\') . '"' : '""';
+        $valCodFC = assocPhpCodeLiteral($codFC);
+        $valNomeFC = assocPhpStringLiteral($nomeFC);
 
         $valCodFCM = (int)$codFCM;
-        $valNomeFCM = '"' . addcslashes($nomeFCM, '"\\') . '"';
+        $valNomeFCM = assocPhpStringLiteral($nomeFCM);
         $valIdFCM = (int)$idFCM;
 
-        $valNomeFP = !empty($nomeFP) ? '"' . addcslashes($nomeFP, '"\\') . '"' : '""';
+        $valNomeFP = assocPhpStringLiteral($nomeFP);
 
-        $valCodFM = (!empty($codFM) && is_numeric($codFM)) ? (int)$codFM : (!empty($codFM) ? '"' . addcslashes($codFM, '"\\') . '"' : '""');
-        $valNomeFM = !empty($nomeFM) ? '"' . addcslashes($nomeFM, '"\\') . '"' : '""';
+        $valCodFM = assocPhpCodeLiteral($codFM);
+        $valNomeFM = assocPhpStringLiteral($nomeFM);
 
         $phpContent .= "\$arrAssociazioni[{$idx}]=array({$valCodPF},{$valNomePF},{$valCodFC},{$valNomeFC},{$valCodFCM},{$valNomeFCM},{$valIdFCM},{$valNomeFP},{$valCodFM},{$valNomeFM});\n";
         $idx++;
@@ -1361,7 +1521,8 @@ function fetchFantamasterPlayersOnline($baseDir) {
         throw new Exception("Download quotazioni FantaMaster non riuscito (HTTP $code).");
     }
     $data = json_decode($res, true);
-    $players = isset($data['players']) ? $data['players'] : [];
+    // Della risposta si tengono solo id, nome, squadra e ruolo, validati
+    $players = assocNormalizeSourceList(isset($data['players']) ? $data['players'] : [], 'fm');
     if (empty($players)) {
         throw new Exception("Nessun calciatore trovato nel JSON di FantaMaster.");
     }
@@ -1462,9 +1623,9 @@ function fetchPianetafantaPlayersOnline($baseDir) {
         if (!empty($g['CodGiocatore'])) {
             $pfList[] = [
                 'cod' => (int)$g['CodGiocatore'],
-                'ruolo' => strtoupper(trim($g['Ruolo'] ?? '')),
-                'nome' => trim($g['Nome'] ?? ''),
-                'squadra' => trim($g['Squadra'] ?? '')
+                'ruolo' => assocSanitizeRole($g['Ruolo'] ?? ''),
+                'nome' => assocSanitizeName($g['Nome'] ?? ''),
+                'squadra' => assocSanitizeName($g['Squadra'] ?? '')
             ];
         }
     }
@@ -1529,9 +1690,9 @@ function fetchFantacalcioPlayersOnline($baseDir) {
 
         $fcList[] = [
             'id' => $playerId,
-            'ruolo' => $role,
-            'nome' => $playerName,
-            'squadra' => $teamName
+            'ruolo' => assocSanitizeRole($role),
+            'nome' => assocSanitizeName($playerName),
+            'squadra' => assocSanitizeName($teamName)
         ];
     }
 
@@ -1697,14 +1858,14 @@ function handleAssocAjaxRequests($baseDir, $isAdminLogged) {
                     for ($i = 1; $i < count($pfRows); $i++) {
                         $r = $pfRows[$i];
                         if (count($r) > 4 && is_numeric($r[0])) {
-                            $pfList[] = ['cod' => (int)$r[0], 'ruolo' => trim($r[1]), 'nome' => trim($r[3]), 'squadra' => trim($r[4])];
+                            $pfList[] = ['cod' => (int)$r[0], 'ruolo' => assocSanitizeRole($r[1]), 'nome' => assocSanitizeName($r[3]), 'squadra' => assocSanitizeName($r[4])];
                         }
                     }
 
                     for ($i = 2; $i < count($fcRows); $i++) {
                         $r = $fcRows[$i];
                         if (count($r) > 4 && is_numeric($r[0])) {
-                            $fcList[] = ['id' => (int)$r[0], 'ruolo' => trim($r[1]), 'nome' => trim($r[3]), 'squadra' => trim($r[4])];
+                            $fcList[] = ['id' => (int)$r[0], 'ruolo' => assocSanitizeRole($r[1]), 'nome' => assocSanitizeName($r[3]), 'squadra' => assocSanitizeName($r[4])];
                         }
                     }
 
@@ -1727,9 +1888,9 @@ function handleAssocAjaxRequests($baseDir, $isAdminLogged) {
                                     if (isset($it['id']) && isset($it['name'])) {
                                         $fmList[] = [
                                             'id' => (int)$it['id'],
-                                            'name' => trim($it['name']),
-                                            'team' => trim($it['team'] ?? ($it['squadra'] ?? '')),
-                                            'role' => trim($it['role'] ?? ($it['ruolo'] ?? ''))
+                                            'name' => assocSanitizeName($it['name']),
+                                            'team' => assocSanitizeName($it['team'] ?? ($it['squadra'] ?? '')),
+                                            'role' => assocSanitizeRole($it['role'] ?? ($it['ruolo'] ?? ''))
                                         ];
                                     }
                                 }
@@ -1820,10 +1981,11 @@ function handleAssocAjaxRequests($baseDir, $isAdminLogged) {
                 $fpList = loadAssocCacheJson($baseDir, 'latest_fp.json');
                 $fmList = loadAssocCacheJson($baseDir, 'latest_fm.json');
 
-                if (!is_array($pfList)) $pfList = [];
-                if (!is_array($fcList)) $fcList = [];
-                if (!is_array($fpList)) $fpList = [];
-                if (!is_array($fmList)) $fmList = [];
+                // La cache può risalire a una versione precedente o non essere stata scritta da qui: va validata
+                $pfList = assocNormalizeSourceList($pfList, 'pf');
+                $fcList = assocNormalizeSourceList($fcList, 'fc');
+                $fpList = assocNormalizeSourceList($fpList, 'fp');
+                $fmList = assocNormalizeSourceList($fmList, 'fm');
 
                 $assignedPfCods = [];
                 $assignedFcIds = [];
